@@ -256,7 +256,7 @@ public:
     /**
         Refreshes the drawable, updating its vertices
     */
-    void refresh() {
+    final void refresh() {
         this.updateVertices();
     }
     
