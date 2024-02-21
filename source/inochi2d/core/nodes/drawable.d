@@ -16,6 +16,10 @@ import std.exception;
 import inochi2d.core.dbg;
 import inochi2d.core;
 import std.string;
+import std.typecons: tuple, Tuple;
+import std.algorithm.searching;
+import std.algorithm.mutation: remove;
+import inochi2d.core.nodes.utils;
 
 private GLuint drawableVAO;
 
@@ -80,6 +84,42 @@ private:
     }
 
 protected:
+
+    Tuple!(vec2[], mat4*) weldingProcessor(vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+        foreach (link; welded) {
+            if (!link.target.postProcessed)
+                continue;
+            float weldingWeight = min(1, max(0, link.weight));
+            foreach(i, vertex; vertices) {
+                if (i >= link.indices.length)
+                    break;
+                auto index = link.indices[i];
+                if (index == -1)
+                    continue;
+                vec2 cVertex;
+                mat4 cMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
+                cVertex = vec2(cMatrix * vec4(vertex+deformation[i], 0, 1));
+
+                vec2 weldedVertex = origVertices[index];
+                weldedVertex = vec2((*origTransform) * vec4(weldedVertex+origDeformation[i], 0, 1));
+
+                vec2 newPos = weldedVertex * weldingWeight + cVertex * (1 - weldingWeight);
+
+                auto cMatrixInv = cMatrix.inverse;
+                cMatrixInv[0][3] = 0;
+                cMatrixInv[1][3] = 0;
+                cMatrixInv[2][3] = 0;
+                deformation[i] += vec2(cMatrixInv * vec4(newPos - cVertex, 0, 1));
+                auto origTransformInv = (*origTransform).inverse;
+                origTransformInv[0][3] = 0;
+                origTransformInv[1][3] = 0;
+                origTransformInv[2][3] = 0;
+                origDeformation[index] += vec2(origTransformInv * vec4(newPos - weldedVertex, 0, 1));
+            }
+        }
+        return tuple(origDeformation, cast(mat4*)null);
+    }
+
     void updateDeform() {
         // Important check since the user can change this every frame
         enforce(
@@ -161,9 +201,9 @@ protected:
         if (preProcessed)
             return;
         preProcessed = true;
-        if (preProcessFilter !is null) {
-            overrideTransformMatrix = null;
-            mat4 matrix = this.transform.matrix;
+        overrideTransformMatrix = null;
+        foreach (preProcessFilter; preProcessFilters) {
+            mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = preProcessFilter(vertices, deformation, &matrix);
             if (filterResult[0] !is null) {
                 deformation = filterResult[0];
@@ -179,9 +219,9 @@ protected:
         if (postProcessed)
             return;
         postProcessed = true;
-        if (postProcessFilter !is null) {
-            overrideTransformMatrix = null;
-            mat4 matrix = this.transform.matrix;
+        overrideTransformMatrix = null;
+        foreach (postProcessFilter; postProcessFilters) {
+            mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = postProcessFilter(vertices, deformation, &matrix);
             if (filterResult[0] !is null) {
                 deformation = filterResult[0];
@@ -198,6 +238,13 @@ package(inochi2d):
     }
 
 public:
+
+    struct WeldingLink {
+        Drawable target;
+        ptrdiff_t[] indices;
+        float weight;
+    };
+    WeldingLink[] welded;
 
     abstract void renderMask(bool dodge = false);
 
@@ -435,6 +482,51 @@ public:
     */
     final void reset() {
         vertices[] = data.vertices;
+    }
+
+    void addWeldedTarget(Drawable target, ptrdiff_t[] weldedVertexIndices, float weldingWeight) {
+        // FIXME: must check whether target is already added.
+        auto index = welded.countUntil!"a.target == b"(target);
+        if (index != -1)
+            return;
+        auto link = WeldingLink(target, weldedVertexIndices, weldingWeight);
+        welded ~= link;
+
+        ptrdiff_t[] counterWeldedVertexIndices;
+        counterWeldedVertexIndices.length = vertices.length;
+        foreach (i, ind; weldedVertexIndices) {
+            if (ind != -1)
+                counterWeldedVertexIndices[ind] = i;
+        }
+        auto counterLink = WeldingLink(this, counterWeldedVertexIndices, 1 - weldingWeight);
+        target.welded ~= counterLink;
+
+        target.postProcessFilters ~= &weldingProcessor;
+        postProcessFilters ~= &target.weldingProcessor;
+    }
+
+    void removeWeldedTarget(Drawable target) {
+        auto index = welded.countUntil!"a.target == b"(target);
+        if (index != -1) {
+            welded.remove(index);
+            postProcessFilters.removeByValue(&target.weldingProcessor);
+        }
+        index = target.welded.countUntil!"a.target == b"(this);
+        if (index != -1) {
+            target.welded.remove(index);
+            target.postProcessFilters.removeByValue(&weldingProcessor);
+        }
+    }
+
+    bool isWeldedBy(Drawable target) {
+        return welded.countUntil!"a.target == b"(target) != -1;
+    }
+
+    override
+    void setupSelf() {
+        foreach (link; welded) {
+            postProcessFilters ~= &link.target.weldingProcessor;
+        }
     }
 }
 

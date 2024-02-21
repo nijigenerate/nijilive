@@ -17,6 +17,7 @@ import inochi2d.core.dbg;
 import inochi2d.core;
 import std.typecons: tuple, Tuple;
 import std.stdio;
+import inochi2d.core.nodes.utils;
 
 package(inochi2d) {
     void inInitMeshGroup() {
@@ -30,6 +31,7 @@ struct Triangle{
     mat3 offsetMatrices;
     mat3 transformMatrix;
 }
+
 }
 
 /**
@@ -290,15 +292,15 @@ public:
             bool mustPropagate = (isDrawable && group is null) || isComposite;
             if (translateChildren || isDrawable) {
                 if (isDrawable && dynamic) {
-                    node.preProcessFilter  = null;
-                    node.postProcessFilter = &filterChildren;
+                    node.preProcessFilters.removeByValue(&filterChildren);
+                    node.postProcessFilters ~= &filterChildren;
                 } else {
-                    node.preProcessFilter  = &filterChildren;
-                    node.postProcessFilter = null;
+                    node.preProcessFilters  ~= &filterChildren;
+                    node.postProcessFilters.removeByValue(&filterChildren);
                 }
             } else {
-                node.preProcessFilter  = null;
-                node.postProcessFilter = null;
+                node.preProcessFilters.removeByValue(&filterChildren);
+                node.postProcessFilters.removeByValue(&filterChildren);
             }
             // traverse children if node is Drawable and is not MeshGroup instance.
             if (mustPropagate) {
