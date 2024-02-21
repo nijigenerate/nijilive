@@ -22,6 +22,7 @@ import std.algorithm.mutation: remove;
 import inochi2d.core.nodes.utils;
 
 private GLuint drawableVAO;
+private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
 
 package(inochi2d) {
     void inInitDrawable() {
@@ -89,12 +90,16 @@ protected:
         foreach (link; welded) {
             if (!link.target.postProcessed)
                 continue;
+            if (weldingApplied[link.target] || link.target.weldingApplied[this])
+                continue;
+            weldingApplied[link.target] = true;
+            link.target.weldingApplied[this] = true;
             float weldingWeight = min(1, max(0, link.weight));
             foreach(i, vertex; vertices) {
                 if (i >= link.indices.length)
                     break;
                 auto index = link.indices[i];
-                if (index == -1)
+                if (index == NOINDEX)
                     continue;
                 vec2 cVertex;
                 mat4 cMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
@@ -245,6 +250,7 @@ public:
         float weight;
     };
     WeldingLink[] welded;
+    bool[Drawable] weldingApplied;
 
     abstract void renderMask(bool dodge = false);
 
@@ -333,6 +339,9 @@ public:
     override
     void beginUpdate() {
         deformStack.preUpdate();
+        weldingApplied.clear();
+        foreach (link; welded)
+            weldingApplied[link.target] = false;
         super.beginUpdate();
     }
 
@@ -493,9 +502,10 @@ public:
         welded ~= link;
 
         ptrdiff_t[] counterWeldedVertexIndices;
-        counterWeldedVertexIndices.length = vertices.length;
+        counterWeldedVertexIndices.length = target.vertices.length;
+        counterWeldedVertexIndices[0..$] = -1;
         foreach (i, ind; weldedVertexIndices) {
-            if (ind != -1)
+            if (ind != NOINDEX)
                 counterWeldedVertexIndices[ind] = i;
         }
         auto counterLink = WeldingLink(this, counterWeldedVertexIndices, 1 - weldingWeight);
