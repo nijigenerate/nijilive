@@ -101,25 +101,25 @@ protected:
                 auto index = link.indices[i];
                 if (index == NOINDEX)
                     continue;
-                vec2 cVertex;
-                mat4 cMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
-                cVertex = vec2(cMatrix * vec4(vertex+deformation[i], 0, 1));
+                vec2 selfVertex = vertex + deformation[i];
+                mat4 selfMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
+                selfVertex = (selfMatrix * vec4(selfVertex, 0, 1)).xy;
 
-                vec2 weldedVertex = origVertices[index];
-                weldedVertex = vec2((*origTransform) * vec4(weldedVertex+origDeformation[i], 0, 1));
+                vec2 targetVertex = origVertices[index] + origDeformation[index];
+                targetVertex = ((*origTransform) * vec4(targetVertex, 0, 1)).xy;
 
-                vec2 newPos = weldedVertex * weldingWeight + cVertex * (1 - weldingWeight);
+                vec2 newPos = targetVertex * (1 - weldingWeight) + selfVertex * (weldingWeight);
 
-                auto cMatrixInv = cMatrix.inverse;
-                cMatrixInv[0][3] = 0;
-                cMatrixInv[1][3] = 0;
-                cMatrixInv[2][3] = 0;
-                deformation[i] += vec2(cMatrixInv * vec4(newPos - cVertex, 0, 1));
-                auto origTransformInv = (*origTransform).inverse;
-                origTransformInv[0][3] = 0;
-                origTransformInv[1][3] = 0;
-                origTransformInv[2][3] = 0;
-                origDeformation[index] += vec2(origTransformInv * vec4(newPos - weldedVertex, 0, 1));
+                auto selfMatrixInv = selfMatrix.inverse;
+                selfMatrixInv[0][3] = 0;
+                selfMatrixInv[1][3] = 0;
+                selfMatrixInv[2][3] = 0;
+                deformation[i] += (selfMatrixInv * vec4(newPos - selfVertex, 0, 1)).xy;
+                auto targetMatrixInv = (*origTransform).inverse;
+                targetMatrixInv[0][3] = 0;
+                targetMatrixInv[1][3] = 0;
+                targetMatrixInv[2][3] = 0;
+                origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
             }
         }
         return tuple(origDeformation, cast(mat4*)null);
@@ -206,7 +206,6 @@ protected:
         if (preProcessed)
             return;
         preProcessed = true;
-        overrideTransformMatrix = null;
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = preProcessFilter(vertices, deformation, &matrix);
@@ -224,7 +223,6 @@ protected:
         if (postProcessed)
             return;
         postProcessed = true;
-        overrideTransformMatrix = null;
         foreach (postProcessFilter; postProcessFilters) {
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = postProcessFilter(vertices, deformation, &matrix);
@@ -340,6 +338,7 @@ public:
     void beginUpdate() {
         deformStack.preUpdate();
         weldingApplied.clear();
+        overrideTransformMatrix = null;
         foreach (link; welded)
             weldingApplied[link.target] = false;
         super.beginUpdate();
