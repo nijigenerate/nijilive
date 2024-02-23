@@ -523,15 +523,15 @@ public:
     }
 
     void removeWeldedTarget(Drawable target) {
-        auto index = welded.countUntil!"a.target == b"(target);
+        auto index = welded.countUntil!((a) => a.target == target)();
         if (index != -1) {
-            welded.remove(index);
-            postProcessFilters.removeByValue(&target.weldingProcessor);
+            welded = welded.remove(index);
+            postProcessFilters = postProcessFilters.removeByValue(&target.weldingProcessor);
         }
-        index = target.welded.countUntil!"a.target == b"(this);
+        index = target.welded.countUntil!((a) => a.target == this)();
         if (index != -1) {
-            target.welded.remove(index);
-            target.postProcessFilters.removeByValue(&weldingProcessor);
+            target.welded = target.welded.remove(index);
+            target.postProcessFilters = target.postProcessFilters.removeByValue(&weldingProcessor);
         }
     }
 

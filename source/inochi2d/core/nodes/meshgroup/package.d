@@ -293,15 +293,15 @@ public:
             bool mustPropagate = (isDrawable && group is null) || isComposite;
             if (translateChildren || isDrawable) {
                 if (isDrawable && dynamic) {
-                    node.preProcessFilters.removeByValue(&filterChildren);
+                    node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
                     node.postProcessFilters ~= &filterChildren;
                 } else {
                     node.preProcessFilters  ~= &filterChildren;
-                    node.postProcessFilters.removeByValue(&filterChildren);
+                    node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
                 }
             } else {
-                node.preProcessFilters.removeByValue(&filterChildren);
-                node.postProcessFilters.removeByValue(&filterChildren);
+                node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
+                node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
             }
             // traverse children if node is Drawable and is not MeshGroup instance.
             if (mustPropagate) {
