@@ -191,6 +191,17 @@ protected:
         super.serializeSelfImpl(serializer, recursive);
         serializer.putKey("mesh");
         serializer.serializeValue(data);
+
+        if (welded.length > 0) {
+            serializer.putKey("weldedLinks");
+            auto state = serializer.arrayBegin();
+                foreach(link; welded) {
+                    serializer.elemBegin;
+                    serializer.serializeValue(link);
+                }
+            serializer.arrayEnd(state);
+        }
+
     }
 
     override
@@ -200,6 +211,10 @@ protected:
         if (auto exc = data["mesh"].deserializeValue(this.data)) return exc;
 
         this.vertices = this.data.vertices.dup;
+
+        if (!data["weldedLinks"].isEmpty) {
+            data["weldedLinks"].deserializeValue(this.welded);
+        }
 
         // Update indices and vertices
         this.updateIndices();
@@ -251,8 +266,13 @@ package(inochi2d):
 public:
 
     struct WeldingLink {
+        @Name("targetUUID")
+        uint targetUUID; 
+        @Ignore
         Drawable target;
+        @Name("indices")
         ptrdiff_t[] indices;
+        @Name("weight")
         float weight;
     };
     WeldingLink[] welded;
@@ -505,7 +525,7 @@ public:
         auto index = welded.countUntil!"a.target == b"(target);
         if (index != -1)
             return;
-        auto link = WeldingLink(target, weldedVertexIndices, weldingWeight);
+        auto link = WeldingLink(target.uuid, target, weldedVertexIndices, weldingWeight);
         welded ~= link;
 
         ptrdiff_t[] counterWeldedVertexIndices;
@@ -515,7 +535,7 @@ public:
             if (ind != NOINDEX)
                 counterWeldedVertexIndices[ind] = i;
         }
-        auto counterLink = WeldingLink(this, counterWeldedVertexIndices, 1 - weldingWeight);
+        auto counterLink = WeldingLink(uuid, this, counterWeldedVertexIndices, 1 - weldingWeight);
         target.welded ~= counterLink;
 
         target.postProcessFilters ~= &weldingProcessor;
@@ -544,6 +564,23 @@ public:
         foreach (link; welded) {
             postProcessFilters ~= &link.target.weldingProcessor;
         }
+    }
+
+    override
+    void finalize() {
+        super.finalize();
+        
+        WeldingLink[] validLinks;
+        foreach(i; 0..welded.length) {
+            if (Drawable nLink = puppet.find!Drawable(welded[i].targetUUID)) {
+                welded[i].target = nLink;
+                validLinks ~= welded[i];
+            }
+        }
+
+        // Remove invalid welded links
+        welded = validLinks;
+        setupSelf();
     }
 }
 
