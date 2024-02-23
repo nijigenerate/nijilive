@@ -86,42 +86,50 @@ private:
 
 protected:
 
-    Tuple!(vec2[], mat4*) weldingProcessor(vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
-        foreach (link; welded) {
-            if (!link.target.postProcessed)
+    Tuple!(vec2[], mat4*) weldingProcessor(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+        auto linkIndex = welded.countUntil!((a)=>a.target == target)();
+        WeldingLink link = welded[linkIndex];
+        if (!postProcessed)
+            return Tuple!(vec2[], mat4*)(null, null);
+        if (weldingApplied[link.target] || link.target.weldingApplied[this])
+            return Tuple!(vec2[], mat4*)(null, null);
+//        import std.stdio;
+//        writefln("welding: %s(%b) --> %s(%b)", name, postProcessed, target.name, target.postProcessed);
+        weldingApplied[link.target] = true;
+        link.target.weldingApplied[this] = true;
+        float weldingWeight = min(1, max(0, link.weight));
+        foreach(i, vertex; vertices) {
+            if (i >= link.indices.length)
+                break;
+            auto index = link.indices[i];
+            if (index == NOINDEX)
                 continue;
-            if (weldingApplied[link.target] || link.target.weldingApplied[this])
-                continue;
-            weldingApplied[link.target] = true;
-            link.target.weldingApplied[this] = true;
-            float weldingWeight = min(1, max(0, link.weight));
-            foreach(i, vertex; vertices) {
-                if (i >= link.indices.length)
-                    break;
-                auto index = link.indices[i];
-                if (index == NOINDEX)
-                    continue;
-                vec2 selfVertex = vertex + deformation[i];
-                mat4 selfMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
-                selfVertex = (selfMatrix * vec4(selfVertex, 0, 1)).xy;
+            vec2 selfVertex = vertex + deformation[i];
+            mat4 selfMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
+            selfVertex = (selfMatrix * vec4(selfVertex, 0, 1)).xy;
 
-                vec2 targetVertex = origVertices[index] + origDeformation[index];
-                targetVertex = ((*origTransform) * vec4(targetVertex, 0, 1)).xy;
+            vec2 targetVertex = origVertices[index] + origDeformation[index];
+            targetVertex = ((*origTransform) * vec4(targetVertex, 0, 1)).xy;
 
-                vec2 newPos = targetVertex * (1 - weldingWeight) + selfVertex * (weldingWeight);
+            vec2 newPos = targetVertex * (1 - weldingWeight) + selfVertex * (weldingWeight);
 
-                auto selfMatrixInv = selfMatrix.inverse;
-                selfMatrixInv[0][3] = 0;
-                selfMatrixInv[1][3] = 0;
-                selfMatrixInv[2][3] = 0;
-                deformation[i] += (selfMatrixInv * vec4(newPos - selfVertex, 0, 1)).xy;
-                auto targetMatrixInv = (*origTransform).inverse;
-                targetMatrixInv[0][3] = 0;
-                targetMatrixInv[1][3] = 0;
-                targetMatrixInv[2][3] = 0;
-                origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
+            auto selfMatrixInv = selfMatrix.inverse;
+            selfMatrixInv[0][3] = 0;
+            selfMatrixInv[1][3] = 0;
+            selfMatrixInv[2][3] = 0;
+            deformation[i] += (selfMatrixInv * vec4(newPos - selfVertex, 0, 1)).xy;
+            version (InDoesRender) {
+                glBindBuffer(GL_ARRAY_BUFFER, dbo);
+                glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
             }
+
+            auto targetMatrixInv = (*origTransform).inverse;
+            targetMatrixInv[0][3] = 0;
+            targetMatrixInv[1][3] = 0;
+            targetMatrixInv[2][3] = 0;
+            origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
         }
+
         return tuple(origDeformation, cast(mat4*)null);
     }
 
@@ -208,7 +216,7 @@ protected:
         preProcessed = true;
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
-            auto filterResult = preProcessFilter(vertices, deformation, &matrix);
+            auto filterResult = preProcessFilter(this, vertices, deformation, &matrix);
             if (filterResult[0] !is null) {
                 deformation = filterResult[0];
             } 
@@ -225,7 +233,7 @@ protected:
         postProcessed = true;
         foreach (postProcessFilter; postProcessFilters) {
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
-            auto filterResult = postProcessFilter(vertices, deformation, &matrix);
+            auto filterResult = postProcessFilter(this, vertices, deformation, &matrix);
             if (filterResult[0] !is null) {
                 deformation = filterResult[0];
             } 

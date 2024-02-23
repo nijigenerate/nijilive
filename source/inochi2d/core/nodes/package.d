@@ -172,8 +172,8 @@ protected:
     }
     MatrixHolder overrideTransformMatrix = null;
 
-    Tuple!(vec2[], mat4*) delegate(vec2[], vec2[], mat4*)[] preProcessFilters;
-    Tuple!(vec2[], mat4*) delegate(vec2[], vec2[], mat4*)[] postProcessFilters;
+    Tuple!(vec2[], mat4*) delegate(Node, vec2[], vec2[], mat4*)[] preProcessFilters;
+    Tuple!(vec2[], mat4*) delegate(Node, vec2[], vec2[], mat4*)[] postProcessFilters;
 
     import std.stdio;
     void preProcess() {
@@ -183,7 +183,7 @@ protected:
         overrideTransformMatrix = null;
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = this.parent? this.parent.transform.matrix: mat4.identity;
-            auto filterResult = preProcessFilter([localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
+            auto filterResult = preProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
@@ -198,7 +198,7 @@ protected:
         overrideTransformMatrix = null;
         foreach (postProcessFilter; postProcessFilters) {
             mat4 matrix = this.parent? this.parent.transform.matrix: mat4.identity;
-            auto filterResult = postProcessFilter([localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
+            auto filterResult = postProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
