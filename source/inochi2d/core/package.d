@@ -322,6 +322,7 @@ void inPostProcessScene() {
     
     bool targetBuffer;
 
+    // These are passed to glSetClearColor for transparent export
     float r, g, b, a;
     inGetClearColor(r, g, b, a);
 
@@ -352,6 +353,7 @@ void inPostProcessScene() {
     // We want to be able to post process all the attachments
     glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+    glClearColor(r, g, b, a);
     glClear(GL_COLOR_BUFFER_BIT);
 
     glBindFramebuffer(GL_FRAMEBUFFER, fBuffer);
@@ -424,7 +426,6 @@ void inSetCamera(Camera camera) {
     Draw scene to area
 */
 void inDrawScene(vec4 area) {
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     float[] data = [
         area.x,         area.y+area.w,          0, 0,
         area.x,         area.y,                 0, 1,

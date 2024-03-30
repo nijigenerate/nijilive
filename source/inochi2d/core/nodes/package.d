@@ -958,8 +958,7 @@ public:
         oneTimeTransform = transform;
 
         foreach (c; children) {
-            if (Drawable d = cast(Drawable)c)
-                d.setOneTimeTransform(transform);
+            c.setOneTimeTransform(transform);
         }
     }
 
