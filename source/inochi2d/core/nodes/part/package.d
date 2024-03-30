@@ -305,6 +305,8 @@ private:
         }
     }
 
+protected:
+
     /*
         RENDERING
     */
@@ -377,7 +379,24 @@ private:
         glBlendEquation(GL_FUNC_ADD);
     }
 
-protected:
+    /**
+        Constructs a new part with no texture definition.
+    */
+    this(MeshData data, uint uuid, Node parent = null) {
+        super(data, uuid, parent);
+
+        version(InDoesRender) {
+            glGenBuffers(1, &uvbo);
+
+            mvp = partShader.getUniformLocation("mvp");
+            gopacity = partShader.getUniformLocation("opacity");
+            
+            mmvp = partMaskShader.getUniformLocation("mvp");
+            mthreshold = partMaskShader.getUniformLocation("threshold");
+        }
+
+        this.updateUVs();
+    }
 
     override
     string typeId() { return "Part"; }
