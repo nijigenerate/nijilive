@@ -419,6 +419,7 @@ public:
             setupChild(child);
     }
 
+    override
     void clearCache() {
         precalculated = false;
         bitMask.length = 0;

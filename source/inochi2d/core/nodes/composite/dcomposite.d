@@ -6,7 +6,7 @@
     
     Authors: Luna Nielsen
 */
-module inochi2d.core.nodes.dcomposite;
+module inochi2d.core.nodes.composite.dcomposite;
 import inochi2d.core.nodes.common;
 import inochi2d.core.nodes;
 import inochi2d.fmt;
@@ -16,24 +16,10 @@ import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
 
-private {
-    GLuint cVAO;
-    GLuint cBuffer;
-    Shader cShader;
-    Shader cShaderMask;
-
-    GLint gopacity;
-    GLint gMultColor;
-    GLint gScreenColor;
-
-    GLint mthreshold;
-    GLint mopacity;
-}
-
 /**
     Composite Node
 */
-@TypeId("Composite")
+@TypeId("DynamicComposite")
 class DynamicComposite : Part {
 private:
     bool initialized = false;
@@ -136,7 +122,25 @@ protected:
     Part[] subParts;
     
     override
-    string typeId() { return "DynamicComposite(Slow)"; }
+    string typeId() { return "DynamicComposite"; }
+
+    /**
+        Allows serializing self data (with pretty serializer)
+    */
+    override
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
+        import std.stdio;
+        writefln("Serialize %s", name);
+        super.serializeSelfImpl(serializer, recursive);
+    }
+
+    override
+    SerdeException deserializeFromFghj(Fghj data) {
+        import std.stdio;
+        auto result = super.deserializeFromFghj(data);
+        writefln("Deserialize %s", name);
+        return result;
+    }
 
 public:
 
@@ -181,5 +185,10 @@ public:
         if (children.length > 0) {
             scanPartsRecurse(children[0].parent);
         }
+    }
+
+    override
+    void clearCache() {
+        initialized = false;
     }
 }

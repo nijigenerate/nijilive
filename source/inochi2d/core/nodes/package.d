@@ -19,6 +19,7 @@ public import inochi2d.core.nodes.drawable;
 public import inochi2d.core.nodes.composite;
 public import inochi2d.core.nodes.meshgroup;
 public import inochi2d.core.nodes.drivers; 
+public import inochi2d.core.nodes.composite.dcomposite;
 import std.typecons: tuple, Tuple;
 
 //public import inochi2d.core.nodes.shapes; // This isn't mainline yet!
@@ -1001,6 +1002,8 @@ public:
             return transform.matrix;
         }
     }
+
+    void clearCache() { }
 }
 
 //
