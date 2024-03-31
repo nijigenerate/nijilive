@@ -245,7 +245,12 @@ private:
         } else if (!driversOnly) {
             // Collect drawable nodes only if we aren't inside a Composite node
 
-            if (Composite composite = cast(Composite)node) {
+            if (DynamicComposite dcomposite = cast(DynamicComposite)node) {
+                dcomposite.scanParts();
+                rootParts ~= dcomposite;
+                driversOnly = true;
+
+            } else if (Composite composite = cast(Composite)node) {
                 // Composite nodes handle and keep their own root node list, as such we should just draw them directly
                 composite.scanParts();
                 rootParts ~= composite;

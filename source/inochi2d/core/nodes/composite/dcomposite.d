@@ -16,6 +16,12 @@ import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
 
+package(inochi2d) {
+    void inInitDComposite() {
+        inRegisterNodeType!DynamicComposite;
+    }
+}
+
 /**
     Composite Node
 */
@@ -27,12 +33,11 @@ private:
     this() { }
 
     void drawContents() {
-
         // Optimization: Nothing to be drawn, skip context switching
         if (subParts.length == 0) return;
 
         begin();
-
+/*
             mat4* tmpTransform = oneTimeTransform;
             mat4 transform = transform.matrix.inverse;
             setOneTimeTransform(&transform);
@@ -40,7 +45,7 @@ private:
                 child.drawOne();
             }
             setOneTimeTransform(tmpTransform);
-
+*/
         end();
     }
 
@@ -58,7 +63,9 @@ private:
         if (node is null) return;
 
         // Do the main check
-        if (Part part = cast(Part)node) {
+        DynamicComposite dcomposite = cast(DynamicComposite)node;
+        Part part = cast(Part)node;
+        if (dcomposite is null && part !is null) {
             subParts ~= part;
             foreach(child; part.children) {
                 scanPartsRecurse(child);
@@ -78,6 +85,7 @@ protected:
     GLuint cfBuffer;
     GLint origBuffer;
     Texture stencil;
+    GLint[4] origViewport;
     void initTarget() {
         if (textures[0] !is null)
             textures[0].dispose();
@@ -89,12 +97,13 @@ protected:
         uint height = cast(uint)(bounds.w-bounds.y);
         ubyte[] buffer;
         buffer.length = cast(uint)(width) * cast(uint)(height) * 4;
+        for (int i = 0; i < buffer.length; i++) buffer[i] = 255;
         textures = [new Texture(ShallowTexture(buffer, width, height)), null, null];
-        stencil = new Texture(ShallowTexture(buffer, width, height));
+//        stencil = new Texture(ShallowTexture(buffer, width, height));
 
         glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0].getTextureId(), 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
+//        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
 
         // go back to default fb
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -103,20 +112,30 @@ protected:
     }
     void begin() {
         if (!initialized) initTarget();
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER, &origBuffer);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cfBuffer);
-        glDrawBuffers(1, [GL_COLOR_ATTACHMENT0].ptr);
-        glClearColor(0, 0, 0, 0);
+        /*
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
+        glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
+        import std.stdio;
+        writefln("framebuffer to %x, texture=%x(%dx%d)", cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
+        glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+        glViewport(0, 0, textures[0].width, textures[0].height);
+        glClearColor(1, 1, 1, 1);
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Everything else is the actual texture used by the meshes at id 0
         glActiveTexture(GL_TEXTURE0);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);                
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        */
     }
     void end() {
+        /*
+        import std.stdio;
+        writefln("framebuffer to %x", origBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
         glFlush();
+        */
     }
 
     Part[] subParts;
@@ -167,7 +186,6 @@ public:
 
         // No masks, draw normally
         super.drawOne();
-        this.drawSelf();
     }
 
     override
