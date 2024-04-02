@@ -15,6 +15,7 @@ import inochi2d.math;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
+import std.stdio;
 
 package(inochi2d) {
     void inInitDComposite() {
@@ -37,15 +38,14 @@ private:
         if (subParts.length == 0) return;
 
         begin();
-/*
-            mat4* tmpTransform = oneTimeTransform;
-            mat4 transform = transform.matrix.inverse;
-            setOneTimeTransform(&transform);
+            mat4* origTransform = oneTimeTransform;
+            mat4 tmpTransform = transform.matrix.inverse;
+//            writefln("transform=%s", transform);
+            setOneTimeTransform(&tmpTransform);
             foreach(Part child; subParts) {
                 child.drawOne();
             }
-            setOneTimeTransform(tmpTransform);
-*/
+            setOneTimeTransform(origTransform);
         end();
     }
 
@@ -97,7 +97,7 @@ protected:
         uint height = cast(uint)(bounds.w-bounds.y);
         ubyte[] buffer;
         buffer.length = cast(uint)(width) * cast(uint)(height) * 4;
-        for (int i = 0; i < buffer.length; i++) buffer[i] = 255;
+//        for (int i = 0; i < buffer.length; i++) buffer[i] = 255;
         textures = [new Texture(ShallowTexture(buffer, width, height)), null, null];
 //        stencil = new Texture(ShallowTexture(buffer, width, height));
 
@@ -112,30 +112,29 @@ protected:
     }
     void begin() {
         if (!initialized) initTarget();
-        /*
         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
         glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
-        import std.stdio;
-        writefln("framebuffer to %x, texture=%x(%dx%d)", cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
+//        import std.stdio;
+//        writefln("framebuffer to %x, texture=%x(%dx%d)", cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
         glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+        inPushViewport(textures[0].width, textures[0].height);
+        inGetCamera.scale.y *= -1;
         glViewport(0, 0, textures[0].width, textures[0].height);
-        glClearColor(1, 1, 1, 1);
+        glClearColor(0, 0, 0, 0);
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Everything else is the actual texture used by the meshes at id 0
         glActiveTexture(GL_TEXTURE0);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        */
     }
     void end() {
-        /*
-        import std.stdio;
-        writefln("framebuffer to %x", origBuffer);
+//        import std.stdio;
+//        writefln("framebuffer to %x", origBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+        inPopViewport();
         glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
         glFlush();
-        */
     }
 
     Part[] subParts;
@@ -185,7 +184,7 @@ public:
         this.drawContents();
 
         // No masks, draw normally
-        super.drawOne();
+        drawSelf();
     }
 
     override
@@ -208,5 +207,26 @@ public:
     override
     void clearCache() {
         initialized = false;
+    }
+
+    override
+    void normalizeUV(MeshData* data) {
+        import std.algorithm: map;
+        import std.algorithm: minElement, maxElement;
+        float minX = data.uvs.map!(a => a.x).minElement;
+        float maxX = data.uvs.map!(a => a.x).maxElement;
+        float minY = data.uvs.map!(a => a.y).minElement;
+        float maxY = data.uvs.map!(a => a.y).maxElement;
+        float width = maxX - minX;
+        float height = maxY - minY;
+        float centerX = (minX + maxX) / 2 / width;
+        float centerY = (minY + maxY) / 2 / height;
+        foreach(i; 0..data.uvs.length) {
+            // Texture 0 is always albedo texture
+            auto tex = textures[0];
+            data.uvs[i].x /= width;
+            data.uvs[i].y /= height;
+            data.uvs[i] += vec2(0.5, 0.5);
+        }
     }
 }

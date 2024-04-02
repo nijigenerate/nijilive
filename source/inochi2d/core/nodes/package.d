@@ -1003,6 +1003,7 @@ public:
     }
 
     void clearCache() { }
+    void normalizeUV(MeshData* data) { }
 }
 
 //

@@ -891,6 +891,17 @@ public:
         }
     }
 
+    override
+    void normalizeUV(MeshData* data) {
+        // Texture 0 is always albedo texture
+        auto tex = textures[0];
+        foreach (i; 0..data.uvs.length) {
+            data.uvs[i].x /= cast(float)tex.width;
+            data.uvs[i].y /= cast(float)tex.height;
+            data.uvs[i] += vec2(0.5, 0.5);
+        }
+    }
+
 }
 
 /**
