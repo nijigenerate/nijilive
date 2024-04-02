@@ -47,6 +47,7 @@ private:
             }
             setOneTimeTransform(origTransform);
         end();
+        textures[0].genMipmap();
     }
 
 
