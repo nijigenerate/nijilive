@@ -101,6 +101,7 @@ private:
 protected:
     bool preProcessed  = false;
     bool postProcessed = false;
+    bool changed = false;
 
     /**
         The offset to the transform to apply
@@ -743,6 +744,7 @@ public:
     void beginUpdate() {
         preProcessed  = false;
         postProcessed = false;
+        changed = false;
 
         offsetSort = 0;
         offsetTransform.clear();
@@ -1004,6 +1006,11 @@ public:
 
     void clearCache() { }
     void normalizeUV(MeshData* data) { }
+
+    void notifyChange(Node target) {
+        if (target == this) changed = true;
+        parent.notifyChange(target);
+    }
 }
 
 //
