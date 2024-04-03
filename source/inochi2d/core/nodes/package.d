@@ -102,6 +102,11 @@ protected:
     bool preProcessed  = false;
     bool postProcessed = false;
     bool changed = false;
+    /**
+        Whether the node is enabled
+    */
+    bool enabled = true;
+
 
     /**
         The offset to the transform to apply
@@ -219,11 +224,6 @@ package(inochi2d):
     }
 
 public:
-
-    /**
-        Whether the node is enabled
-    */
-    bool enabled = true;
 
     /**
         Whether the node is enabled for rendering
@@ -1011,7 +1011,14 @@ public:
 
     void notifyChange(Node target) {
         if (target == this) changed = true;
-        parent.notifyChange(target);
+        if (parent !is null) parent.notifyChange(target);
+    }
+
+    bool getEnabled() { return enabled; }
+    void setEnabled(bool value) { 
+        bool changed = enabled != value;
+        enabled = value;
+        if (changed) notifyChange(this);
     }
 }
 

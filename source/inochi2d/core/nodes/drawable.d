@@ -113,6 +113,8 @@ protected:
 
             vec2 newPos = targetVertex * (1 - weldingWeight) + selfVertex * (weldingWeight);
 
+            if (newPos != selfVertex) target.notifyChange(target);
+
             auto selfMatrixInv = selfMatrix.inverse;
             selfMatrixInv[0][3] = 0;
             selfMatrixInv[1][3] = 0;

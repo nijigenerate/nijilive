@@ -12,6 +12,7 @@ import inochi2d.core.nodes;
 import inochi2d.fmt;
 import inochi2d.core;
 import inochi2d.math;
+import inochi2d;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
@@ -37,17 +38,20 @@ private:
         // Optimization: Nothing to be drawn, skip context switching
         if (subParts.length == 0) return;
 
-        begin();
+        if (beginComposite()) {
             mat4* origTransform = oneTimeTransform;
             mat4 tmpTransform = transform.matrix.inverse;
 //            writefln("transform=%s", transform);
+//            writefln("%10.3f: draw sub-parts: %s", currentTime(), name);
             setOneTimeTransform(&tmpTransform);
             foreach(Part child; subParts) {
                 child.drawOne();
             }
             setOneTimeTransform(origTransform);
-        end();
-        textures[0].genMipmap();
+            endComposite();
+            textures[0].genMipmap();
+        }
+        textureInvalidated = false;
     }
 
 
@@ -87,15 +91,20 @@ protected:
     GLint origBuffer;
     Texture stencil;
     GLint[4] origViewport;
-    void initTarget() {
-        if (textures[0] !is null)
+    bool textureInvalidated = false;
+    bool initTarget() {
+        if (textures[0] !is null) {
             textures[0].dispose();
+            textures[0] = null;
+        }
 
         updateBounds();
-        glGenFramebuffers(1, &cfBuffer);
         
         uint width = cast(uint)(bounds.z-bounds.x);
         uint height = cast(uint)(bounds.w-bounds.y);
+        if (width == 0 || height == 0) return false;
+
+        glGenFramebuffers(1, &cfBuffer);
         ubyte[] buffer;
         buffer.length = cast(uint)(width) * cast(uint)(height) * 4;
 //        for (int i = 0; i < buffer.length; i++) buffer[i] = 255;
@@ -110,32 +119,43 @@ protected:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         initialized = true;
+        textureInvalidated = true;
+        return true;
     }
-    void begin() {
-        if (!initialized) initTarget();
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
-        glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
-//        import std.stdio;
-//        writefln("framebuffer to %x, texture=%x(%dx%d)", cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
-        glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
-        inPushViewport(textures[0].width, textures[0].height);
-        inGetCamera.scale.y *= -1;
-        glViewport(0, 0, textures[0].width, textures[0].height);
-        glClearColor(0, 0, 0, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
+    bool beginComposite() {
+        if (!initialized) 
+            if (!initTarget()) return false;
+        if (textureInvalidated) {
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
+            glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
+    //        import std.stdio;
+    //        writefln("framebuffer to %x, texture=%x(%dx%d)", cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
+            glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+            inPushViewport(textures[0].width, textures[0].height);
+            inGetCamera.scale.y *= -1;
+            glViewport(0, 0, textures[0].width, textures[0].height);
+            glClearColor(0, 0, 0, 0);
+            glClear(GL_COLOR_BUFFER_BIT);
 
-        // Everything else is the actual texture used by the meshes at id 0
-        glActiveTexture(GL_TEXTURE0);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            // Everything else is the actual texture used by the meshes at id 0
+            glActiveTexture(GL_TEXTURE0);
+            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        }
+        return textureInvalidated;
     }
-    void end() {
+    bool endComposite() {
 //        import std.stdio;
 //        writefln("framebuffer to %x", origBuffer);
-        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-        inPopViewport();
-        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glFlush();
+        if (textureInvalidated) {
+            glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+            inPopViewport();
+            glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
+            glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+            glFlush();
+            return true;
+        } else {
+            return false;
+        }
     }
 
     Part[] subParts;
@@ -175,6 +195,12 @@ public:
     */
     this(MeshData data, uint uuid, Node parent = null) {
         super(data, uuid, parent);
+    }
+
+    override
+    void beginUpdate() {
+
+        super.beginUpdate();
     }
 
     override
@@ -230,4 +256,13 @@ public:
             data.uvs[i] += vec2(0.5, 0.5);
         }
     }
+
+    override
+    void notifyChange(Node target) {
+        if (target != this) {
+            textureInvalidated = true;
+        }
+        super.notifyChange(target);
+    }
+
 }

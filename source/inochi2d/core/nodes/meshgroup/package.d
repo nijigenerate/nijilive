@@ -105,6 +105,8 @@ public:
                 origDeformation[i] = newPos - origVertices[i];
         }
 
+        if (changed) target.notifyChange(target);
+
         if (!dynamic)
             return tuple(origDeformation, cast(mat4*)null);
         return tuple(origDeformation, &forwardMatrix);
