@@ -333,6 +333,9 @@ void inEndScene() {
     glDisable(GL_BLEND);
     glFlush();
     glDrawBuffers(1, [GL_COLOR_ATTACHMENT0].ptr);
+
+//    import std.stdio;
+//    writefln("end render");
 }
 
 /**

@@ -17,6 +17,7 @@ import inochi2d.core.dbg;
 import inochi2d.core;
 import std.typecons: tuple, Tuple;
 import std.stdio;
+import inochi2d.core.nodes.utils;
 
 package(inochi2d) {
     void inInitMeshGroup() {
@@ -30,6 +31,7 @@ struct Triangle{
     mat3 offsetMatrices;
     mat3 transformMatrix;
 }
+
 }
 
 /**
@@ -72,7 +74,8 @@ public:
         super(parent);
     }
 
-    Tuple!(vec2[], mat4*) filterChildren(vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(vec2[], mat4*) filterChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+//        writefln("meshgroup: %s --> %s", name, target.name);
         if (!precalculated)
             return Tuple!(vec2[], mat4*)(null, null);
 
@@ -291,15 +294,15 @@ public:
             bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
             if (translateChildren || isDrawable) {
                 if (isDrawable && dynamic) {
-                    node.preProcessFilter  = null;
-                    node.postProcessFilter = &filterChildren;
+                    node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
+                    node.postProcessFilters ~= &filterChildren;
                 } else {
-                    node.preProcessFilter  = &filterChildren;
-                    node.postProcessFilter = null;
+                    node.preProcessFilters  ~= &filterChildren;
+                    node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
                 }
             } else {
-                node.preProcessFilter  = null;
-                node.postProcessFilter = null;
+                node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
+                node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
             }
             // traverse children if node is Drawable and is not MeshGroup instance.
             if (mustPropagate) {
@@ -340,7 +343,7 @@ public:
 
                     auto nodeBinding = cast(DeformationParameterBinding)param.getOrAddBinding(node, "deform");
                     auto nodeDeform = nodeBinding.values[x][y].vertexOffsets.dup;
-                    Tuple!(vec2[], mat4*) filterResult = filterChildren(vertices, nodeDeform, &matrix);
+                    Tuple!(vec2[], mat4*) filterResult = filterChildren(node, vertices, nodeDeform, &matrix);
                     if (filterResult[0] !is null) {
                         nodeBinding.values[x][y].vertexOffsets = filterResult[0];
                         nodeBinding.getIsSet()[x][y] = true;
@@ -352,7 +355,7 @@ public:
                     auto nodeBindingX = cast(ValueParameterBinding)param.getOrAddBinding(node, "transform.t.x");
                     auto nodeBindingY = cast(ValueParameterBinding)param.getOrAddBinding(node, "transform.t.y");
                     auto nodeDeform = [node.offsetTransform.translation.xy];
-                    Tuple!(vec2[], mat4*) filterResult = filterChildren(vertices, nodeDeform, &matrix);
+                    Tuple!(vec2[], mat4*) filterResult = filterChildren(node, vertices, nodeDeform, &matrix);
                     if (filterResult[0] !is null) {
                         nodeBindingX.values[x][y] += filterResult[0][0].x;
                         nodeBindingY.values[x][y] += filterResult[0][0].y;

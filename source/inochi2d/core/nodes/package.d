@@ -174,18 +174,18 @@ protected:
     }
     MatrixHolder overrideTransformMatrix = null;
 
-    Tuple!(vec2[], mat4*) delegate(vec2[], vec2[], mat4*) preProcessFilter  = null;
-    Tuple!(vec2[], mat4*) delegate(vec2[], vec2[], mat4*) postProcessFilter = null;
+    Tuple!(vec2[], mat4*) delegate(Node, vec2[], vec2[], mat4*)[] preProcessFilters;
+    Tuple!(vec2[], mat4*) delegate(Node, vec2[], vec2[], mat4*)[] postProcessFilters;
 
     import std.stdio;
     void preProcess() {
         if (preProcessed)
             return;
         preProcessed = true;
-        if (preProcessFilter !is null) {
-            overrideTransformMatrix = null;
+        overrideTransformMatrix = null;
+        foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = this.parent? this.parent.transform.matrix: mat4.identity;
-            auto filterResult = preProcessFilter([localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
+            auto filterResult = preProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
@@ -197,10 +197,10 @@ protected:
         if (postProcessed)
             return;
         postProcessed = true;
-        if (postProcessFilter !is null) {
-            overrideTransformMatrix = null;
+        overrideTransformMatrix = null;
+        foreach (postProcessFilter; postProcessFilters) {
             mat4 matrix = this.parent? this.parent.transform.matrix: mat4.identity;
-            auto filterResult = postProcessFilter([localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
+            auto filterResult = postProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
@@ -973,8 +973,8 @@ public:
      */
     void reparent(Node parent, ulong pOffset) {
         void unsetGroup(Node node) {
-            node.postProcessFilter = null;
-            node.preProcessFilter  = null;
+            node.postProcessFilters.length = 0;
+            node.preProcessFilters.length  = 0;
             auto group = cast(MeshGroup)node;
             if (group is null) {
                 foreach (child; node.children) {
@@ -992,9 +992,11 @@ public:
         for (auto p = parent; p !is null; p = p.parent, c = c.parent) {
             p.setupChild(c);
         }
+        setupSelf();
     }
 
     void setupChild(Node child) { }
+    void setupSelf() { }
 
     mat4 getDynamicMatrix() {
         if (overrideTransformMatrix !is null) {
