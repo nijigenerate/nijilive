@@ -20,7 +20,9 @@ public import inochi2d.core.nodes.composite;
 public import inochi2d.core.nodes.meshgroup;
 public import inochi2d.core.nodes.drivers; 
 public import inochi2d.core.nodes.composite.dcomposite;
+import inochi2d.core.nodes.utils;
 import std.typecons: tuple, Tuple;
+import std.algorithm.searching;
 
 //public import inochi2d.core.nodes.shapes; // This isn't mainline yet!
 
@@ -972,23 +974,16 @@ public:
      * set new Parent
      */
     void reparent(Node parent, ulong pOffset) {
-        void unsetGroup(Node node) {
-            node.postProcessFilters.length = 0;
-            node.preProcessFilters.length  = 0;
-            auto group = cast(MeshGroup)node;
-            if (group is null) {
-                foreach (child; node.children) {
-                    unsetGroup(child);
-                }
-            }
-        }
 
-        unsetGroup(this);
+        auto c = this;
+        for (auto p = c.parent; p !is null && c !is null; p = p.parent, c = c.parent) {
+            p.releaseChild(c);
+        }
 
         if (parent !is null)
             setRelativeTo(parent);
         insertInto(parent, pOffset);
-        auto c = this;
+        c = this;
         for (auto p = parent; p !is null; p = p.parent, c = c.parent) {
             p.setupChild(c);
         }
@@ -996,6 +991,7 @@ public:
     }
 
     void setupChild(Node child) { }
+    void releaseChild(Node child) { }
     void setupSelf() { }
 
     mat4 getDynamicMatrix() {

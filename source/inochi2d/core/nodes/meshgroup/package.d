@@ -18,6 +18,7 @@ import inochi2d.core;
 import std.typecons: tuple, Tuple;
 import std.stdio;
 import inochi2d.core.nodes.utils;
+import std.algorithm.searching;
 
 package(inochi2d) {
     void inInitMeshGroup() {
@@ -297,9 +298,11 @@ public:
             if (translateChildren || isDrawable) {
                 if (isDrawable && dynamic) {
                     node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
-                    node.postProcessFilters ~= &filterChildren;
+                    if (node.postProcessFilters.countUntil(&filterChildren) == -1)
+                        node.postProcessFilters ~= &filterChildren;
                 } else {
-                    node.preProcessFilters  ~= &filterChildren;
+                    if (node.preProcessFilters.countUntil(&filterChildren) == -1)
+                        node.preProcessFilters  ~= &filterChildren;
                     node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
                 }
             } else {
@@ -318,6 +321,21 @@ public:
             setGroup(child);
         } 
 
+    }
+
+    override
+    void releaseChild(Node child) {
+        void unsetGroup(Node node) {
+            node.preProcessFilters = node.preProcessFilters.removeByValue(&this.filterChildren);
+            node.postProcessFilters = node.postProcessFilters.removeByValue(&this.filterChildren);
+            auto group = cast(MeshGroup)node;
+            if (group is null) {
+                foreach (child; node.children) {
+                    unsetGroup(child);
+                }
+            }
+        }
+        unsetGroup(child);
     }
 
     void applyDeformToChildren(Parameter[] params) {
