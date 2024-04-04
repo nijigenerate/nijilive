@@ -259,6 +259,7 @@ private:
                 driversOnly = true;
             } else if (Part part = cast(Part)node) {
                 // Collect Part nodes
+                part.ignorePuppet = false;
                 rootParts ~= part;
             }
             // Non-part nodes just need to be recursed through,

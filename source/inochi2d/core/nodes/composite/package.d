@@ -161,6 +161,7 @@ private:
         // Do the main check
         if (Part part = cast(Part)node) {
             subParts ~= part;
+            part.ignorePuppet = false;
             foreach(child; part.children) {
                 scanPartsRecurse(child);
             }

@@ -42,7 +42,8 @@ private:
             mat4* origTransform = oneTimeTransform;
             mat4 tmpTransform = transform.matrix.inverse;
 //            writefln("transform=%s", transform);
-//            writefln("%10.3f: draw sub-parts: %s", currentTime(), name);
+            Camera camera = inGetCamera();
+//            writefln("%10.3f: draw sub-parts: %s(%dx%d):+%s,x%s", currentTime(), name, textures[0].width, textures[0].height, camera.position, camera.scale);
             setOneTimeTransform(&tmpTransform);
             foreach(Part child; subParts) {
                 child.drawOne();
@@ -72,6 +73,7 @@ private:
         Part part = cast(Part)node;
         if (dcomposite is null && part !is null) {
             subParts ~= part;
+            part.ignorePuppet = true;
             foreach(child; part.children) {
                 scanPartsRecurse(child);
             }
@@ -132,7 +134,9 @@ protected:
     //        writefln("framebuffer to %x, texture=%x(%dx%d)", cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
             glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
             inPushViewport(textures[0].width, textures[0].height);
-            inGetCamera.scale.y *= -1;
+            Camera camera = inGetCamera();
+            camera.scale = vec2(1, -1);
+            camera.position = vec2(0, 0);
             glViewport(0, 0, textures[0].width, textures[0].height);
             glClearColor(0, 0, 0, 0);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -143,19 +147,14 @@ protected:
         }
         return textureInvalidated;
     }
-    bool endComposite() {
+    void endComposite() {
 //        import std.stdio;
 //        writefln("framebuffer to %x", origBuffer);
-        if (textureInvalidated) {
-            glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-            inPopViewport();
-            glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
-            glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-            glFlush();
-            return true;
-        } else {
-            return false;
-        }
+        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+        inPopViewport();
+        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
+        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+        glFlush();
     }
 
     Part[] subParts;
@@ -170,13 +169,17 @@ protected:
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
         import std.stdio;
         writefln("Serialize %s", name);
+        Texture[3] tmpTextures = textures;
+        textures = [null, null, null];
         super.serializeSelfImpl(serializer, recursive);
+        textures = tmpTextures;
     }
 
     override
     SerdeException deserializeFromFghj(Fghj data) {
         import std.stdio;
         auto result = super.deserializeFromFghj(data);
+        textures = [null, null, null];
         writefln("Deserialize %s", name);
         return result;
     }

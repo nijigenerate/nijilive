@@ -214,7 +214,7 @@ private:
 
                 partShaderStage1.use();
                 partShaderStage1.setUniform(gs1offset, data.origin);
-                partShaderStage1.setUniform(gs1mvp, inGetCamera().matrix * puppet.transform.matrix * matrix);
+                partShaderStage1.setUniform(gs1mvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
                 partShaderStage1.setUniform(gs1opacity, clamp(offsetOpacity * opacity, 0, 1));
 
                 partShaderStage1.setUniform(partShaderStage1.getUniformLocation("albedo"), 0);
@@ -229,7 +229,7 @@ private:
 
                 partShaderStage2.use();
                 partShaderStage2.setUniform(gs2offset, data.origin);
-                partShaderStage2.setUniform(gs2mvp, inGetCamera().matrix * puppet.transform.matrix * matrix);
+                partShaderStage2.setUniform(gs2mvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
                 partShaderStage2.setUniform(gs2opacity, clamp(offsetOpacity * opacity, 0, 1));
                 partShaderStage2.setUniform(gs2EmissionStrength, emissionStrength*offsetEmissionStrength);
 
@@ -248,7 +248,7 @@ private:
 
                 partShader.use();
                 partShader.setUniform(offset, data.origin);
-                partShader.setUniform(mvp, inGetCamera().matrix * puppet.transform.matrix * matrix);
+                partShader.setUniform(mvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
                 partShader.setUniform(gopacity, clamp(offsetOpacity * opacity, 0, 1));
                 partShader.setUniform(gEmissionStrength, emissionStrength*offsetEmissionStrength);
 
@@ -344,7 +344,7 @@ protected:
         static if (isMask) {
             partMaskShader.use();
             partMaskShader.setUniform(offset, data.origin);
-            partMaskShader.setUniform(mmvp, inGetCamera().matrix * puppet.transform.matrix * matrix);
+            partMaskShader.setUniform(mmvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
             partMaskShader.setUniform(mthreshold, clamp(offsetMaskThreshold + maskAlphaThreshold, 0, 1));
 
             // Make sure the equation is correct
@@ -627,6 +627,12 @@ public:
     Texture activeTexture() {
         return textures[0];
     }
+
+    /** 
+        Ignore puppet.transform if set to true.
+     */
+    bool ignorePuppet = false;
+
 
     /**
         Constructs a new part
