@@ -94,6 +94,7 @@ protected:
     Texture stencil;
     GLint[4] origViewport;
     bool textureInvalidated = false;
+    vec2 textureOffset;
     bool initTarget() {
         if (textures[0] !is null) {
             textures[0].dispose();
@@ -104,6 +105,8 @@ protected:
         
         uint width = cast(uint)(bounds.z-bounds.x);
         uint height = cast(uint)(bounds.w-bounds.y);
+        textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+//        writefln("bounds=%s, translation=%s, textureOffset=%s", bounds, transform.translation, textureOffset);
         if (width == 0 || height == 0) return false;
 
         glGenFramebuffers(1, &cfBuffer);
@@ -136,7 +139,7 @@ protected:
             inPushViewport(textures[0].width, textures[0].height);
             Camera camera = inGetCamera();
             camera.scale = vec2(1, -1);
-            camera.position = vec2(0, 0);
+            camera.position = -textureOffset;
             glViewport(0, 0, textures[0].width, textures[0].height);
             glClearColor(0, 0, 0, 0);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -256,7 +259,7 @@ public:
             auto tex = textures[0];
             data.uvs[i].x /= width;
             data.uvs[i].y /= height;
-            data.uvs[i] += vec2(0.5, 0.5);
+            data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);
         }
     }
 
@@ -267,5 +270,4 @@ public:
         }
         super.notifyChange(target);
     }
-
 }
