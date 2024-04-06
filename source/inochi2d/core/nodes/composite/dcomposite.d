@@ -31,6 +31,7 @@ package(inochi2d) {
 class DynamicComposite : Part {
 private:
     bool initialized = false;
+    bool autoResizedMesh = true;
 
     this() { }
 
@@ -73,7 +74,7 @@ private:
         Part part = cast(Part)node;
         if (dcomposite is null && part !is null) {
             subParts ~= part;
-            part.ignorePuppet = true;
+            part.ignorePuppet = ignorePuppet;
             foreach(child; part.children) {
                 scanPartsRecurse(child);
             }
@@ -88,13 +89,28 @@ private:
         }
     }
 
+    void setIgnorePuppetRecurse(Part part, bool ignorePuppet) {
+        part.ignorePuppet = ignorePuppet;
+        foreach (child; part.children) {
+            if (Part pChild = cast(Part)child)
+                setIgnorePuppetRecurse(pChild, ignorePuppet);
+        }
+    }
+
+    void setIgnorePuppet(bool ignorePuppet) {
+        foreach (child; children) {
+            if (Part pChild = cast(Part)child)
+                setIgnorePuppetRecurse(pChild, ignorePuppet);
+        }
+
+    }
+
 protected:
     GLuint cfBuffer;
     GLint origBuffer;
-    Texture stencil;
+//    Texture stencil;
     GLint[4] origViewport;
     bool textureInvalidated = false;
-    vec2 textureOffset;
     bool initTarget() {
         if (textures[0] !is null) {
             textures[0].dispose();
@@ -105,14 +121,19 @@ protected:
         
         uint width = cast(uint)(bounds.z-bounds.x);
         uint height = cast(uint)(bounds.w-bounds.y);
+        if (width == 0 || height == 0) {
+            bounds = getCombinedBounds();
+            width = cast(uint)(bounds.z-bounds.x);
+            height = cast(uint)(bounds.w-bounds.y);
+            if (width <= 0 || height <= 0) return false;
+        }
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
 //        writefln("bounds=%s, translation=%s, textureOffset=%s", bounds, transform.translation, textureOffset);
-        if (width == 0 || height == 0) return false;
+        setIgnorePuppet(true);
 
         glGenFramebuffers(1, &cfBuffer);
         ubyte[] buffer;
         buffer.length = cast(uint)(width) * cast(uint)(height) * 4;
-//        for (int i = 0; i < buffer.length; i++) buffer[i] = 255;
         textures = [new Texture(ShallowTexture(buffer, width, height)), null, null];
 //        stencil = new Texture(ShallowTexture(buffer, width, height));
 
@@ -122,6 +143,7 @@ protected:
 
         // go back to default fb
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+//        scanParts!true();
 
         initialized = true;
         textureInvalidated = true;
@@ -183,11 +205,39 @@ protected:
         import std.stdio;
         auto result = super.deserializeFromFghj(data);
         textures = [null, null, null];
+        if (this.data.indices.length != 0) {
+            autoResizedMesh = false;
+            writefln("disable auto resize %s", name);
+        }
         writefln("Deserialize %s", name);
         return result;
     }
 
+    void createSimpleMesh(vec4 bounds) {
+        int width = cast(int)(bounds.z - bounds.x);
+        int height = cast(int)(bounds.w - bounds.y);
+        data.vertices = [
+            vec2(bounds.x, bounds.y) - transform.translation.xy,
+            vec2(bounds.x, bounds.w) - transform.translation.xy,
+            vec2(bounds.z, bounds.y) - transform.translation.xy,
+            vec2(bounds.z, bounds.w) - transform.translation.xy
+        ];
+        data.uvs = [
+            vec2(0, 0),
+            vec2(0, 1),
+            vec2(1, 0),
+            vec2(1, 1),
+        ];
+        data.indices = [
+            0, 1, 2,
+            2, 1, 3
+        ];
+        this.updateIndices();
+        this.updateVertices();
+    }
+
 public:
+    vec2 textureOffset;
 
     /**
         Constructs a new mask
@@ -200,6 +250,7 @@ public:
         Constructs a new composite
     */
     this(MeshData data, uint uuid, Node parent = null) {
+        if (data.indices.length != 0) autoResizedMesh = false;
         super(data, uuid, parent);
     }
 
@@ -217,7 +268,15 @@ public:
         this.drawContents();
 
         // No masks, draw normally
-        drawSelf();
+        if (initialized)
+            drawSelf();
+        else {
+            foreach(Part child; subParts) {
+                auto camera = inGetCamera();
+                writefln("%10.3f: draw sub-parts: %s:+%s,x%s", currentTime(), child.name, camera.position, camera.scale);
+                child.drawOne();
+            }
+        }
     }
 
     override
@@ -240,6 +299,26 @@ public:
     override
     void clearCache() {
         initialized = false;
+        setIgnorePuppet(false);
+        if (data.vertices.length == 0) {
+            writefln("enable auto resize %s", name);
+            autoResizedMesh = true;
+        } else {
+            writefln("disable auto resize %s", name);
+            autoResizedMesh = false;
+        }
+    }
+
+    override
+    void setupChild(Node node) {
+        if (Part part = cast(Part)node)
+            setIgnorePuppetRecurse(part, textures[0] !is null);
+    }
+
+    override
+    void releaseChild(Node node) {
+        if (Part part = cast(Part)node)
+            setIgnorePuppetRecurse(part, false);
     }
 
     override
@@ -267,6 +346,12 @@ public:
     void notifyChange(Node target) {
         if (target != this) {
             textureInvalidated = true;
+            if (autoResizedMesh) {
+                auto bounds = getCombinedBounds();
+                createSimpleMesh(bounds);
+                textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+                initialized = false;
+            }
         }
         super.notifyChange(target);
     }

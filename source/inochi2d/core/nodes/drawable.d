@@ -59,7 +59,7 @@ void inSetUpdateBounds(bool state) {
 
 @TypeId("Drawable")
 abstract class Drawable : Node {
-private:
+protected:
 
     void updateIndices() {
         version (InDoesRender) {
@@ -83,8 +83,6 @@ private:
         }
         this.updateDeform();
     }
-
-protected:
 
     Tuple!(vec2[], mat4*) weldingProcessor(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         auto linkIndex = welded.countUntil!((a)=>a.target == target)();

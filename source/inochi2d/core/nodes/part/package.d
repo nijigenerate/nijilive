@@ -306,7 +306,6 @@ private:
     }
 
 protected:
-
     /*
         RENDERING
     */
