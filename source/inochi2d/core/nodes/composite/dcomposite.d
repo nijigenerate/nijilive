@@ -37,6 +37,7 @@ private:
 
     void drawContents() {
         // Optimization: Nothing to be drawn, skip context switching
+//        writefln("drawComponents:%s, %d", name, subParts.length);
         if (subParts.length == 0) return;
 
         if (beginComposite()) {
@@ -47,6 +48,7 @@ private:
 //            writefln("%10.3f: draw sub-parts: %s(%dx%d):+%s,x%s", currentTime(), name, textures[0].width, textures[0].height, camera.position, camera.scale);
             setOneTimeTransform(&tmpTransform);
             foreach(Part child; subParts) {
+//                writefln("draw %s::%s", name, child.name);
                 child.drawOne();
             }
             setOneTimeTransform(origTransform);
@@ -68,24 +70,33 @@ private:
 
         // Don't need to scan null nodes
         if (node is null) return;
+        //writefln("scanParts: %s-->%s", name, node.name);
 
         // Do the main check
         DynamicComposite dcomposite = cast(DynamicComposite)node;
         Part part = cast(Part)node;
-        if (dcomposite is null && part !is null) {
+        if (part !is null && node != this) {
             subParts ~= part;
             part.ignorePuppet = ignorePuppet;
-            foreach(child; part.children) {
-                scanPartsRecurse(child);
+            if (dcomposite is null) {
+                foreach(child; part.children) {
+                    scanPartsRecurse(child);
+                }
+            } else {
+                //writefln("Recursive scanParts call to %s", name);
+                dcomposite.scanParts();
             }
             
-        } else {
+        } else if (dcomposite is null || node == this) {
 
             // Non-part nodes just need to be recursed through,
             // they don't draw anything.
             foreach(child; node.children) {
                 scanPartsRecurse(child);
             }
+        } else if (dcomposite !is null && node != this) {
+            //writefln("Recursive scanParts call to %s", name);
+            dcomposite.scanParts();
         }
     }
 
@@ -286,6 +297,8 @@ public:
         if (children.length > 0) {
             scanPartsRecurse(children[0].parent);
         }
+//        import std.algorithm;
+//        writefln("%s: %s", name, subParts.map!(p => p.name));
     }
 
     override
