@@ -18,6 +18,7 @@ import std.exception;
 import std.algorithm;
 import std.algorithm.sorting;
 import std.stdio;
+import std.array;
 
 package(inochi2d) {
     void inInitDComposite() {
@@ -32,7 +33,6 @@ package(inochi2d) {
 class DynamicComposite : Part {
 private:
     bool initialized = false;
-    bool autoResizedMesh = true;
 
     this() { }
 
@@ -131,10 +131,6 @@ protected:
 
         updateBounds();
         
-
-        vec4 bounds = this.bounds;
-        if (autoResizedMesh)
-            bounds = getChildrenBounds();
         uint width = cast(uint)(bounds.z-bounds.x);
         uint height = cast(uint)(bounds.w-bounds.y);
         if (width == 0 || height == 0) return false;
@@ -231,10 +227,10 @@ protected:
 
     vec4 getChildrenBounds() {
         if (subParts.length > 0) {
-            float minX = subParts.map!(p=> p.bounds.x).minElement();
-            float minY = subParts.map!(p=> p.bounds.y).minElement();
-            float maxX = subParts.map!(p=> p.bounds.z).maxElement();
-            float maxY = subParts.map!(p=> p.bounds.w).maxElement();
+            float minX = (subParts.map!(p=> p.bounds.x).array ~ [transform.translation.x]).minElement();
+            float minY = (subParts.map!(p=> p.bounds.y).array ~ [transform.translation.y]).minElement();
+            float maxX = (subParts.map!(p=> p.bounds.z).array ~ [transform.translation.x]).maxElement();
+            float maxY = (subParts.map!(p=> p.bounds.w).array ~ [transform.translation.y]).maxElement();
             return vec4(minX, minY, maxX, maxY);
         } else {
             return transform.translation.xyxy;
@@ -242,44 +238,43 @@ protected:
     }
 
     bool createSimpleMesh() {
-        auto origBounds = this.bounds;
+        auto origBounds = bounds;
         auto bounds = getChildrenBounds();
         vec2 origSize = origBounds.zw - origBounds.xy;
         vec2 size = bounds.zw - bounds.xy;
-        if (cast(int)origSize.x == cast(int)size.x && cast(int)origSize.y == cast(int)size.y) {
+        if (data.indices.length != 0 && cast(int)origSize.x == cast(int)size.x && cast(int)origSize.y == cast(int)size.y) {
 //            writefln("same boundary, skip %s", size);
             textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
             return false;
         } else {
 //            writefln("update bounds %s->%s", origSize, size);
-            data.vertices = [
+            MeshData newData = MeshData([
                 vec2(bounds.x, bounds.y) - transform.translation.xy,
                 vec2(bounds.x, bounds.w) - transform.translation.xy,
                 vec2(bounds.z, bounds.y) - transform.translation.xy,
                 vec2(bounds.z, bounds.w) - transform.translation.xy
-            ];
-            data.uvs = [
+            ], data.uvs = [
                 vec2(0, 0),
                 vec2(0, 1),
                 vec2(1, 0),
                 vec2(1, 1),
-            ];
-            data.indices = [
+            ], data.indices = [
                 0, 1, 2,
                 2, 1, 3
-            ];
-            this.updateIndices();
-            this.updateVertices();
-            updateBounds();
-            size = bounds.zw - bounds.xy;
+            ], vec2(0, 0),[]);
+            super.rebuffer(newData);
 //            writefln("mew bounds %s", size);
+
+            // FIXME: should update parameter bindings here.
         }
+        setIgnorePuppet(false);
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
         return true;
     }
 
 public:
     vec2 textureOffset;
+    bool autoResizedMesh = true;
 
     /**
         Constructs a new mask
@@ -342,20 +337,22 @@ public:
     void normalizeUV(MeshData* data) {
         import std.algorithm: map;
         import std.algorithm: minElement, maxElement;
-        float minX = data.uvs.map!(a => a.x).minElement;
-        float maxX = data.uvs.map!(a => a.x).maxElement;
-        float minY = data.uvs.map!(a => a.y).minElement;
-        float maxY = data.uvs.map!(a => a.y).maxElement;
-        float width = maxX - minX;
-        float height = maxY - minY;
-        float centerX = (minX + maxX) / 2 / width;
-        float centerY = (minY + maxY) / 2 / height;
-        foreach(i; 0..data.uvs.length) {
-            // Texture 0 is always albedo texture
-            auto tex = textures[0];
-            data.uvs[i].x /= width;
-            data.uvs[i].y /= height;
-            data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);
+        if (data.uvs.length != 0) {
+            float minX = data.uvs.map!(a => a.x).minElement;
+            float maxX = data.uvs.map!(a => a.x).maxElement;
+            float minY = data.uvs.map!(a => a.y).minElement;
+            float maxY = data.uvs.map!(a => a.y).maxElement;
+            float width = maxX - minX;
+            float height = maxY - minY;
+            float centerX = (minX + maxX) / 2 / width;
+            float centerY = (minY + maxY) / 2 / height;
+            foreach(i; 0..data.uvs.length) {
+                // Texture 0 is always albedo texture
+                auto tex = textures[0];
+                data.uvs[i].x /= width;
+                data.uvs[i].y /= height;
+                data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);
+            }
         }
     }
 
@@ -364,7 +361,7 @@ public:
         if (target != this) {
             textureInvalidated = true;
             if (autoResizedMesh) {
-                if (initialized && createSimpleMesh()) {
+                if (createSimpleMesh()) {
 //                    writefln("%s: reset texture", name);
                     initialized = false;
                 }

@@ -562,7 +562,8 @@ public:
     override
     void setupSelf() {
         foreach (link; welded) {
-            postProcessFilters ~= &link.target.weldingProcessor;
+            if (postProcessFilters.countUntil(&link.target.weldingProcessor) == -1)
+                postProcessFilters ~= &link.target.weldingProcessor;
         }
     }
 
