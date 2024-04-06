@@ -15,6 +15,7 @@ import inochi2d.math;
 import inochi2d;
 import bindbc.opengl;
 import std.exception;
+import std.algorithm;
 import std.algorithm.sorting;
 import std.stdio;
 
@@ -38,7 +39,7 @@ private:
     void drawContents() {
         // Optimization: Nothing to be drawn, skip context switching
 //        writefln("drawComponents:%s, %d", name, subParts.length);
-        if (subParts.length == 0) return;
+//        if (subParts.length == 0) return;
 
         if (beginComposite()) {
             mat4* origTransform = oneTimeTransform;
@@ -130,14 +131,13 @@ protected:
 
         updateBounds();
         
+
+        vec4 bounds = this.bounds;
+        if (autoResizedMesh)
+            bounds = getChildrenBounds();
         uint width = cast(uint)(bounds.z-bounds.x);
         uint height = cast(uint)(bounds.w-bounds.y);
-        if (width == 0 || height == 0) {
-            bounds = getCombinedBounds();
-            width = cast(uint)(bounds.z-bounds.x);
-            height = cast(uint)(bounds.w-bounds.y);
-            if (width <= 0 || height <= 0) return false;
-        }
+        if (width == 0 || height == 0) return false;
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
 //        writefln("bounds=%s, translation=%s, textureOffset=%s", bounds, transform.translation, textureOffset);
         setIgnorePuppet(true);
@@ -148,12 +148,13 @@ protected:
         textures = [new Texture(ShallowTexture(buffer, width, height)), null, null];
 //        stencil = new Texture(ShallowTexture(buffer, width, height));
 
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0].getTextureId(), 0);
 //        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
 
         // go back to default fb
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
 //        scanParts!true();
 
         initialized = true;
@@ -161,13 +162,18 @@ protected:
         return true;
     }
     bool beginComposite() {
-        if (!initialized) 
-            if (!initTarget()) return false;
+        if (!initialized) {
+            if (!initTarget()) {
+//                writefln("initialize failed:%s", name);
+                return false;
+            } else {
+//                writefln("initialized:%s", name);
+            }
+        }
         if (textureInvalidated) {
             glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
             glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
-    //        import std.stdio;
-    //        writefln("framebuffer to %x, texture=%x(%dx%d)", cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
+//            writefln("%s: framebuffer to %x, texture=%x(%dx%d)", name, cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
             glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
             inPushViewport(textures[0].width, textures[0].height);
             Camera camera = inGetCamera();
@@ -203,48 +209,73 @@ protected:
     */
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
-        import std.stdio;
-        writefln("Serialize %s", name);
         Texture[3] tmpTextures = textures;
         textures = [null, null, null];
         super.serializeSelfImpl(serializer, recursive);
+        serializer.putKey("auto_resized");
+        serializer.serializeValue(autoResizedMesh);
         textures = tmpTextures;
     }
 
     override
     SerdeException deserializeFromFghj(Fghj data) {
-        import std.stdio;
         auto result = super.deserializeFromFghj(data);
         textures = [null, null, null];
-        if (this.data.indices.length != 0) {
+        if (!data["auto_resized"].isEmpty) 
+            data["auto_resized"].deserializeValue(autoResizedMesh);
+        else if (this.data.indices.length != 0) {
             autoResizedMesh = false;
-            writefln("disable auto resize %s", name);
-        }
-        writefln("Deserialize %s", name);
+        } else autoResizedMesh = true;
         return result;
     }
 
-    void createSimpleMesh(vec4 bounds) {
-        int width = cast(int)(bounds.z - bounds.x);
-        int height = cast(int)(bounds.w - bounds.y);
-        data.vertices = [
-            vec2(bounds.x, bounds.y) - transform.translation.xy,
-            vec2(bounds.x, bounds.w) - transform.translation.xy,
-            vec2(bounds.z, bounds.y) - transform.translation.xy,
-            vec2(bounds.z, bounds.w) - transform.translation.xy
-        ];
-        data.uvs = [
-            vec2(0, 0),
-            vec2(0, 1),
-            vec2(1, 0),
-            vec2(1, 1),
-        ];
-        data.indices = [
-            0, 1, 2,
-            2, 1, 3
-        ];
-        this.updateIndices();
-        this.updateVertices();
+    vec4 getChildrenBounds() {
+        if (subParts.length > 0) {
+            float minX = subParts.map!(p=> p.bounds.x).minElement();
+            float minY = subParts.map!(p=> p.bounds.y).minElement();
+            float maxX = subParts.map!(p=> p.bounds.z).maxElement();
+            float maxY = subParts.map!(p=> p.bounds.w).maxElement();
+            return vec4(minX, minY, maxX, maxY);
+        } else {
+            return transform.translation.xyxy;
+        }
+    }
+
+    bool createSimpleMesh() {
+        auto origBounds = this.bounds;
+        auto bounds = getChildrenBounds();
+        vec2 origSize = origBounds.zw - origBounds.xy;
+        vec2 size = bounds.zw - bounds.xy;
+        if (cast(int)origSize.x == cast(int)size.x && cast(int)origSize.y == cast(int)size.y) {
+//            writefln("same boundary, skip %s", size);
+            textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+            return false;
+        } else {
+//            writefln("update bounds %s->%s", origSize, size);
+            data.vertices = [
+                vec2(bounds.x, bounds.y) - transform.translation.xy,
+                vec2(bounds.x, bounds.w) - transform.translation.xy,
+                vec2(bounds.z, bounds.y) - transform.translation.xy,
+                vec2(bounds.z, bounds.w) - transform.translation.xy
+            ];
+            data.uvs = [
+                vec2(0, 0),
+                vec2(0, 1),
+                vec2(1, 0),
+                vec2(1, 1),
+            ];
+            data.indices = [
+                0, 1, 2,
+                2, 1, 3
+            ];
+            this.updateIndices();
+            this.updateVertices();
+            updateBounds();
+            size = bounds.zw - bounds.xy;
+//            writefln("mew bounds %s", size);
+        }
+        textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+        return true;
     }
 
 public:
@@ -263,12 +294,6 @@ public:
     this(MeshData data, uint uuid, Node parent = null) {
         if (data.indices.length != 0) autoResizedMesh = false;
         super(data, uuid, parent);
-    }
-
-    override
-    void beginUpdate() {
-
-        super.beginUpdate();
     }
 
     override
@@ -302,15 +327,9 @@ public:
     }
 
     override
-    void clearCache() {
-        initialized = false;
-        setIgnorePuppet(false);
-    }
-
-    override
     void setupChild(Node node) {
         if (Part part = cast(Part)node)
-            setIgnorePuppetRecurse(part, textures[0] !is null);
+            setIgnorePuppetRecurse(part, true);
     }
 
     override
@@ -345,10 +364,10 @@ public:
         if (target != this) {
             textureInvalidated = true;
             if (autoResizedMesh) {
-                auto bounds = getCombinedBounds();
-                createSimpleMesh(bounds);
-                textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
-                initialized = false;
+                if (initialized && createSimpleMesh()) {
+//                    writefln("%s: reset texture", name);
+                    initialized = false;
+                }
             }
         }
         super.notifyChange(target);
@@ -357,13 +376,16 @@ public:
     override
     void rebuffer(ref MeshData data) {
         if (data.vertices.length == 0) {
-            writefln("enable auto resize %s", name);
+//            writefln("enable auto resize %s", name);
             autoResizedMesh = true;
         } else {
-            writefln("disable auto resize %s", name);
+//            writefln("disable auto resize %s", name);
             autoResizedMesh = false;
         }
 
         super.rebuffer(data);
+        initialized = false;
+        setIgnorePuppet(false);
+        notifyChange(this);
     }
 }
