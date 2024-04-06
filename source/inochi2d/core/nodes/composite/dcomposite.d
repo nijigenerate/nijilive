@@ -268,15 +268,7 @@ public:
         this.drawContents();
 
         // No masks, draw normally
-        if (initialized)
-            drawSelf();
-        else {
-            foreach(Part child; subParts) {
-                auto camera = inGetCamera();
-                writefln("%10.3f: draw sub-parts: %s:+%s,x%s", currentTime(), child.name, camera.position, camera.scale);
-                child.drawOne();
-            }
-        }
+        drawSelf();
     }
 
     override
@@ -300,13 +292,6 @@ public:
     void clearCache() {
         initialized = false;
         setIgnorePuppet(false);
-        if (data.vertices.length == 0) {
-            writefln("enable auto resize %s", name);
-            autoResizedMesh = true;
-        } else {
-            writefln("disable auto resize %s", name);
-            autoResizedMesh = false;
-        }
     }
 
     override
@@ -354,5 +339,18 @@ public:
             }
         }
         super.notifyChange(target);
+    }
+
+    override
+    void rebuffer(ref MeshData data) {
+        if (data.vertices.length == 0) {
+            writefln("enable auto resize %s", name);
+            autoResizedMesh = true;
+        } else {
+            writefln("disable auto resize %s", name);
+            autoResizedMesh = false;
+        }
+
+        super.rebuffer(data);
     }
 }
