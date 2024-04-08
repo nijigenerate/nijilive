@@ -130,9 +130,9 @@ protected:
         }
 
         updateBounds();
-        
-        uint width = cast(uint)(bounds.z-bounds.x);
-        uint height = cast(uint)(bounds.w-bounds.y);
+        auto bounds = this.bounds;
+        uint width = cast(uint)((bounds.z-bounds.x) / transform.scale.x);
+        uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
         if (width == 0 || height == 0) return false;
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
 //        writefln("bounds=%s, translation=%s, textureOffset=%s", bounds, transform.translation, textureOffset);
