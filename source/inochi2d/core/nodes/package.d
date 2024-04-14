@@ -1069,8 +1069,8 @@ public:
             reparent(parent, offset);
             this.finalize();
             if (deepCopy) {
-                foreach (i, srcChild; src.children) {
-                    srcChild.reparent(this, i);
+                while (src.children.length != 0) {
+                    src.children[0].reparent(this, src.children.length - 1);
                 }
             }
         } else {
@@ -1115,10 +1115,10 @@ public:
 //
 private {
     Node delegate(Node parent)[string] typeFactories;
+}
 
-    Node inInstantiateNode(string id, Node parent = null) {
-        return typeFactories[id](parent);
-    }
+Node inInstantiateNode(string id, Node parent = null) {
+    return typeFactories[id](parent);
 }
 
 void inRegisterNodeType(T)() if (is(T : Node)) {
