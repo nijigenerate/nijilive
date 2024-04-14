@@ -497,4 +497,20 @@ public:
             child.transformChanged();
         }
     }
+
+    override
+    void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
+        super.copyFrom(src, replacable, deepCopy);
+
+        if (auto mgroup = cast(MeshGroup)src) {
+            dynamic = mgroup.dynamic;
+            translateChildren = mgroup.translateChildren;
+            clearCache();
+        } else if (auto dcomposite = cast(DynamicComposite)src) {
+            dynamic = true;
+            translateChildren = true;
+            clearCache();
+        }
+    }
+
 }

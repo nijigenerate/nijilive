@@ -429,4 +429,21 @@ public:
             initialized = false;
        }
     }
+
+    override
+    void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
+        super.copyFrom(src, replacable, deepCopy);
+
+        textures = [null, null, null];
+        initialized = false;
+        if (auto dcomposite = cast(DynamicComposite)src) {
+            autoResizedMesh = dcomposite.autoResizedMesh;
+        } else {
+            autoResizedMesh = false;
+            if (data.vertices.length == 0) {
+                autoResizedMesh = true;
+                createSimpleMesh();
+            }
+        }
+    }
 }

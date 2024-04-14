@@ -1051,6 +1051,44 @@ public:
             child.transformChanged();
         }
     }
+
+    void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
+        name = src.name;
+        zsort_ = src.zsort_;
+        lockToRoot_ = src.lockToRoot_;
+        nodePath_ = src.nodePath_;
+        changed = src.changed;
+        localTransform = src.localTransform;
+        if (replacable) {
+            globalTransform = src.globalTransform;
+            uuid_ = src.uuid_;
+            Node parent = src.parent_;
+            puppet_ = src.puppet_;
+            ulong offset = 0;
+            src.reparent(null, 0);
+            reparent(parent, offset);
+            this.finalize();
+            if (deepCopy) {
+                foreach (i, srcChild; src.children) {
+                    srcChild.reparent(this, i);
+                }
+            }
+        } else {
+            uuid_ = inCreateUUID();
+            if (deepCopy) {
+                foreach (srcChild; src.children) {
+                    auto child = inInstantiateNode(srcChild.typeId, this);
+                    child.copyFrom(srcChild);
+                }
+            }
+        }
+    }
+
+    Node duplicate() {
+        Node node = inInstantiateNode(typeId);
+        node.copyFrom(this);
+        return node;
+    }
 }
 
 //

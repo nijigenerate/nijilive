@@ -907,6 +907,28 @@ public:
         }
     }
 
+    override
+    void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
+        super.copyFrom(src, replacable, deepCopy);
+
+        if (auto part = cast(Part)src) {
+            offsetMaskThreshold = 0;
+            offsetOpacity = 1;
+            offsetEmissionStrength = 1;
+            offsetTint = vec3(0);
+            offsetScreenTint = vec3(0);
+
+            textures = part.textures.dup;
+            textureIds = part.textureIds.dup;
+            masks = part.masks.dup;
+            blendingMode = part.blendingMode;
+            maskAlphaThreshold = part.maskAlphaThreshold;
+            opacity = part.opacity;
+            emissionStrength = part.emissionStrength;
+            tint = part.tint;
+            screenTint = part.screenTint;
+        }
+    }
 }
 
 /**

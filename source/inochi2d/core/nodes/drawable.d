@@ -591,6 +591,24 @@ public:
         }
         updateBounds();
     }
+
+    override
+    void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
+        super.copyFrom(src, replacable, deepCopy);
+        if (auto drawable = cast(Drawable)src) {
+            MeshData newData;
+            newData.vertices = drawable.data.vertices.dup;
+            newData.uvs = drawable.data.uvs.dup;
+            newData.indices = drawable.data.indices.dup;
+            if (drawable.data.gridAxes.length > 0) {
+                foreach (ax; drawable.data.gridAxes) {
+                    newData.gridAxes ~= ax.dup;
+                }
+            }
+            rebuffer(newData);
+            deformation = drawable.deformation.dup;
+        }
+    }
 }
 
 version (InDoesRender) {
