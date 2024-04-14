@@ -1069,6 +1069,7 @@ public:
             reparent(parent, offset);
             this.finalize();
             if (deepCopy) {
+                children_.length = 0;
                 while (src.children.length != 0) {
                     src.children[0].reparent(this, src.children.length - 1);
                 }
@@ -1076,6 +1077,7 @@ public:
         } else {
             uuid_ = inCreateUUID();
             if (deepCopy) {
+                children_.length = 0;
                 foreach (srcChild; src.children) {
                     auto child = inInstantiateNode(srcChild.typeId, this);
                     child.copyFrom(srcChild);
@@ -1084,7 +1086,7 @@ public:
         }
     }
 
-    Node duplicate() {
+    Node dup() {
         Node node = inInstantiateNode(typeId);
         node.copyFrom(this);
         return node;
