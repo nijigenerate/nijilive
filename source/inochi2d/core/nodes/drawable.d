@@ -583,6 +583,14 @@ public:
         welded = validLinks;
         setupSelf();
     }
+
+    override
+    void centralize() {
+        foreach (child; children) {
+            child.centralize();
+        }
+        updateBounds();
+    }
 }
 
 version (InDoesRender) {

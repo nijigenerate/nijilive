@@ -385,4 +385,48 @@ public:
         setIgnorePuppet(false);
         notifyChange(this);
     }
+
+    override
+    void centralize() {
+        super.centralize();
+        vec4 bounds;
+        vec4[] childTranslations;
+        if (children.length > 0) {
+            bounds = children[0].getCombinedBounds();
+            foreach (child; children) {
+                auto cbounds = child.getCombinedBounds();
+                bounds.x = min(bounds.x, cbounds.x);
+                bounds.y = min(bounds.y, cbounds.y);
+                bounds.z = max(bounds.z, cbounds.z);
+                bounds.w = max(bounds.w, cbounds.w);
+                childTranslations ~= child.transform.matrix() * vec4(0, 0, 0, 1);
+            }
+        } else {
+            bounds = transform.translation.xyxy;
+        }
+        vec2 center = (bounds.xy + bounds.zw) / 2;
+        if (parent !is null) {
+            center = (parent.transform.matrix.inverse * vec4(center, 0, 1)).xy;
+        }
+        auto diff = center - localTransform.translation.xy;
+        localTransform.translation.x = center.x;
+        localTransform.translation.y = center.y;
+        if (!autoResizedMesh) {
+            foreach (ref v; vertices) {
+                v -= diff;
+            }
+            updateBounds();
+            initialized = false;
+        }
+        transformChanged();
+        foreach (i, child; children) {
+            child.localTransform.translation = (transform.matrix.inverse * childTranslations[i]).xyz;
+            child.transformChanged();
+        }
+        if (autoResizedMesh) {
+            createSimpleMesh();
+            updateBounds();
+            initialized = false;
+       }
+    }
 }
