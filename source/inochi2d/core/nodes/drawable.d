@@ -593,8 +593,8 @@ public:
     }
 
     override
-    void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
-        super.copyFrom(src, replacable, deepCopy);
+    void copyFrom(Node src, bool inPlace = false, bool deepCopy = true) {
+        super.copyFrom(src, inPlace, deepCopy);
         if (auto drawable = cast(Drawable)src) {
             MeshData newData;
             newData.vertices = drawable.data.vertices.dup;

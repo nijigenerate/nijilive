@@ -1052,7 +1052,7 @@ public:
         }
     }
 
-    void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
+    void copyFrom(Node src, bool inPlace = false, bool deepCopy = true) {
         name = src.name;
         enabled = src.enabled;
         zsort_ = src.zsort_;
@@ -1060,12 +1060,14 @@ public:
         nodePath_ = src.nodePath_;
         changed = src.changed;
         localTransform = src.localTransform;
-        if (replacable) {
+        if (inPlace) {
             globalTransform = src.globalTransform;
             uuid_ = src.uuid_;
             Node parent = src.parent_;
             puppet_ = src.puppet_;
             ulong offset = 0;
+            if (parent !is null)
+                offset = parent.children.countUntil(src);
             src.reparent(null, 0);
             reparent(parent, offset);
             this.finalize();
