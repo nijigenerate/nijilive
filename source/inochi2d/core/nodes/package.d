@@ -1054,6 +1054,7 @@ public:
 
     void copyFrom(Node src, bool replacable = false, bool deepCopy = true) {
         name = src.name;
+        enabled = src.enabled;
         zsort_ = src.zsort_;
         lockToRoot_ = src.lockToRoot_;
         nodePath_ = src.nodePath_;

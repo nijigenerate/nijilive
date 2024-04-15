@@ -334,6 +334,14 @@ public:
     }
 
     override
+    void setupSelf() {
+        transformChanged();
+        if (autoResizedMesh) {
+            createSimpleMesh();
+        }
+    }
+
+    override
     void normalizeUV(MeshData* data) {
         import std.algorithm: map;
         import std.algorithm: minElement, maxElement;
