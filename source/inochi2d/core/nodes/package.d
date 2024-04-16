@@ -1059,16 +1059,15 @@ public:
         lockToRoot_ = src.lockToRoot_;
         nodePath_ = src.nodePath_;
         changed = src.changed;
-        localTransform = src.localTransform;
+//        localTransform = src.localTransform;
         if (inPlace) {
-            globalTransform = src.globalTransform;
             uuid_ = src.uuid_;
             Node parent = src.parent_;
+            auto tmpTransform = src.transform;
+            localTransform = tmpTransform;
+            recalculateTransform = true;
             puppet_ = src.puppet_;
             ulong offset = 0;
-            if (parent !is null)
-                offset = parent.children.countUntil(src);
-            src.reparent(null, 0);
             reparent(parent, offset);
             this.finalize();
             if (deepCopy) {
@@ -1077,13 +1076,17 @@ public:
                     src.children[0].reparent(this, src.children.length - 1);
                 }
             }
+            src.reparent(null, 0);
+            src.localTransform = tmpTransform;
         } else {
             uuid_ = inCreateUUID();
             if (deepCopy) {
                 children_.length = 0;
-                foreach (srcChild; src.children) {
-                    auto child = inInstantiateNode(srcChild.typeId, this);
+                localTransform = src.transform;
+                foreach (i, srcChild; src.children) {
+                    auto child = inInstantiateNode(srcChild.typeId, null);
                     child.copyFrom(srcChild);
+                    child.reparent(this, i);
                 }
             }
         }
