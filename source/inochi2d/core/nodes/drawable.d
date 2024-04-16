@@ -594,6 +594,12 @@ public:
 
     override
     void copyFrom(Node src, bool inPlace = false, bool deepCopy = true) {
+        bool autoResizedMesh = false;
+        auto dcomposite = cast(DynamicComposite)src;
+        if (dcomposite !is null) {
+            autoResizedMesh = dcomposite.autoResizedMesh;
+            dcomposite.autoResizedMesh = false;
+        }
         super.copyFrom(src, inPlace, deepCopy);
         if (auto drawable = cast(Drawable)src) {
             MeshData newData;
@@ -608,6 +614,8 @@ public:
             rebuffer(newData);
             deformation = drawable.deformation.dup;
         }
+        if (dcomposite !is null)
+            dcomposite.autoResizedMesh = autoResizedMesh;
     }
 }
 

@@ -293,7 +293,7 @@ public:
 
     override
     void drawOne() {
-        if (!enabled) return;
+        if (!enabled || puppet is null) return;
         
         this.selfSort();
         this.drawContents();
@@ -304,7 +304,7 @@ public:
 
     override
     void draw() {
-        if (!enabled) return;
+        if (!enabled || puppet is null) return;
         this.drawOne();
     }
 
