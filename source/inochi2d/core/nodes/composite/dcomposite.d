@@ -343,25 +343,7 @@ public:
 
     override
     void normalizeUV(MeshData* data) {
-        import std.algorithm: map;
-        import std.algorithm: minElement, maxElement;
-        if (data.uvs.length != 0) {
-            float minX = data.uvs.map!(a => a.x).minElement;
-            float maxX = data.uvs.map!(a => a.x).maxElement;
-            float minY = data.uvs.map!(a => a.y).minElement;
-            float maxY = data.uvs.map!(a => a.y).maxElement;
-            float width = maxX - minX;
-            float height = maxY - minY;
-            float centerX = (minX + maxX) / 2 / width;
-            float centerY = (minY + maxY) / 2 / height;
-            foreach(i; 0..data.uvs.length) {
-                // Texture 0 is always albedo texture
-                auto tex = textures[0];
-                data.uvs[i].x /= width;
-                data.uvs[i].y /= height;
-                data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);
-            }
-        }
+        Drawable.normalizeUV(data);
     }
 
     override
@@ -452,6 +434,12 @@ public:
                 autoResizedMesh = true;
                 createSimpleMesh();
             }
+        }
+        if (auto composite = cast(Composite)src) {
+            blendingMode = composite.blendingMode;
+            opacity = composite.opacity;
+            autoResizedMesh = true;
+            createSimpleMesh();
         }
     }
 }
