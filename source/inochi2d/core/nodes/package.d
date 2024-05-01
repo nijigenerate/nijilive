@@ -71,6 +71,12 @@ void inClearUUIDs() {
     takenUUIDs.length = 0;
 }
 
+enum NotifyReason {
+    Initialized,
+    Transformed,
+    StructureChanged,
+}
+
 /**
     A node in the Inochi2D rendering tree
 */
@@ -1005,9 +1011,9 @@ public:
     void clearCache() { }
     void normalizeUV(MeshData* data) { }
 
-    void notifyChange(Node target) {
+    void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
         if (target == this) changed = true;
-        if (parent !is null) parent.notifyChange(target);
+        if (parent !is null) parent.notifyChange(target, reason);
     }
 
     bool getEnabled() { return enabled; }

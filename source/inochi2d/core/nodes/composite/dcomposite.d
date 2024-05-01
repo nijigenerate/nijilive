@@ -347,7 +347,7 @@ public:
     }
 
     override
-    void notifyChange(Node target) {
+    void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
         if (target != this) {
             textureInvalidated = true;
             if (autoResizedMesh) {
@@ -357,7 +357,7 @@ public:
                 }
             }
         }
-        super.notifyChange(target);
+        super.notifyChange(target, reason);
     }
 
     override
@@ -428,11 +428,16 @@ public:
         initialized = false;
         if (auto dcomposite = cast(DynamicComposite)src) {
             autoResizedMesh = dcomposite.autoResizedMesh;
+            if (autoResizedMesh) {
+                createSimpleMesh();
+                updateBounds();
+            }
         } else {
             autoResizedMesh = false;
             if (data.vertices.length == 0) {
                 autoResizedMesh = true;
                 createSimpleMesh();
+                updateBounds();
             }
         }
         if (auto composite = cast(Composite)src) {
