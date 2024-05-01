@@ -75,6 +75,7 @@ enum NotifyReason {
     Initialized,
     Transformed,
     StructureChanged,
+    AttributeChanged,
 }
 
 /**
@@ -176,6 +177,9 @@ protected:
 
     @Ignore
     mat4* oneTimeTransform = null;
+
+    @Ignore
+    void delegate(Node, NotifyReason)[] notifyListeners;
 
     @Ignore
     class MatrixHolder {
@@ -1014,6 +1018,18 @@ public:
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
         if (target == this) changed = true;
         if (parent !is null) parent.notifyChange(target, reason);
+        foreach (listener; notifyListeners) {
+            listener(target, reason);
+        }
+    }
+
+    void addNotifyListener(void delegate(Node, NotifyReason) listener) {
+        if (listener !is null)
+            notifyListeners ~= listener;
+    }
+
+    void removeNotifyListener(void delegate(Node, NotifyReason) listener) {
+        notifyListeners = notifyListeners.removeByValue(listener);
     }
 
     bool getEnabled() { return enabled; }
