@@ -23,6 +23,7 @@ public import inochi2d.core.nodes.composite.dcomposite;
 import inochi2d.core.nodes.utils;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
+import std.string;
 
 //public import inochi2d.core.nodes.shapes; // This isn't mainline yet!
 
@@ -815,6 +816,7 @@ public:
 
         if (!data["name"].isEmpty) {
             if (auto exc = data["name"].deserializeValue(this.name)) return exc;
+            this.name = this.name.toStringz.fromStringz;
         }
 
         if (auto exc = data["enabled"].deserializeValue(this.enabled)) return exc;

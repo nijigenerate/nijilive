@@ -330,6 +330,8 @@ private:
         // Not found
         return null;
     }
+package(inochi2d):
+    Node getPuppetRootNode() { return puppetRootNode; }
 
 public:
     /**

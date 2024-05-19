@@ -232,19 +232,19 @@ public:
     /**
         Creates a new empty texture
     */
-    this(int width, int height, int channels = 4) {
+    this(int width, int height, int channels = 4, bool stencil = false) {
 
         // Create an empty texture array with no data
         ubyte[] empty = new ubyte[width_*height_*channels];
 
         // Pass it on to the other texturing
-        this(empty, width, height, channels, channels);
+        this(empty, width, height, channels, channels, stencil);
     }
 
     /**
         Creates a new texture from specified data
     */
-    this(ubyte[] data, int width, int height, int inChannels = 4, int outChannels = 4) {
+    this(ubyte[] data, int width, int height, int inChannels = 4, int outChannels = 4, bool stencil = false) {
         this.width_ = width;
         this.height_ = height;
         this.channels_ = outChannels;
@@ -257,6 +257,7 @@ public:
         if (outChannels == 1) this.outColorMode_ = GL_RED;
         else if (outChannels == 2) this.outColorMode_ = GL_RG;
         else if (outChannels == 3) this.outColorMode_ = GL_RGB;
+        if (stencil) this.outColorMode_ = GL_STENCIL_INDEX8;
 
         // Generate OpenGL texture
         glGenTextures(1, &id);

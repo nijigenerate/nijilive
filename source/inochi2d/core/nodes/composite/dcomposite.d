@@ -36,30 +36,6 @@ private:
 
     this() { }
 
-    void drawContents() {
-        // Optimization: Nothing to be drawn, skip context switching
-//        writefln("drawComponents:%s, %d", name, subParts.length);
-//        if (subParts.length == 0) return;
-
-        if (beginComposite()) {
-            mat4* origTransform = oneTimeTransform;
-            mat4 tmpTransform = transform.matrix.inverse;
-//            writefln("transform=%s", transform);
-            Camera camera = inGetCamera();
-//            writefln("%10.3f: draw sub-parts: %s(%dx%d):+%s,x%s", currentTime(), name, textures[0].width, textures[0].height, camera.position, camera.scale);
-            setOneTimeTransform(&tmpTransform);
-            foreach(Part child; subParts) {
-//                writefln("draw %s::%s", name, child.name);
-                child.drawOne();
-            }
-            setOneTimeTransform(origTransform);
-            endComposite();
-            textures[0].genMipmap();
-        }
-        textureInvalidated = false;
-    }
-
-
     void selfSort() {
         import std.math : cmp;
         sort!((a, b) => cmp(
@@ -71,7 +47,6 @@ private:
 
         // Don't need to scan null nodes
         if (node is null) return;
-        //writefln("scanParts: %s-->%s", name, node.name);
 
         // Do the main check
         DynamicComposite dcomposite = cast(DynamicComposite)node;
@@ -84,7 +59,6 @@ private:
                     scanPartsRecurse(child);
                 }
             } else {
-                //writefln("Recursive scanParts call to %s", name);
                 dcomposite.scanParts();
             }
             
@@ -96,7 +70,6 @@ private:
                 scanPartsRecurse(child);
             }
         } else if (dcomposite !is null && node != this) {
-            //writefln("Recursive scanParts call to %s", name);
             dcomposite.scanParts();
         }
     }
@@ -120,13 +93,18 @@ private:
 protected:
     GLuint cfBuffer;
     GLint origBuffer;
-//    Texture stencil;
+    Texture stencil;
     GLint[4] origViewport;
     bool textureInvalidated = false;
+
     bool initTarget() {
         if (textures[0] !is null) {
             textures[0].dispose();
             textures[0] = null;
+        }
+        if (stencil !is null) {
+            stencil.dispose();
+            stencil = null;
         }
 
         updateBounds();
@@ -135,23 +113,22 @@ protected:
         uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
         if (width == 0 || height == 0) return false;
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
-//        writefln("bounds=%s, translation=%s, textureOffset=%s", bounds, transform.translation, textureOffset);
         setIgnorePuppet(true);
 
         glGenFramebuffers(1, &cfBuffer);
         ubyte[] buffer;
         buffer.length = cast(uint)(width) * cast(uint)(height) * 4;
         textures = [new Texture(ShallowTexture(buffer, width, height)), null, null];
-//        stencil = new Texture(ShallowTexture(buffer, width, height));
+        stencil = new Texture(width, height, 1, true);
 
         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0].getTextureId(), 0);
-//        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
+        glClear(GL_STENCIL_BUFFER_BIT);
 
         // go back to default fb
         glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-//        scanParts!true();
 
         initialized = true;
         textureInvalidated = true;
@@ -160,16 +137,13 @@ protected:
     bool beginComposite() {
         if (!initialized) {
             if (!initTarget()) {
-//                writefln("initialize failed:%s", name);
                 return false;
             } else {
-//                writefln("initialized:%s", name);
             }
         }
         if (textureInvalidated) {
             glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
             glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
-//            writefln("%s: framebuffer to %x, texture=%x(%dx%d)", name, cfBuffer, textures[0].getTextureId(), textures[0].width, textures[0].height);
             glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
             inPushViewport(textures[0].width, textures[0].height);
             Camera camera = inGetCamera();
@@ -186,8 +160,6 @@ protected:
         return textureInvalidated;
     }
     void endComposite() {
-//        import std.stdio;
-//        writefln("framebuffer to %x", origBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
         inPopViewport();
         glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
@@ -291,11 +263,29 @@ public:
         super(data, uuid, parent);
     }
 
+    void drawContents() {
+        // Optimization: Nothing to be drawn, skip context switching
+
+        this.selfSort();
+        if (beginComposite()) {
+            mat4* origTransform = oneTimeTransform;
+            mat4 tmpTransform = transform.matrix.inverse;
+            Camera camera = inGetCamera();
+            setOneTimeTransform(&tmpTransform);
+            foreach(Part child; subParts) {
+                child.drawOne();
+            }
+            setOneTimeTransform(origTransform);
+            endComposite();
+            textures[0].genMipmap();
+        }
+        textureInvalidated = false;
+    }
+
     override
     void drawOne() {
         if (!enabled || puppet is null) return;
         
-        this.selfSort();
         this.drawContents();
 
         // No masks, draw normally
@@ -317,8 +307,13 @@ public:
         if (children.length > 0) {
             scanPartsRecurse(children[0].parent);
         }
-//        import std.algorithm;
-//        writefln("%s: %s", name, subParts.map!(p => p.name));
+    }
+
+    void scanSubParts(Node[] childNodes) { 
+        subParts.length = 0;
+        foreach (child; childNodes) {
+            scanPartsRecurse(child);
+        }
     }
 
     override
@@ -447,4 +442,6 @@ public:
             createSimpleMesh();
         }
     }
+
+    void invalidate() { textureInvalidated = true; }
 }
