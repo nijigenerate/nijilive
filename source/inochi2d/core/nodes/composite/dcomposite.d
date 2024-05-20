@@ -19,6 +19,7 @@ import std.algorithm;
 import std.algorithm.sorting;
 import std.stdio;
 import std.array;
+import std.format;
 
 package(inochi2d) {
     void inInitDComposite() {
@@ -31,11 +32,12 @@ package(inochi2d) {
 */
 @TypeId("DynamicComposite")
 class DynamicComposite : Part {
-private:
+protected:
     bool initialized = false;
 
     this() { }
 
+public:
     void selfSort() {
         import std.math : cmp;
         sort!((a, b) => cmp(
@@ -50,6 +52,7 @@ private:
 
         // Do the main check
         DynamicComposite dcomposite = cast(DynamicComposite)node;
+        Composite composite = cast(Composite)node;
         Part part = cast(Part)node;
         if (part !is null && node != this) {
             subParts ~= part;
@@ -62,7 +65,7 @@ private:
                 dcomposite.scanParts();
             }
             
-        } else if (dcomposite is null || node == this) {
+        } else if ((dcomposite is null && composite is null) || node == this) {
 
             // Non-part nodes just need to be recursed through,
             // they don't draw anything.
@@ -71,23 +74,49 @@ private:
             }
         } else if (dcomposite !is null && node != this) {
             dcomposite.scanParts();
+        } else if (composite !is null) {
+            composite.scanParts();
         }
     }
 
-    void setIgnorePuppetRecurse(Part part, bool ignorePuppet) {
-        part.ignorePuppet = ignorePuppet;
-        foreach (child; part.children) {
-            if (Part pChild = cast(Part)child)
-                setIgnorePuppetRecurse(pChild, ignorePuppet);
+    void setIgnorePuppetRecurse(Node node, bool ignorePuppet) {
+        if (Part part = cast(Part)node) {
+            part.ignorePuppet = ignorePuppet;
+        } else if (Composite comp = cast(Composite)node) {
+            if (ignorePuppet) {
+                auto dcomposite = comp.delegated;
+                if (comp.delegated is null) {
+                    writefln("Set Ignore to composite %s-> %s", name, comp.name);
+                    dcomposite = new DynamicComposite(null);
+                    dcomposite.name = "(%s)".format(comp.name);
+//                    dcomposite.lockToRoot = true;
+                    dcomposite.setPuppet(puppet);
+                    dcomposite.parent = comp.parent;
+                }
+                dcomposite.children_ref.length = 0;
+                foreach (child; comp.children) {
+                    dcomposite.children_ref ~= child;
+                }
+                comp.setDelegation(dcomposite);
+            } else {
+                writefln("Revert Ignore to composite %s-> %s", name, comp.name);
+                comp.setDelegation(null);
+            }
+        }
+        foreach (child; node.children) {
+            setIgnorePuppetRecurse(child, ignorePuppet);
         }
     }
 
     void setIgnorePuppet(bool ignorePuppet) {
         foreach (child; children) {
-            if (Part pChild = cast(Part)child)
-                setIgnorePuppetRecurse(pChild, ignorePuppet);
+            setIgnorePuppetRecurse(child, ignorePuppet);
         }
 
+    }
+
+    void drawSelf(bool isMask = false)() {
+        super.drawSelf!isMask();
     }
 
 protected:
@@ -96,6 +125,8 @@ protected:
     Texture stencil;
     GLint[4] origViewport;
     bool textureInvalidated = false;
+
+    uint texWidth = 0, texHeight = 0;
 
     bool initTarget() {
         if (textures[0] !is null) {
@@ -108,18 +139,21 @@ protected:
         }
 
         updateBounds();
+        writefln("bounds=%s, %s", bounds, bounds.zw - bounds.xy);
         auto bounds = this.bounds;
         uint width = cast(uint)((bounds.z-bounds.x) / transform.scale.x);
         uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
         if (width == 0 || height == 0) return false;
+        texWidth = width;
+        texHeight = height;
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
         setIgnorePuppet(true);
 
         glGenFramebuffers(1, &cfBuffer);
         ubyte[] buffer;
         buffer.length = cast(uint)(width) * cast(uint)(height) * 4;
-        textures = [new Texture(ShallowTexture(buffer, width, height)), null, null];
-        stencil = new Texture(width, height, 1, true);
+        textures = [new Texture(ShallowTexture(buffer, texWidth, texHeight)), null, null];
+        stencil = new Texture(texWidth, texHeight, 1, true);
 
         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
@@ -138,7 +172,6 @@ protected:
         if (!initialized) {
             if (!initTarget()) {
                 return false;
-            } else {
             }
         }
         if (textureInvalidated) {
@@ -199,10 +232,16 @@ protected:
 
     vec4 getChildrenBounds() {
         if (subParts.length > 0) {
+            /*
             float minX = (subParts.map!(p=> p.bounds.x).array ~ [transform.translation.x]).minElement();
             float minY = (subParts.map!(p=> p.bounds.y).array ~ [transform.translation.y]).minElement();
             float maxX = (subParts.map!(p=> p.bounds.z).array ~ [transform.translation.x]).maxElement();
             float maxY = (subParts.map!(p=> p.bounds.w).array ~ [transform.translation.y]).maxElement();
+            */
+            float minX = (subParts.map!(p=> p.bounds.x).array).minElement();
+            float minY = (subParts.map!(p=> p.bounds.y).array).minElement();
+            float maxX = (subParts.map!(p=> p.bounds.z).array).maxElement();
+            float maxY = (subParts.map!(p=> p.bounds.w).array).maxElement();
             return vec4(minX, minY, maxX, maxY);
         } else {
             return transform.translation.xyxy;
@@ -210,21 +249,30 @@ protected:
     }
 
     bool createSimpleMesh() {
-        auto origBounds = bounds;
-        auto bounds = getChildrenBounds();
-        vec2 origSize = origBounds.zw - origBounds.xy;
-        vec2 size = bounds.zw - bounds.xy;
-        if (data.indices.length != 0 && cast(int)origSize.x == cast(int)size.x && cast(int)origSize.y == cast(int)size.y) {
-//            writefln("same boundary, skip %s", size);
-            textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
-            return false;
-        } else {
-//            writefln("update bounds %s->%s", origSize, size);
+        auto newBounds = getChildrenBounds();
+        vec2 origSize = textures[0] !is null? vec2(textures[0].width, textures[0].height): vec2(0, 0);
+        vec2 size = newBounds.zw - newBounds.xy;
+        bool resizing = false;
+        if (cast(int)origSize.x > cast(int)size.x) {
+            float diff = (origSize.x - size.x) / 2;
+            newBounds.z += diff;
+            newBounds.x -= diff;
+        } else if (cast(int)size.x > cast(int)origSize.x) {
+            resizing = true;
+        }
+        if (cast(int)origSize.y > cast(int)size.y) {
+            float diff = (origSize.y - size.y) / 2;
+            newBounds.w += diff;
+            newBounds.y -= diff;
+        } else if (cast(int)size.y > cast(int)origSize.y) {
+            resizing = true;
+        }
+        if (resizing) {
             MeshData newData = MeshData([
-                vec2(bounds.x, bounds.y) - transform.translation.xy,
-                vec2(bounds.x, bounds.w) - transform.translation.xy,
-                vec2(bounds.z, bounds.y) - transform.translation.xy,
-                vec2(bounds.z, bounds.w) - transform.translation.xy
+                vec2(newBounds.x, newBounds.y) - transform.translation.xy,
+                vec2(newBounds.x, newBounds.w) - transform.translation.xy,
+                vec2(newBounds.z, newBounds.y) - transform.translation.xy,
+                vec2(newBounds.z, newBounds.w) - transform.translation.xy
             ], data.uvs = [
                 vec2(0, 0),
                 vec2(0, 1),
@@ -235,13 +283,31 @@ protected:
                 2, 1, 3
             ], vec2(0, 0),[]);
             super.rebuffer(newData);
-//            writefln("mew bounds %s", size);
-
-            // FIXME: should update parameter bindings here.
+            setIgnorePuppet(false);
+        } else {
+            auto newTextureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+            if (newTextureOffset.x != textureOffset.x || newTextureOffset.y != textureOffset.y) {
+                textureOffset = newTextureOffset;
+                textureInvalidated = true;
+//                writefln("Move %s: %s", name, textureOffset);
+                MeshData newData = MeshData([
+                    vec2(newBounds.x, newBounds.y) - transform.translation.xy,
+                    vec2(newBounds.x, newBounds.w) - transform.translation.xy,
+                    vec2(newBounds.z, newBounds.y) - transform.translation.xy,
+                    vec2(newBounds.z, newBounds.w) - transform.translation.xy
+                ], data.uvs = [
+                    vec2(0, 0),
+                    vec2(0, 1),
+                    vec2(1, 0),
+                    vec2(1, 1),
+                ], data.indices = [
+                    0, 1, 2,
+                    2, 1, 3
+                ], vec2(0, 0),[]);
+                super.rebuffer(newData);
+            }
         }
-        setIgnorePuppet(false);
-        textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
-        return true;
+        return resizing;
     }
 
 public:
@@ -261,6 +327,26 @@ public:
     this(MeshData data, uint uuid, Node parent = null) {
         if (data.indices.length != 0) autoResizedMesh = false;
         super(data, uuid, parent);
+    }
+
+    override
+    void update() {
+        if (autoResizedMesh) Node.update();
+        else super.update();
+    }
+
+    override
+    void preProcess() {
+        if (!autoResizedMesh) {
+            super.preProcess();
+        } 
+    }
+
+    override
+    void postProcess() {
+        if (!autoResizedMesh) {
+            super.postProcess();
+        }
     }
 
     void drawContents() {
@@ -338,7 +424,29 @@ public:
 
     override
     void normalizeUV(MeshData* data) {
-        Drawable.normalizeUV(data);
+        import std.algorithm: map;
+        import std.algorithm: minElement, maxElement;
+        if (data.uvs.length != 0) {
+            float minX = data.uvs.map!(a => a.x).minElement;
+            float maxX = data.uvs.map!(a => a.x).maxElement;
+            float minY = data.uvs.map!(a => a.y).minElement;
+            float maxY = data.uvs.map!(a => a.y).maxElement;
+            float width = maxX - minX;
+            float height = maxY - minY;
+            if (width < bounds.z - bounds.x) {
+                width = bounds.z - bounds.x;
+            }
+            if (height < bounds.w - bounds.y) {
+                width = bounds.w - bounds.y;
+            }
+            float centerX = (minX + maxX) / 2 / width;
+            float centerY = (minY + maxY) / 2 / height;
+            foreach(i; 0..data.uvs.length) {
+                data.uvs[i].x /= width;
+                data.uvs[i].y /= height;
+                data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);
+            }
+        }
     }
 
     override
@@ -347,7 +455,7 @@ public:
             textureInvalidated = true;
             if (autoResizedMesh) {
                 if (createSimpleMesh()) {
-//                    writefln("%s: reset texture", name);
+                    writefln("%s: reset texture", name);
                     initialized = false;
                 }
             }

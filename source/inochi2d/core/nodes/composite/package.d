@@ -8,6 +8,7 @@
 */
 module inochi2d.core.nodes.composite;
 import inochi2d.core.nodes.common;
+import inochi2d.core.nodes.composite.dcomposite;
 import inochi2d.core.nodes;
 import inochi2d.fmt;
 import inochi2d.core;
@@ -15,6 +16,7 @@ import inochi2d.math;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
+import std.stdio;
 
 private {
     GLuint cVAO;
@@ -91,11 +93,25 @@ package(inochi2d) {
 */
 @TypeId("Composite")
 class Composite : Node {
+public:
+    DynamicComposite delegated = null;
 private:
 
     this() { }
 
+    void synchronizeDelegated() {
+        if (delegated) {
+            delegated.opacity = opacity;
+            delegated.blendingMode = blendingMode;
+        }
+    }
+
     void drawContents() {
+        if (delegated) {
+//            writefln("%s: delegate drawContents", name);
+            delegated.drawContents();
+            return;
+        }
 
         // Optimization: Nothing to be drawn, skip context switching
         if (subParts.length == 0) return;
@@ -113,8 +129,15 @@ private:
         RENDERING
     */
     void drawSelf() {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate drawSelf", name);
+            delegated.drawSelf();
+            return;
+        } else {
+//            writefln("%s: drawSelf", name);
+        }
         if (subParts.length == 0) return;
-
         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
         glBindVertexArray(cVAO);
 
@@ -147,6 +170,13 @@ private:
     }
 
     void selfSort() {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate: selfSort", name);
+            delegated.selfSort();
+            return;
+        }
+
         import std.math : cmp;
         sort!((a, b) => cmp(
             a.zSort, 
@@ -154,6 +184,12 @@ private:
     }
 
     void scanPartsRecurse(ref Node node) {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate scanPartsRecurse", name);
+            delegated.scanPartsRecurse(node);
+            return;
+        }
 
         // Don't need to scan null nodes
         if (node is null) return;
@@ -466,6 +502,14 @@ public:
 
     override
     void drawOne() {
+        if (delegated) {
+            synchronizeDelegated();
+            writefln("%s: delegate: drawOne", name);
+            delegated.drawOne();
+            return;
+        } else {
+            writefln("%s: drawOne", name);
+        }
         if (!enabled) return;
         
         this.selfSort();
@@ -496,6 +540,14 @@ public:
 
     override
     void draw() {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate: draw", name);
+            delegated.draw();
+            return;
+        } else {
+//            writefln("%s: draw", name);
+        }
         if (!enabled) return;
         this.drawOne();
     }
@@ -520,6 +572,12 @@ public:
         Scans for parts to render
     */
     void scanParts() {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate: scanParts", name);
+            delegated.scanSubParts(children);
+            return;
+        }
         subParts.length = 0;
         if (children.length > 0) {
             scanPartsRecurse(children[0].parent);
@@ -527,7 +585,59 @@ public:
     }
 
     override
+    void setupChild(Node node) {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate: setupChild", name);
+            delegated.setupChild(node);
+        }
+    }
+
+    override
+    void releaseChild(Node node) {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate: releaseChild", name);
+            delegated.releaseChild(node);
+        }
+    }
+
+    override
+    void setupSelf() {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate: setupSelf", name);
+            delegated.setupSelf();
+        }
+    }
+
+    override
+    void normalizeUV(MeshData* data) {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: normalizeUV", name);
+            delegated.normalizeUV(data);
+        }
+    }
+
+    override
+    void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
+        if (target == delegated) return;
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: delegate: notifyChange, %s", name, target.name);
+            delegated.notifyChange(target, reason);
+        }
+    }
+
+    override
     void centralize() {
+        if (delegated) {
+            synchronizeDelegated();
+//            writefln("%s: centralize", name);
+            delegated.centralize();
+            return;
+        }
         super.centralize();
         vec4 bounds;
         vec4[] childTranslations;
@@ -557,5 +667,9 @@ public:
             child.transformChanged();
         }
 
+    }
+
+    void setDelegation(DynamicComposite delegated) {
+        this.delegated = delegated;
     }
 }

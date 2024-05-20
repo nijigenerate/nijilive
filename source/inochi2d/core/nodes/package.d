@@ -236,6 +236,13 @@ package(inochi2d):
         this.puppet_ = puppet;
     }
 
+    /**
+        Gets a list of this node's children
+    */
+    final ref Node[] children_ref() {
+        return children_;
+    }
+
 public:
 
     /**
