@@ -158,6 +158,7 @@ protected:
         texWidth = width + 1;
         texHeight = height + 1;
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+//        textureOffset = (transform.matrix()*vec4((bounds.zw + bounds.xy) / 2, 0, 1)).xy;
         setIgnorePuppet(true);
 
         glGenFramebuffers(1, &cfBuffer);
@@ -198,7 +199,7 @@ protected:
             inPushViewport(textures[0].width, textures[0].height);
             Camera camera = inGetCamera();
             camera.scale = vec2(1, -1);
-            camera.position = -textureOffset;
+            camera.position = (mat4.identity.scaling(transform.scale.x == 0 ? 0: 1/transform.scale.x, transform.scale.y == 0? 0: 1/transform.scale.y, 1) * mat4.identity.rotateZ(-transform.rotation.z) * -vec4(textureOffset, 0, 1)).xy;
             glViewport(0, 0, textures[0].width, textures[0].height);
             glClearColor(0, 0, 0, 0);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -299,6 +300,7 @@ protected:
             autoResizedSize = newBounds.zw - newBounds.xy;
             setIgnorePuppet(false);
         } else {
+//            auto newTextureOffset = (transform.matrix()*vec4((bounds.zw + bounds.xy) / 2, 0, 1)).xy;
             auto newTextureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
             if (newTextureOffset.x != textureOffset.x || newTextureOffset.y != textureOffset.y) {
                 textureOffset = newTextureOffset;
@@ -344,7 +346,6 @@ public:
     void update() {
         if (autoResizedMesh) {
             if (shouldUpdateVertices) {
-                //updateVertices();
                 shouldUpdateVertices = false;
             }
             Node.update();
