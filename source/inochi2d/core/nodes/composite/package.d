@@ -670,6 +670,10 @@ public:
     }
 
     void setDelegation(DynamicComposite delegated) {
+        if (this.delegated && this.delegated != delegated) {
+            this.delegated.children_ref.length = 0;
+            this.delegated.parent = null;
+        }
         this.delegated = delegated;
     }
 }
