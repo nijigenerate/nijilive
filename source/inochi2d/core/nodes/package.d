@@ -569,10 +569,13 @@ public:
             // Try to find ourselves in our parent
             // note idx will be -1 if we can't be found
             ptrdiff_t idx = parent_.children_.countUntil(this);
-            assert(idx >= 0, "Invalid parent-child relationship!");
+            if (idx >= 0) {
+                // Following happens when parent is shadowed by system (DynamicComposite cases.)
+                //assert(idx >= 0, "Invalid parent-child relationship!");
 
-            // Remove ourselves
-            parent_.children_ = parent_.children_.remove(idx);
+                // Remove ourselves
+                parent_.children_ = parent_.children_.remove(idx);
+            }
         }
 
         // If we want to become parentless we need to handle that
