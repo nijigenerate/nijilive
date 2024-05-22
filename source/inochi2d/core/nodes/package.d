@@ -379,31 +379,20 @@ public:
         The transform in world space
     */
     @Ignore
-    Transform transform(bool ignoreParam=false)() {
+//    Transform transform(bool ignoreParam=false)() {
+    Transform transform() {
         if (recalculateTransform) {
             localTransform.update();
             offsetTransform.update();
 
-            static if (!ignoreParam) {
-                if (lockToRoot_)
-                    globalTransform = localTransform.calcOffset(offsetTransform) * puppet.root.localTransform;
-                else if (parent !is null)
-                    globalTransform = localTransform.calcOffset(offsetTransform) * parent.transform();
-                else
-                    globalTransform = localTransform.calcOffset(offsetTransform);
+            if (lockToRoot_)
+                globalTransform = localTransform.calcOffset(offsetTransform) * puppet.root.localTransform;
+            else if (parent !is null)
+                globalTransform = localTransform.calcOffset(offsetTransform) * parent.transform();
+            else
+                globalTransform = localTransform.calcOffset(offsetTransform);
 
-                recalculateTransform = false;
-            } else {
-
-                if (lockToRoot_)
-                    globalTransform = localTransform * puppet.root.localTransform;
-                else if (parent !is null)
-                    globalTransform = localTransform * parent.transform();
-                else
-                    globalTransform = localTransform;
-
-                recalculateTransform = false;
-            }
+            recalculateTransform = false;
         }
 
         return globalTransform;

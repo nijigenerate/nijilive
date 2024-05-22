@@ -30,7 +30,18 @@ protected:
         dcomposite.parent(puppet.getPuppetRootNode());
         puppet.root.parent(cast(Node)dcomposite);
         dcomposite.setPuppet(puppet);
-        // ToDo: should force update image after insertion of dcomposite.
+        /*
+        void reloadNode(Node node) {
+            foreach (child; node.children) {
+                reloadNode(child);
+                child.notifyChange(child);
+            }
+            node.clearCache();
+        }
+        reloadNode(snapshotPuppet.root);
+        */
+        snapshotPuppet.update();
+
     }
 
 public:

@@ -144,8 +144,6 @@ protected:
 
     uint texWidth = 0, texHeight = 0;
     vec2 autoResizedSize;
-    vec2 lastScale;
-    vec3 lastRotation;
 
     bool initTarget() {
         if (textures[0] !is null) {
@@ -205,7 +203,10 @@ protected:
                 return false;
             }
         }
-        textureInvalidated = true;
+        if (autoResizedMesh) {
+            // autoResizedMesh mode has to update image in every frame.
+            textureInvalidated = true;
+        }
         if (textureInvalidated) {
             glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
             glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
@@ -356,13 +357,38 @@ public:
         super(data, uuid, parent);
     }
 
+    @Ignore
+    override
+    Transform transform() {
+        if (autoResizedMesh) {
+            if (recalculateTransform) {
+                localTransform.update();
+                offsetTransform.update();
+
+                auto parentTransform = parent.transform();
+                parentTransform.rotation = vec3(0, 0, 0);
+                parentTransform.scale = vec2(1, 1);
+                parentTransform.update();
+                if (lockToRoot())
+                    globalTransform = localTransform.calcOffset(offsetTransform) * puppet.root.localTransform;
+                else if (parent !is null)
+                    globalTransform = localTransform.calcOffset(offsetTransform) * parentTransform;
+                else
+                    globalTransform = localTransform.calcOffset(offsetTransform);
+
+                recalculateTransform = false;
+            }
+
+            return globalTransform;
+        } else {
+            return super.transform();
+        }
+    }
+
+
     override
     void update() {
         if (autoResizedMesh) {
-            if (transform.scale.x != lastScale.x || transform.scale.y != lastScale.y || transform.rotation.z != lastRotation.z)
-                textureInvalidated = true;
-            lastScale = transform.scale;
-            lastRotation = transform.rotation;
             if (shouldUpdateVertices) {
                 shouldUpdateVertices = false;
             }
