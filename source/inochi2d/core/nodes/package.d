@@ -85,7 +85,6 @@ enum NotifyReason {
 @TypeId("Node")
 class Node : ISerializable {
 private:
-    this() { }
 
     @Ignore
     Puppet puppet_;
@@ -338,6 +337,8 @@ public:
 
         lockToRoot_ = value;
     }
+
+    this() { }
 
     /**
         Constructs a new puppet root node

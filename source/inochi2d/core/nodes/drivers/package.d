@@ -18,12 +18,13 @@ public import inochi2d.core.nodes.drivers.simplephysics;
 @TypeId("Driver")
 abstract class Driver : Node {
 private:
-    this() { }
 
 protected:
     /**
         Constructs a new Driver node
     */
+    this() { }
+
     this(uint uuid, Node parent = null) {
         super(uuid, parent);
     }

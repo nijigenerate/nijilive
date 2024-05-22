@@ -35,9 +35,9 @@ class DynamicComposite : Part {
 protected:
     bool initialized = false;
 
+public:
     this() { }
 
-public:
     void selfSort() {
         import std.math : cmp;
         sort!((a, b) => cmp(
