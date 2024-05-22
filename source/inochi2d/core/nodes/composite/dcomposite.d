@@ -144,6 +144,8 @@ protected:
 
     uint texWidth = 0, texHeight = 0;
     vec2 autoResizedSize;
+    vec2 lastScale;
+    vec3 lastRotation;
 
     bool initTarget() {
         if (textures[0] !is null) {
@@ -157,7 +159,7 @@ protected:
 
 //        updateVertices();
         updateBounds();
-        writefln("%s: initTarget with bounds=%s, size=%s", name, bounds, bounds.zw - bounds.xy);
+//        writefln("%s: initTarget with bounds=%s, size=%s", name, bounds, bounds.zw - bounds.xy);
         auto bounds = this.bounds;
         uint width = cast(uint)((bounds.z-bounds.x) / transform.scale.x);
         uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
@@ -203,6 +205,7 @@ protected:
                 return false;
             }
         }
+        textureInvalidated = true;
         if (textureInvalidated) {
             glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
             glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
@@ -356,6 +359,10 @@ public:
     override
     void update() {
         if (autoResizedMesh) {
+            if (transform.scale.x != lastScale.x || transform.scale.y != lastScale.y || transform.rotation.z != lastRotation.z)
+                textureInvalidated = true;
+            lastScale = transform.scale;
+            lastRotation = transform.rotation;
             if (shouldUpdateVertices) {
                 shouldUpdateVertices = false;
             }
@@ -389,6 +396,7 @@ public:
             foreach(Part child; subParts) {
                 child.drawOne();
             }
+//            writefln("invalidate: %s", name);
             setOneTimeTransform(origTransform);
             endComposite();
             textures[0].genMipmap();
