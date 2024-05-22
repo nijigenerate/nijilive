@@ -235,7 +235,7 @@ public:
     this(int width, int height, int channels = 4, bool stencil = false) {
 
         // Create an empty texture array with no data
-        ubyte[] empty = new ubyte[width_*height_*channels];
+        ubyte[] empty = stencil? null: new ubyte[width_*height_*channels];
 
         // Pass it on to the other texturing
         this(empty, width, height, channels, channels, stencil);
@@ -257,11 +257,19 @@ public:
         if (outChannels == 1) this.outColorMode_ = GL_RED;
         else if (outChannels == 2) this.outColorMode_ = GL_RG;
         else if (outChannels == 3) this.outColorMode_ = GL_RGB;
-        if (stencil) this.outColorMode_ = GL_STENCIL_INDEX8;
+        if (stencil) {
+            this.outColorMode_ = GL_DEPTH24_STENCIL8;
+            this.inColorMode_  = GL_DEPTH_STENCIL;
+        }
 
         // Generate OpenGL texture
         glGenTextures(1, &id);
-        this.setData(data);
+        if (stencil) {
+            this.bind();
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width_, height_, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, null);
+        } else {
+            this.setData(data);
+        }
 
         // Set default filtering and wrapping
         this.setFiltering(Filtering.Linear);
