@@ -423,6 +423,12 @@ public:
         this.selfSort();
     }
 
+    Node actualRoot() {
+        auto node = root;
+        while (node && node.parent && node.parent != puppetRootNode) node = node.parent;        
+        return node;
+    }
+
     /**
         Updates the nodes
     */
@@ -434,7 +440,7 @@ public:
             auto_.update();
         }
 
-        root.beginUpdate();
+        actualRoot.beginUpdate();
 
         if (renderParameters) {
 
@@ -447,7 +453,7 @@ public:
         }
 
         // Ensure the transform tree is updated
-        root.transformChanged();
+        actualRoot.transformChanged();
 
         if (renderParameters && enableDrivers) {
             // Update parameter/node driver nodes (e.g. physics)
@@ -457,7 +463,7 @@ public:
         }
 
         // Update nodes
-        root.update();
+        actualRoot.update();
     }
 
     /**
@@ -537,7 +543,8 @@ public:
         Run this every time you change the layout of the puppet's node tree
     */
     final void rescanNodes() {
-        this.scanParts!false(root);
+        auto node = actualRoot();
+        this.scanParts!false(node);
     }
 
     /**

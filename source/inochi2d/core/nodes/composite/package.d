@@ -328,12 +328,18 @@ protected:
 
     override
     void preProcess() {
+        if (delegated) {
+            delegated.preProcess();
+        }
         if (!propagateMeshGroup)
             Node.preProcess();
     }
 
     override
     void postProcess() {
+        if (delegated) {
+            delegated.postProcess();
+        }
         if (!propagateMeshGroup)
             Node.postProcess();
     }
@@ -494,6 +500,9 @@ public:
 
     override
     void beginUpdate() {
+        if (delegated) {
+            delegated.beginUpdate();
+        }
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
@@ -501,14 +510,19 @@ public:
     }
 
     override
+    void update() {
+        if (delegated) {
+            delegated.update();
+        }
+        super.update();
+    }
+
+    override
     void drawOne() {
         if (delegated) {
             synchronizeDelegated();
-            writefln("%s: delegate: drawOne", name);
             delegated.drawOne();
             return;
-        } else {
-            writefln("%s: drawOne", name);
         }
         if (!enabled) return;
         
@@ -627,6 +641,16 @@ public:
             synchronizeDelegated();
 //            writefln("%s: delegate: notifyChange, %s", name, target.name);
             delegated.notifyChange(target, reason);
+        } else {
+            super.notifyChange(target, reason);
+        }
+    }
+
+    override
+    void transformChanged() {
+        super.transformChanged();
+        if (delegated) {
+            delegated.recalculateTransform = true;
         }
     }
 

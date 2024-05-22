@@ -1,5 +1,6 @@
 module inochi2d.utils.snapshot;
 
+import inochi2d.core.nodes;
 import inochi2d.core.nodes.composite.dcomposite;
 import inochi2d.core.puppet;
 import inochi2d.core.texture;
@@ -12,21 +13,24 @@ private {
 Texture inSnapshot(bool forceUpdate = false)(Puppet puppet) {
     if (forceUpdate || dcomposite is null || snapshotPuppet != puppet) {
         if (dcomposite !is null) {
-            dcomposite.textures[0].dispose();
-            dcomposite.textures[0] = null;
-            if (dcomposite == puppet.root) {
-                puppet.root = dcomposite.children[0];
+            if (dcomposite.textures[0] !is null) {
+                dcomposite.textures[0].dispose();
+                dcomposite.textures[0] = null;
             }
+//            if (dcomposite == puppet.root) {
+//                puppet.root = dcomposite.children[0];
+//            }
         }
         dcomposite = new DynamicComposite();
         snapshotPuppet = puppet;
         dcomposite.name = "Snapshot";
-        puppet.getPuppetRootNode().parent(dcomposite);
-        puppet.root = dcomposite;
+        dcomposite.parent(puppet.getPuppetRootNode());
+//        puppet.root = dcomposite;
+        puppet.root.parent(cast(Node)dcomposite);
         dcomposite.setPuppet(puppet);
     }
 //    dcomposite.scanSubParts([puppet.getPuppetRootNode()]);
-    dcomposite.scanParts();
+    puppet.rescanNodes();
     dcomposite.setupSelf();
     dcomposite.autoResizedMesh = false;
     dcomposite.draw();

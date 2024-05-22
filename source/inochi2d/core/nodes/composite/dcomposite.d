@@ -75,6 +75,9 @@ public:
         } else if (dcomposite !is null && node != this) {
             dcomposite.scanParts();
         } else if (composite !is null) {
+            if (composite.delegated !is null) {
+                subParts ~= composite.delegated;
+            }
             composite.scanParts();
         }
     }
@@ -93,9 +96,17 @@ public:
                     dcomposite = new DynamicComposite(null);
                     dcomposite.name = "(%s)".format(comp.name);
                     dcomposite.setPuppet(puppet);
-                    dcomposite.parent = comp.parent;
+                    static if (1) {
+                        Node* parent = &dcomposite.parent();
+                        *parent = comp.parent;
+                        puppet.rescanNodes();
+                    } else {
+                        dcomposite.parent = comp.parent;
+                    }
+
                     dcomposite.localTransform.translation = comp.localTransform.translation;
                 }
+                dcomposite.ignorePuppet = ignorePuppet;
                 dcomposite.children_ref.length = 0;
                 foreach (child; comp.children) {
                     dcomposite.children_ref ~= child;
