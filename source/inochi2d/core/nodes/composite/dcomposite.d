@@ -34,7 +34,7 @@ package(inochi2d) {
 class DynamicComposite : Part {
 protected:
     bool initialized = false;
-    bool delegatedMode = true;
+    bool delegatedMode = false;
 
 public:
     this(bool delegatedMode) { this.delegatedMode = delegatedMode; }
