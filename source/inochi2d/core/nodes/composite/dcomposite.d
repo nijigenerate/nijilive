@@ -34,9 +34,10 @@ package(inochi2d) {
 class DynamicComposite : Part {
 protected:
     bool initialized = false;
+    bool delegatedMode = true;
 
 public:
-    this() { }
+    this(bool delegatedMode) { this.delegatedMode = delegatedMode; }
 
     void selfSort() {
         import std.math : cmp;
@@ -93,10 +94,13 @@ public:
                 auto dcomposite = comp.delegated;
                 if (comp.delegated is null) {
                     // Insert delegated DynamicComposite object to Composite Node.
-                    dcomposite = new DynamicComposite(null);
+                    dcomposite = new DynamicComposite(true);
                     dcomposite.name = "(%s)".format(comp.name);
                     dcomposite.setPuppet(puppet);
                     static if (1) {
+                        // Insert Dynamic Composite in shadow mode.
+                        // In this mode, parents and children are set to dcomposite in one-way manner.
+                        // parent and children doesn't know dcomposite in their parent-children relationship.
                         Node* parent = &dcomposite.parent();
                         *parent = comp.parent;
                         puppet.rescanNodes();
@@ -203,8 +207,8 @@ protected:
                 return false;
             }
         }
-        if (autoResizedMesh) {
-            // autoResizedMesh mode has to update image in every frame.
+        if (delegatedMode) {
+            // delegated mode has to update image in every frame.
             textureInvalidated = true;
         }
         if (textureInvalidated) {
@@ -365,17 +369,16 @@ public:
                 localTransform.update();
                 offsetTransform.update();
 
-                auto parentTransform = parent.transform();
-                parentTransform.rotation = vec3(0, 0, 0);
-                parentTransform.scale = vec2(1, 1);
-                parentTransform.update();
                 if (lockToRoot())
                     globalTransform = localTransform.calcOffset(offsetTransform) * puppet.root.localTransform;
                 else if (parent !is null)
-                    globalTransform = localTransform.calcOffset(offsetTransform) * parentTransform;
+                    globalTransform = localTransform.calcOffset(offsetTransform) * parent.transform;
                 else
                     globalTransform = localTransform.calcOffset(offsetTransform);
 
+                globalTransform.rotation = vec3(0, 0, 0);
+                globalTransform.scale = vec2(1, 1);
+                globalTransform.update();
                 recalculateTransform = false;
             }
 
