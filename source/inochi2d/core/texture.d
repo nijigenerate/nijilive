@@ -456,6 +456,14 @@ public:
         glDeleteTextures(1, &id);
         id = 0;
     }
+
+    Texture dup() {
+        bool stencil = outColorMode_ == GL_DEPTH24_STENCIL8;
+        auto result = new Texture(width_, height_, channels_, stencil);
+        // FIXME: copy must be done in OpenGL Framebuffer, but currently uses offline copy instead.
+        result.setData(getTextureData());
+        return result;
+    }
 }
 
 private {

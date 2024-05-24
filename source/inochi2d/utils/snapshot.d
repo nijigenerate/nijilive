@@ -47,6 +47,7 @@ protected:
 public:
     static Snapshot get(Puppet puppet) {
         if (puppet in handles) {
+            handles[puppet].sharedCount ++;
             return handles[puppet];
         }
         auto result = new Snapshot(puppet);
