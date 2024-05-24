@@ -103,8 +103,10 @@ public:
                         // parent and children doesn't know dcomposite in their parent-children relationship.
                         Node* parent = &dcomposite.parent();
                         *parent = comp.parent;
-                        puppet.rescanNodes();
                     } else {
+                        // Debug mode:
+                        // Insert Dynamic Composite as opaque mode.
+                        // In this mode, parents and children are aware of inserted Dcomposite object in their tree hierarchy.
                         dcomposite.parent = comp.parent;
                     }
 
@@ -131,7 +133,7 @@ public:
         foreach (child; children) {
             setIgnorePuppetRecurse(child, ignorePuppet);
         }
-
+        puppet.rescanNodes();
     }
 
     void drawSelf(bool isMask = false)() {
@@ -148,6 +150,7 @@ protected:
 
     uint texWidth = 0, texHeight = 0;
     vec2 autoResizedSize;
+    int deffered = 0;
 
     bool initTarget() {
         if (textures[0] !is null) {
@@ -159,15 +162,10 @@ protected:
             stencil = null;
         }
 
-//        updateVertices();
         updateBounds();
-//        writefln("%s: initTarget with bounds=%s, size=%s", name, bounds, bounds.zw - bounds.xy);
         auto bounds = this.bounds;
         uint width = cast(uint)((bounds.z-bounds.x) / transform.scale.x);
         uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
-//        if (width == 0 || height == 0) {
-//            writefln("initTarget: %s: empty %s, (%f, %f)", name, vertices, width, height);
-//        }
         if (width == 0 || height == 0) return false;
 
         texWidth = width + 1;
@@ -177,14 +175,13 @@ protected:
         setIgnorePuppet(true);
 
         glGenFramebuffers(1, &cfBuffer);
-        ubyte[] buffer;
-        buffer.length = cast(uint)(width) * cast(uint)(height) * 4;
-        textures = [new Texture(ShallowTexture(buffer, texWidth, texHeight)), null, null];
+        textures = [new Texture(texWidth, texHeight), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true);
 
         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0].getTextureId(), 0);
+        glClear(GL_COLOR_BUFFER_BIT);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
         glClear(GL_STENCIL_BUFFER_BIT);
 
@@ -195,10 +192,9 @@ protected:
         textureInvalidated = true;
         return true;
     }
+
     bool beginComposite() {
-//        updateVertices();
         if (shouldUpdateVertices) {
-//            updateVertices();
             shouldUpdateVertices = false;
         }
 
@@ -230,6 +226,10 @@ protected:
         return textureInvalidated;
     }
     void endComposite() {
+        if (textureInvalidated) {
+            textureInvalidated = false;
+        }
+
         glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
         inPopViewport();
         glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
@@ -299,7 +299,6 @@ protected:
             resizing = true;
         }
         if (resizing) {
-//            writefln("Resize: %s: %s --> %s", name, origSize, size);
             MeshData newData = MeshData([
                 vec2(newBounds.x, newBounds.y) - transform.translation.xy,
                 vec2(newBounds.x, newBounds.w) - transform.translation.xy,
@@ -324,7 +323,6 @@ protected:
             if (newTextureOffset.x != textureOffset.x || newTextureOffset.y != textureOffset.y) {
                 textureOffset = newTextureOffset;
                 textureInvalidated = true;
-//                writefln("Move %s: %s", name, textureOffset);
                 data.vertices = [
                     vec2(newBounds.x, newBounds.y) - transform.translation.xy,
                     vec2(newBounds.x, newBounds.w) - transform.translation.xy,
@@ -430,7 +428,6 @@ public:
             endComposite();
             textures[0].genMipmap();
         }
-        textureInvalidated = false;
     }
 
     override
