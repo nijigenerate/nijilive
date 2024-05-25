@@ -111,6 +111,12 @@ protected:
     bool preProcessed  = false;
     bool postProcessed = false;
     bool changed = false;
+    bool changeDeferred = false;
+    struct ChangeRecord {
+        Node target;
+        NotifyReason reason;
+    }
+    ChangeRecord[] changePooled = [];
     /**
         Whether the node is enabled
     */
@@ -191,8 +197,8 @@ protected:
     }
     MatrixHolder overrideTransformMatrix = null;
 
-    Tuple!(vec2[], mat4*) delegate(Node, vec2[], vec2[], mat4*)[] preProcessFilters;
-    Tuple!(vec2[], mat4*) delegate(Node, vec2[], vec2[], mat4*)[] postProcessFilters;
+    Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*)[] preProcessFilters;
+    Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*)[] postProcessFilters;
 
     import std.stdio;
     void preProcess() {
@@ -206,7 +212,10 @@ protected:
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
-            } 
+            }
+            if (filterResult[2]) {
+                notifyChange(this);
+            }
         }
     }
 
@@ -223,6 +232,9 @@ protected:
                 transformChanged();
                 overrideTransformMatrix = new MatrixHolder(transform.matrix);
             } 
+            if (filterResult[2]) {
+                notifyChange(this);
+            }
         }
     }
 
@@ -758,6 +770,8 @@ public:
         preProcessed  = false;
         postProcessed = false;
         changed = false;
+        changeDeferred = true;
+        changePooled.length = 0;
 
         offsetSort = 0;
         offsetTransform.clear();
@@ -780,6 +794,13 @@ public:
             child.update();
         }
         postProcess();
+    }
+
+    void endUpdate() {
+        flushNotifyChange();
+        foreach (child; children) {
+            child.endUpdate();
+        }
     }
 
     /**
@@ -1017,11 +1038,23 @@ public:
     void clearCache() { }
     void normalizeUV(MeshData* data) { }
 
+    void flushNotifyChange() {
+        changeDeferred = false;
+        foreach (rec; changePooled) {
+            notifyChange(rec.target, rec.reason);
+        }
+        changePooled.length = 0;
+    }
+
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
         if (target == this) changed = true;
-        if (parent !is null) parent.notifyChange(target, reason);
-        foreach (listener; notifyListeners) {
-            listener(target, reason);
+        if (changeDeferred) {
+            changePooled ~= ChangeRecord(target, reason);
+        } else {
+            if (parent !is null) parent.notifyChange(target, reason);
+            foreach (listener; notifyListeners) {
+                listener(target, reason);
+            }
         }
     }
 

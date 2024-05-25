@@ -20,6 +20,7 @@ import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
 import std.algorithm.mutation: remove;
 import inochi2d.core.nodes.utils;
+import std.stdio;
 
 private GLuint drawableVAO;
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
@@ -84,13 +85,14 @@ protected:
         this.updateDeform();
     }
 
-    Tuple!(vec2[], mat4*) weldingProcessor(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(vec2[], mat4*, bool) weldingProcessor(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         auto linkIndex = welded.countUntil!((a)=>a.target == target)();
+        bool changed = false;
         WeldingLink link = welded[linkIndex];
         if (!postProcessed)
-            return Tuple!(vec2[], mat4*)(null, null);
+            return Tuple!(vec2[], mat4*, bool)(null, null, changed);
         if (weldingApplied[link.target] || link.target.weldingApplied[this])
-            return Tuple!(vec2[], mat4*)(null, null);
+            return Tuple!(vec2[], mat4*, bool)(null, null, changed);
 //        import std.stdio;
 //        writefln("welding: %s(%b) --> %s(%b)", name, postProcessed, target.name, target.postProcessed);
         weldingApplied[link.target] = true;
@@ -111,7 +113,7 @@ protected:
 
             vec2 newPos = targetVertex * (1 - weldingWeight) + selfVertex * (weldingWeight);
 
-            if (newPos != selfVertex) target.notifyChange(target);
+            changed = newPos != selfVertex;
 
             auto selfMatrixInv = selfMatrix.inverse;
             selfMatrixInv[0][3] = 0;
@@ -130,7 +132,7 @@ protected:
             origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
         }
 
-        return tuple(origDeformation, cast(mat4*)null);
+        return tuple(origDeformation, cast(mat4*)null, changed);
     }
 
     void updateDeform() {
@@ -238,6 +240,10 @@ protected:
             if (filterResult[1] !is null) {
                 overrideTransformMatrix = new MatrixHolder(*filterResult[1]);
             }
+            if (filterResult[2]) {
+                notifyChange(this);
+            }
+
         }
     }
 
@@ -254,6 +260,9 @@ protected:
             } 
             if (filterResult[1] !is null) {
                 overrideTransformMatrix = new MatrixHolder(*filterResult[1]);
+            }
+            if (filterResult[2]) {
+                notifyChange(this);
             }
         }
     }

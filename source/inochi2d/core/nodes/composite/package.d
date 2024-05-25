@@ -636,7 +636,6 @@ public:
 
     override
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
-        if (target == delegated) return;
         if (delegated) {
             synchronizeDelegated();
 //            writefln("%s: delegate: notifyChange, %s", name, target.name);

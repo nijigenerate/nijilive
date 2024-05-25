@@ -464,6 +464,8 @@ public:
 
         // Update nodes
         actualRoot.update();
+
+        actualRoot.endUpdate();
     }
 
     /**

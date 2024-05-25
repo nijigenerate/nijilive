@@ -322,7 +322,8 @@ protected:
             super.rebuffer(newData);
             shouldUpdateVertices = true;
             autoResizedSize = newBounds.zw - newBounds.xy;
-            setIgnorePuppet(false);
+            textureOffset = vec2((newBounds.x + newBounds.z) / 2 - transform.translation.x, (newBounds.y + newBounds.w) / 2 - transform.translation.y);
+//            setIgnorePuppet(false);
         } else {
 //            auto newTextureOffset = (transform.matrix()*vec4((bounds.zw + bounds.xy) / 2, 0, 1)).xy;
             auto newTextureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
@@ -407,13 +408,17 @@ public:
     void preProcess() {
         if (!autoResizedMesh) {
             super.preProcess();
-        } 
+        } else {
+            Node.preProcess();
+        }
     }
 
     override
     void postProcess() {
         if (!autoResizedMesh) {
             super.postProcess();
+        } else {
+            Node.postProcess();
         }
     }
 
@@ -522,11 +527,13 @@ public:
 
     override
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
-        if (target != this) {
-            textureInvalidated = true;
+        if (true) {
+            if (target != this) {
+                textureInvalidated = true;
+            }
             if (autoResizedMesh) {
                 if (createSimpleMesh()) {
-//                    writefln("%s: reset texture", name);
+    //                    writefln("%s: reset texture", name);
                     initialized = false;
                 }
             }
