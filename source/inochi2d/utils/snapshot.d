@@ -63,7 +63,7 @@ public:
         snapshotPuppet.rescanNodes();
         dcomposite.setupSelf();
         dcomposite.autoResizedMesh = false;
-        dcomposite.draw();
+//        dcomposite.draw();
         auto tex = dcomposite.textures[0];
         return tex;
     }
