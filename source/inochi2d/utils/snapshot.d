@@ -4,6 +4,7 @@ import inochi2d.core.nodes;
 import inochi2d.core.nodes.composite.dcomposite;
 import inochi2d.core.puppet;
 import inochi2d.core.texture;
+import inmath;
 
 class Snapshot {
 protected:
@@ -65,5 +66,13 @@ public:
         dcomposite.draw();
         auto tex = dcomposite.textures[0];
         return tex;
+    }
+
+    vec2 position() {
+        if (dcomposite) {
+            vec2 pos = dcomposite.transform.translation.xy + dcomposite.textureOffset;
+            return pos;
+        }
+        return vec2(0, 0);
     }
 }
