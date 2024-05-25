@@ -153,14 +153,8 @@ protected:
     int deffered = 0;
 
     bool initTarget() {
-        if (textures[0] !is null) {
-            textures[0].dispose();
-            textures[0] = null;
-        }
-        if (stencil !is null) {
-            stencil.dispose();
-            stencil = null;
-        }
+        auto prevTexture = textures[0];
+        auto prevStencil = stencil;
 
         updateBounds();
         auto bounds = this.bounds;
@@ -187,6 +181,13 @@ protected:
 
         // go back to default fb
         glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+
+        if (prevTexture !is null) {
+            prevTexture.dispose();
+        }
+        if (prevStencil !is null) {
+            prevStencil.dispose();
+        }
 
         initialized = true;
         textureInvalidated = true;
@@ -414,8 +415,8 @@ public:
     void drawContents() {
         // Optimization: Nothing to be drawn, skip context switching
 
-        this.selfSort();
         if (beginComposite()) {
+            this.selfSort();
             mat4* origTransform = oneTimeTransform;
             mat4 tmpTransform = transform.matrix.inverse;
             Camera camera = inGetCamera();
