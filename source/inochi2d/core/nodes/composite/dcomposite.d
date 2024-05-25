@@ -468,12 +468,14 @@ public:
     void setupChild(Node node) {
         if (Part part = cast(Part)node)
             setIgnorePuppetRecurse(part, true);
+        puppet.rescanNodes();
     }
 
     override
     void releaseChild(Node node) {
         if (Part part = cast(Part)node)
             setIgnorePuppetRecurse(part, false);
+        puppet.rescanNodes();
     }
 
     override
