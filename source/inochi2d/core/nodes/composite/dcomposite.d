@@ -150,7 +150,7 @@ protected:
 
     uint texWidth = 0, texHeight = 0;
     vec2 autoResizedSize;
-    int deffered = 0;
+    int deferred = 0;
 
     bool initTarget() {
         auto prevTexture = textures[0];
@@ -208,7 +208,7 @@ protected:
             // delegated mode has to update image in every frame.
             textureInvalidated = true;
         }
-        if (textureInvalidated) {
+        if (textureInvalidated || deferred > 0) {
             glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
             glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
             glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
@@ -217,6 +217,8 @@ protected:
             camera.scale = vec2(1, -1);
             camera.position = (mat4.identity.scaling(transform.scale.x == 0 ? 0: 1/transform.scale.x, transform.scale.y == 0? 0: 1/transform.scale.y, 1) * mat4.identity.rotateZ(-transform.rotation.z) * -vec4(textureOffset, 0, 1)).xy;
             glViewport(0, 0, textures[0].width, textures[0].height);
+
+            glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
             glClearColor(0, 0, 0, 0);
             glClear(GL_COLOR_BUFFER_BIT);
 
@@ -224,12 +226,15 @@ protected:
             glActiveTexture(GL_TEXTURE0);
             glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         }
-        return textureInvalidated;
+        return textureInvalidated || deferred > 0;
     }
     void endComposite() {
         if (textureInvalidated) {
             textureInvalidated = false;
+//            deferred = 3;
         }
+        if (deferred > 0)
+            deferred --;
 
         glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
         inPopViewport();
