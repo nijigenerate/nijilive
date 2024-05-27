@@ -524,7 +524,7 @@ public:
         foreach(rootPart; rootParts) {
             if (!rootPart.renderEnabled) continue;
             rootPart.drawOne();
-        }
+        }        
     }
 
     /**

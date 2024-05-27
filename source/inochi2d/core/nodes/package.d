@@ -1009,6 +1009,7 @@ public:
     void reparent(Node parent, ulong pOffset) {
 
         auto c = this;
+        releaseSelf();
         for (auto p = c.parent; p !is null && c !is null; p = p.parent, c = c.parent) {
             p.releaseChild(c);
         }
@@ -1026,6 +1027,7 @@ public:
     void setupChild(Node child) { }
     void releaseChild(Node child) { }
     void setupSelf() { }
+    void releaseSelf() { }
 
     mat4 getDynamicMatrix() {
         if (overrideTransformMatrix !is null) {

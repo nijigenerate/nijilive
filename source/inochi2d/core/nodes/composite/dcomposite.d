@@ -34,10 +34,9 @@ package(inochi2d) {
 class DynamicComposite : Part {
 protected:
     bool initialized = false;
-    bool delegatedMode = false;
 
 public:
-    this(bool delegatedMode) { this.delegatedMode = delegatedMode; }
+    this(bool delegatedMode) { }
 
     void selfSort() {
         import std.math : cmp;
@@ -152,6 +151,11 @@ protected:
     vec2 autoResizedSize;
     int deferred = 0;
 
+    vec3 prevTranslation;
+    vec3 prevRotation;
+    vec2 prevScale;
+    bool deferredChanged = false;
+
     bool initTarget() {
         auto prevTexture = textures[0];
         auto prevStencil = stencil;
@@ -203,10 +207,6 @@ protected:
             if (!initTarget()) {
                 return false;
             }
-        }
-        if (delegatedMode) {
-            // delegated mode has to update image in every frame.
-            textureInvalidated = true;
         }
         if (textureInvalidated || deferred > 0) {
             glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
@@ -328,7 +328,6 @@ protected:
 //            auto newTextureOffset = (transform.matrix()*vec4((bounds.zw + bounds.xy) / 2, 0, 1)).xy;
             auto newTextureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
             if (newTextureOffset.x != textureOffset.x || newTextureOffset.y != textureOffset.y) {
-                textureOffset = newTextureOffset;
                 textureInvalidated = true;
                 data.vertices = [
                     vec2(newBounds.x, newBounds.y) - transform.translation.xy,
@@ -342,6 +341,7 @@ protected:
                 // To optimize performance, we should call updateVertices to a series of changes per parameters.
                 // Currently, it produces nasty result when update vertices only once in every rendering loop. 
                 updateVertices();
+                textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
             }
         }
         return resizing;
@@ -424,6 +424,11 @@ public:
 
     void drawContents() {
         // Optimization: Nothing to be drawn, skip context switching
+        if (deferredChanged) {
+            if (createSimpleMesh()) initialized = false;
+            deferredChanged = false;
+            textureInvalidated = true;
+        }
 
         if (beginComposite()) {
             this.selfSort();
@@ -448,7 +453,6 @@ public:
 
         // No masks, draw normally
         drawSelf();
-        updateBounds(); // FIXME! This updateBounds call force update `bounds` variable.
     }
 
     override
@@ -496,7 +500,34 @@ public:
             scanSubParts(children);
             if (createSimpleMesh()) initialized = false;
         }
+        for (Node c = this; c !is null; c = c.parent) {
+            c.addNotifyListener(&onAncesterChanged);
+        }
 //        writefln("setupSelf: %s:(%s) %s -- %s, %s", name, autoResizedMesh, children, subParts, getChildrenBounds());
+    }
+
+    override
+    void releaseSelf() {
+        for (Node c = this; c !is null; c = c.parent) {
+            c.removeNotifyListener(&onAncesterChanged);
+        }
+//        writefln("releaseSelf: %s:(%s) %s -- %s, %s", name, autoResizedMesh, children, subParts, getChildrenBounds());
+    }
+
+    // In autoResizedMesh mode, texture must be updated when any of the parents is translated, rotated, or scaled.
+    // To detect parent's change, this object calls addNotifyListener to parents' event slot, and checks whether
+    // they are changed or not.
+    void onAncesterChanged(Node target, NotifyReason reason) {
+        if (autoResizedMesh) {
+            if (reason == NotifyReason.Transformed) {
+                if (prevTranslation != transform.translation || prevRotation != transform.rotation || prevScale != transform.scale) {
+                    deferredChanged = true;
+                    prevTranslation = transform.translation;
+                    prevRotation    = transform.rotation;
+                    prevScale       = transform.scale;
+                }
+            }
+        }
     }
 
     override
