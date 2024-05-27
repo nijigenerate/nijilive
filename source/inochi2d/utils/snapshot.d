@@ -50,6 +50,8 @@ public:
         if (--sharedCount <= 0) {
             if (snapshotPuppet !is null) {
                 if (snapshotPuppet.actualRoot != snapshotPuppet.root) {
+                    foreach (child; dcomposite.children)
+                        dcomposite.releaseChild(child);
                     snapshotPuppet.root.parent(snapshotPuppet.getPuppetRootNode());
                 }
                 handles.remove(snapshotPuppet);
