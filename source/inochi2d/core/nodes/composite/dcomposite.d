@@ -448,6 +448,7 @@ public:
 
         // No masks, draw normally
         drawSelf();
+        updateBounds(); // FIXME! This updateBounds call force update `bounds` variable.
     }
 
     override
