@@ -108,6 +108,8 @@ private:
     string nodePath_;
 
 protected:
+    this() { }
+
     bool preProcessed  = false;
     bool postProcessed = false;
     bool changed = false;

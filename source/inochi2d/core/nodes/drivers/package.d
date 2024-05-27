@@ -19,7 +19,6 @@ public import inochi2d.core.nodes.drivers.simplephysics;
 abstract class Driver : Node {
 private:
 
-protected:
     /**
         Constructs a new Driver node
     */
