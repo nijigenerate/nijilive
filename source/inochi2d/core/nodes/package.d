@@ -352,8 +352,6 @@ public:
         lockToRoot_ = value;
     }
 
-    this() { }
-
     /**
         Constructs a new puppet root node
     */
