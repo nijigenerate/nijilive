@@ -511,10 +511,10 @@ public:
 
     override
     void update() {
+        super.update();
         if (delegated) {
             delegated.update();
         }
-        super.update();
     }
 
     override

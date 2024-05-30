@@ -120,6 +120,9 @@ public:
                 comp.setDelegation(dcomposite);
             } else {
                 // Remove delegated DynamicComposite.
+                if (comp.delegated) {
+                    comp.delegated.releaseSelf();
+                }
                 comp.setDelegation(null);
             }
         }
@@ -481,15 +484,13 @@ public:
 
     override
     void setupChild(Node node) {
-        if (Part part = cast(Part)node)
-            setIgnorePuppetRecurse(part, true);
+        setIgnorePuppetRecurse(node, true);
         puppet.rescanNodes();
     }
 
     override
     void releaseChild(Node node) {
-        if (Part part = cast(Part)node)
-            setIgnorePuppetRecurse(part, false);
+        setIgnorePuppetRecurse(node, false);
         puppet.rescanNodes();
     }
 
@@ -501,7 +502,7 @@ public:
             if (createSimpleMesh()) initialized = false;
         }
         for (Node c = this; c !is null; c = c.parent) {
-            c.addNotifyListener(&onAncesterChanged);
+            c.addNotifyListener(&onAncestorChanged);
         }
 //        writefln("setupSelf: %s:(%s) %s -- %s, %s", name, autoResizedMesh, children, subParts, getChildrenBounds());
     }
@@ -509,7 +510,7 @@ public:
     override
     void releaseSelf() {
         for (Node c = this; c !is null; c = c.parent) {
-            c.removeNotifyListener(&onAncesterChanged);
+            c.removeNotifyListener(&onAncestorChanged);
         }
 //        writefln("releaseSelf: %s:(%s) %s -- %s, %s", name, autoResizedMesh, children, subParts, getChildrenBounds());
     }
@@ -517,7 +518,7 @@ public:
     // In autoResizedMesh mode, texture must be updated when any of the parents is translated, rotated, or scaled.
     // To detect parent's change, this object calls addNotifyListener to parents' event slot, and checks whether
     // they are changed or not.
-    void onAncesterChanged(Node target, NotifyReason reason) {
+    void onAncestorChanged(Node target, NotifyReason reason) {
         if (autoResizedMesh) {
             if (reason == NotifyReason.Transformed) {
                 if (prevTranslation != transform.translation || prevRotation != transform.rotation || prevScale != transform.scale) {
@@ -559,15 +560,13 @@ public:
 
     override
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
-        if (true) {
-            if (target != this) {
-                textureInvalidated = true;
-            }
-            if (autoResizedMesh) {
-                if (createSimpleMesh()) {
-    //                    writefln("%s: reset texture", name);
-                    initialized = false;
-                }
+        if (target != this) {
+            textureInvalidated = true;
+        }
+        if (autoResizedMesh) {
+            if (createSimpleMesh()) {
+//                    writefln("%s: reset texture", name);
+                initialized = false;
             }
         }
         super.notifyChange(target, reason);

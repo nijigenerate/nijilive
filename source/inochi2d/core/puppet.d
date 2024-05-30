@@ -524,7 +524,15 @@ public:
         foreach(rootPart; rootParts) {
             if (!rootPart.renderEnabled) continue;
             rootPart.drawOne();
-        }        
+        }
+        /* // debug
+        auto comps = findNodesType!Composite(actualRoot());
+        foreach (c; comps) {
+            auto d = c.delegated;
+            if (d)
+                d.drawBounds();
+        }
+        */
     }
 
     /**
