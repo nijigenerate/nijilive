@@ -561,7 +561,6 @@ public:
         }
         if (autoResizedMesh) {
             if (createSimpleMesh()) {
-//                    writefln("%s: reset texture", name);
                 initialized = false;
             }
         }
@@ -571,10 +570,8 @@ public:
     override
     void rebuffer(ref MeshData data) {
         if (data.vertices.length == 0) {
-//            writefln("enable auto resize %s", name);
             autoResizedMesh = true;
         } else {
-//            writefln("disable auto resize %s", name);
             autoResizedMesh = false;
         }
 

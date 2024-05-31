@@ -528,7 +528,6 @@ public:
         if (!enabled) return;
         
         this.selfSort();
-        writefln("Composite.drawOne: %s:%s", name, subParts);
         this.drawContents();
 
         size_t cMasks = maskCount;
@@ -700,5 +699,13 @@ public:
             this.delegated.parent = null;
         }
         this.delegated = delegated;
+    }
+
+    override
+    void flushNotifyChange() {
+        if (delegated) {
+            delegated.flushNotifyChange();
+        }
+        super.flushNotifyChange();
     }
 }
