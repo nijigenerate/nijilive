@@ -647,6 +647,16 @@ public:
         if (dcomposite !is null)
             dcomposite.autoResizedMesh = autoResizedMesh;
     }
+
+    override
+    void build(bool force = false) { 
+        foreach (child; children) {
+            setupChild(child);
+        }
+        setupSelf();
+        super.build(force);
+    }
+
 }
 
 version (InDoesRender) {

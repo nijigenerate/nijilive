@@ -31,6 +31,7 @@ protected:
         dcomposite.parent(puppet.getPuppetRootNode());
         puppet.root.parent(cast(Node)dcomposite);
         dcomposite.setPuppet(puppet);
+        dcomposite.build();
         dcomposite.drawContents();
         puppet.rescanNodes();
     }

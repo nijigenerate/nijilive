@@ -510,4 +510,15 @@ public:
         }
     }
 
+    override
+    void build(bool force = false) { 
+        if (force || !precalculated) {
+            precalculate();
+        }
+        foreach (child; children) {
+            setupChild(child);
+        }
+        setupSelf();
+        super.build(force);
+    }
 }

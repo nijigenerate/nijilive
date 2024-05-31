@@ -1156,6 +1156,12 @@ public:
         node.copyFrom(this);
         return node;
     }
+
+    void build(bool force = false) {
+        foreach (child; children) {
+            child.build(force);
+        }
+    }
 }
 
 //
