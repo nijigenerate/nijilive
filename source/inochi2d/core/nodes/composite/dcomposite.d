@@ -234,7 +234,7 @@ protected:
     void endComposite() {
         if (textureInvalidated) {
             textureInvalidated = false;
-//            deferred = 3;
+//            deferred = 3;  // continue rendering without any conditions for `deferred` frames by enabling this code.
         }
         if (deferred > 0)
             deferred --;
@@ -326,7 +326,6 @@ protected:
             shouldUpdateVertices = true;
             autoResizedSize = newBounds.zw - newBounds.xy;
             textureOffset = vec2((newBounds.x + newBounds.z) / 2 - transform.translation.x, (newBounds.y + newBounds.w) / 2 - transform.translation.y);
-//            setIgnorePuppet(false);
         } else {
 //            auto newTextureOffset = (transform.matrix()*vec4((bounds.zw + bounds.xy) / 2, 0, 1)).xy;
             auto newTextureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
@@ -442,7 +441,6 @@ public:
             foreach(Part child; subParts) {
                 child.drawOne();
             }
-//            writefln("invalidate: %s", name);
             setOneTimeTransform(origTransform);
             endComposite();
             textures[0].genMipmap();
@@ -504,7 +502,6 @@ public:
         for (Node c = this; c !is null; c = c.parent) {
             c.addNotifyListener(&onAncestorChanged);
         }
-//        writefln("setupSelf: %s:(%s) %s -- %s, %s", name, autoResizedMesh, children, subParts, getChildrenBounds());
     }
 
     override
@@ -512,7 +509,6 @@ public:
         for (Node c = this; c !is null; c = c.parent) {
             c.removeNotifyListener(&onAncestorChanged);
         }
-//        writefln("releaseSelf: %s:(%s) %s -- %s, %s", name, autoResizedMesh, children, subParts, getChildrenBounds());
     }
 
     // In autoResizedMesh mode, texture must be updated when any of the parents is translated, rotated, or scaled.

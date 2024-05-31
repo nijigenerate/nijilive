@@ -103,6 +103,7 @@ private:
         if (delegated) {
             delegated.opacity = opacity;
             delegated.blendingMode = blendingMode;
+            delegated.zSort = relZSort;
         }
     }
 
@@ -527,6 +528,7 @@ public:
         if (!enabled) return;
         
         this.selfSort();
+        writefln("Composite.drawOne: %s:%s", name, subParts);
         this.drawContents();
 
         size_t cMasks = maskCount;
