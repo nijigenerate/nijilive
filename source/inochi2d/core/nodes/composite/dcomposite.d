@@ -658,7 +658,9 @@ public:
     override
     void build(bool force = false) {
         super.build(force);
-        if (createSimpleMesh()) initialized = false;
+        if (autoResizedMesh) {
+            if (createSimpleMesh()) initialized = false;
+        }
         if (force || !initialized) {
             initTarget();
         }
