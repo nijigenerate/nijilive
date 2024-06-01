@@ -1061,8 +1061,10 @@ public:
     }
 
     void addNotifyListener(void delegate(Node, NotifyReason) listener) {
-        if (listener !is null)
-            notifyListeners ~= listener;
+        if (listener !is null) {
+            if (notifyListeners.countUntil(listener) < 0)
+                notifyListeners ~= listener;
+        }
     }
 
     void removeNotifyListener(void delegate(Node, NotifyReason) listener) {
