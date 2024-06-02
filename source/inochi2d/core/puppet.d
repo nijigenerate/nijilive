@@ -525,10 +525,14 @@ public:
             if (!rootPart.renderEnabled) continue;
             rootPart.drawOne();
         }
-        /* // debug
-        auto comps = findNodesType!Composite(actualRoot());
-        foreach (c; comps) {
+        /*
+        // debug
+        foreach (c; findNodesType!Composite(actualRoot())) {
             auto d = c.delegated;
+            if (d)
+                d.drawBounds();
+        }
+        foreach (d; findNodesType!DynamicComposite(actualRoot())) {
             if (d)
                 d.drawBounds();
         }

@@ -64,7 +64,7 @@ public:
     Texture capture() {
         snapshotPuppet.rescanNodes();
         dcomposite.setupSelf();
-        dcomposite.autoResizedMesh = false;
+//        dcomposite.autoResizedMesh = false;
 //        dcomposite.draw();
         auto tex = dcomposite.textures[0];
         return tex;
