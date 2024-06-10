@@ -1,5 +1,5 @@
-# Contributors for Inochi2D
-This document lists the people who've contributed to the development of Inochi2D (the library)
+# Contributors for nijilife
+This document lists the people who've contributed to the development of nijilife (the library)
 
 ## Code
  - Luna the Foxgirl (Main Developer)

@@ -1,7 +1,7 @@
-# Contributing to Inochi2D
-Thank you for your interest in contributing to the Inochi2D project! 
+# Contributing to nijilife
+Thank you for your interest in contributing to the nijilife project! 
 
-Before getting in contact, please familiarize yourself with our [code of conduct](https://github.com/Inochi2D/inochi2d/blob/main/CODE_OF_CONDUCT.md).
+Before getting in contact, please familiarize yourself with our [code of conduct](https://github.com/nijigenerate/nijilife/blob/main/CODE_OF_CONDUCT.md).
 
 ## Contents <a name="top"></a>
 * [Ask for help](#ask-for-help)
@@ -17,7 +17,7 @@ Before getting in contact, please familiarize yourself with our [code of conduct
 ## Ask for help
 There are a number of ways to request support:
 
-* Raise an issue on our [Github project](https://github.com/Inochi2D/inochi2d) using the "question" template
+* Raise an issue on our [Github project](https://github.com/nijigenerate/nijilife) using the "question" template
 * Reach out to us on Luna's [Discord server](https://discord.gg/tNfMGgJ9Fn)
 * Send me a message on social media ([Twitter](https://twitter.com/Clipsey5))
 
@@ -26,7 +26,7 @@ There are a number of ways to request support:
 ## Report a bug
 There are a number of ways to report a bug:
 
-* Raise an issue on our [Github project](https://github.com/Inochi2D/inochi2d) using the "bug report" template
+* Raise an issue on our [Github project](https://github.com/nijigenerate/nijilife) using the "bug report" template
 * Reach out to us on Luna's [Discord server](https://discord.gg/tNfMGgJ9Fn)
 * Send me a message on social media ([Twitter](https://twitter.com/Clipsey5))
 
@@ -35,7 +35,7 @@ There are a number of ways to report a bug:
 ## Suggest a new feature
 There are a number of ways to request a new feature:
 
-* Raise an issue on our [Github project](https://github.com/Inochi2D/inochi2d) using the "feature request" template
+* Raise an issue on our [Github project](https://github.com/nijigenerate/nijilife) using the "feature request" template
 * Reach out to us on Luna's [Discord server](https://discord.gg/tNfMGgJ9Fn)
 * Send me a message on social media ([Twitter](https://twitter.com/Clipsey5))
 
@@ -47,17 +47,17 @@ You can find full instructions for this specific release in the `README.md` file
 [Return to top](#top)
 
 ## Contribute code changes
-Raise a pull request on our [Github project](https://github.com/Inochi2D/inochi2d) and follow the template.
+Raise a pull request on our [Github project](https://github.com/nijigenerate/nijilife) and follow the template.
 
 ### Notes
 * We do not accept contributions from people who work for/at Live2D inc. and affiliates.
-* We will not accept pull requests that aim to support other 2d puppet formats within Inochi2D.
+* We will not accept pull requests that aim to support other 2d puppet formats within nijilife.
 * Please do not submit code that is stolen from propriatary software.
 
 [Return to top](#top)
 
 ## Contribute documentation
-To change the code-level documentation, raise a pull request on our [Github project](https://github.com/Inochi2D/inochi2d) and follow the template.
+To change the code-level documentation, raise a pull request on our [Github project](https://github.com/nijigenerate/nijilife) and follow the template.
 
 [Return to top](#top)
 
@@ -66,13 +66,13 @@ We'll be happy if any artists for vtuber models donate any old model textures fo
 Note you still retain all rights to your art/models and they will only be used for internal testing, if you at one point want to revoke your art as test material just tell Luna and she'll delete the textures.
 
 ## Join the community
-We recommend you familiarize yourself with our [code of conduct](https://github.com/Inochi2D/inochi2d/blob/main/CODE_OF_CONDUCT.md).
+We recommend you familiarize yourself with our [code of conduct](https://github.com/nijigenerate/nijilife/blob/main/CODE_OF_CONDUCT.md).
 
 Once you have done so, you are welcome to join us on [Luna's Discord Server](https://discord.gg/tNfMGgJ9Fn). That communication channel is where our internal discussions happen and project decisions are made.
 
 [Return to top](#top)
 
 ## Donate funds
-If you would like to help Luna cover the costs of running the Inochi2D project, you can do so here: https://www.patreon.com/clipsey
+If you would like to help Luna cover the costs of running the nijilife project, you can do so here: https://www.patreon.com/clipsey
 
 [Return to top](#top)
