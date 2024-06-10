@@ -1,5 +1,5 @@
-# Contributors for nijilife
-This document lists the people who've contributed to the development of nijilife (the library)
+# Contributors for nijilive
+This document lists the people who've contributed to the development of nijilive (the library)
 
 ## Code
  - Luna the Foxgirl (Main Developer)

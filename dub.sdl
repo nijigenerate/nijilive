@@ -1,4 +1,4 @@
-name "nijilife"
+name "nijilive"
 description "A bring-your-own-renderer realtime 2D puppet library"
 authors "Luna Nielsen"
 copyright "Copyright © 2024, nijigenerate project"
@@ -9,7 +9,7 @@ dependency "i2d-opengl" version="~>1.0.0"
 dependency "fghj" version="~>1.0.2"
 versions "GL_32" "GL_ARB_gl_spirv" "GL_KHR_blend_equation_advanced" "GL_ARB_texture_filter_anisotropic"
 stringImportPaths "shaders/"
-preBuildCommands "dub run gitver -- --prefix IN --file source/nijilife/ver.d --mod nijilife.ver --appname nijilife"
+preBuildCommands "dub run gitver -- --prefix IN --file source/nijilive/ver.d --mod nijilive.ver --appname nijilive"
 
 
 configuration "full" {

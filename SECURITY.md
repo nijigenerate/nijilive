@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-nijilife versions are supported with updates from the current stable version, and the in-production next version (nightly builds and such)  
+nijilive versions are supported with updates from the current stable version, and the in-production next version (nightly builds and such)  
 If a vulnerability is sufficiently severe we may backport fixes to earlier versions on request.
 
 | Version | Supported          |
@@ -16,7 +16,7 @@ If a vulnerability is sufficiently severe we may backport fixes to earlier versi
 
 ## Reporting a Vulnerability
 
-Vulnerabilies should be reported as encrypted emails to our address for the purpose, security@nijilife.com
+Vulnerabilies should be reported as encrypted emails to our address for the purpose, security@nijilive.com
 
 The following PGP key should be used for encryption
 ```
@@ -36,4 +36,4 @@ YTGSGInbgh4rQnXle4M/nQw=
 -----END PGP PUBLIC KEY BLOCK-----
 ```
 
-You may also report vulnerabilties via the [Security Advisories](https://github.com/nijigenerate/nijilife/security/advisories/new) feature, note that this feature may not be used indefinitely and we would highly prefer an email!
+You may also report vulnerabilties via the [Security Advisories](https://github.com/nijigenerate/nijilive/security/advisories/new) feature, note that this feature may not be used indefinitely and we would highly prefer an email!
