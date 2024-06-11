@@ -17,7 +17,7 @@ public import nijilive.core.nodes.drivers.simplephysics;
 */
 @TypeId("Driver")
 abstract class Driver : Node {
-private:
+protected:
 
     /**
         Constructs a new Driver node
