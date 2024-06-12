@@ -21,7 +21,7 @@ https://user-images.githubusercontent.com/7032834/166389697-02eeeedb-6a44-4570-9
 開発中の公式nijiliveモデリングアプリ [nijigenerate](https://github.com/nijigenerate/nijigenerate)  
 
 あなたがVTuberなら、ぜひこちらをご覧ください。  
-[Inochi Session](https://github.com/nijilive/nijiexpose)  
+[Inochi Session](https://github.com/nijigenerate/nijiexpose)  
 
 注：このリポジトリはスタンダード専用です。エンドユーザー向けのものではありません。
 
@@ -36,7 +36,7 @@ https://user-images.githubusercontent.com/7032834/166389697-02eeeedb-6a44-4570-9
 
 このリファレンス実装は、動作にOpenGL 3.1コンテキストを必要とします。また、OpenGL 3.1(または以降のバージョン)のコンテキストが確立された後に`inInit`が呼び出されるべきです。
 
-私たちは、開発者が任意のバックエンドを接続できるように、レンダリング機能をフロントエンドから分離することに取り組むつもりです。私たちは、D言語以外からこのライブラリを使用する方法として[nijilive-c](https://github.com/nijigenerate/nijilive-c)を提供し、さらに2つ目のワークグループが、[Inox2D](https://github.com/nijilive/inox2d)でnijilive仕様の純粋なRust実装を開発しています。
+私たちは、開発者が任意のバックエンドを接続できるように、レンダリング機能をフロントエンドから分離することに取り組むつもりです。私たちは、D言語以外からこのライブラリを使用する方法として[nijilive-c](https://github.com/nijigenerate/nijilive-c)を提供し、さらに2つ目のワークグループが、[Inox2D](https://github.com/nijigenerate/inox2d)でnijilive仕様の純粋なRust実装を開発しています。
 
 &nbsp;
 

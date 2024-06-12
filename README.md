@@ -24,7 +24,7 @@ https://github.com/nijigenerate/nijilive/assets/449741/7794ea4f-cce0-4b0b-9078-e
 
 # For Riggers and VTubers
 If you're a model rigger you may want to check out [nijigenerate](https://github.com/nijigenerate/nijigenerate), the official nijilive rigging app in development.
-If you're a VTuber you may want to check out [nijiexpose](https://github.com/nijilive/nijiexpose).
+If you're a VTuber you may want to check out [nijiexpose](https://github.com/nijigenerate/nijiexpose).
 This repository is purely for the standard and is not useful if you're an end user.
 
 &nbsp;

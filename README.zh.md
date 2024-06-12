@@ -22,7 +22,7 @@ https://user-images.githubusercontent.com/7032834/166389697-02eeeedb-6a44-4570-9
 # 如果您是模型师或虚拟皮套使用者：
 
 模型师可能会感兴趣 [nijigenerate](https://github.com/nijigenerate/nijigenerate), 这是正在开发中的 nijilive 官方建模软件。
-虚拟皮套使用者可能会感兴趣 [Inochi Session](https://github.com/nijilive/nijiexpose)。
+虚拟皮套使用者可能会感兴趣 [Inochi Session](https://github.com/nijigenerate/nijiexpose)。
 当前代码仓库是为了 nijilive 标准而存在的，对最终用户可能用处有限。
 
 &nbsp;
@@ -39,7 +39,7 @@ https://user-images.githubusercontent.com/7032834/166389697-02eeeedb-6a44-4570-9
 
 我们提供 [nijilive-c](https://github.com/nijigenerate/nijilive-c) 作为从非 D 的语言中调用本库的接口。
 
-额外地，另一个开发组正在编写一个 nijilive 标准的纯 Rust 实现，代码仓库在[这里](https://github.com/nijilive/inox2d)。
+额外地，另一个开发组正在编写一个 nijilive 标准的纯 Rust 实现，代码仓库在[这里](https://github.com/nijigenerate/inox2d)。
 
 &nbsp;
 
