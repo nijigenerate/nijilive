@@ -1,5 +1,5 @@
 # Contributing to nijilive
-Thank you for your interest in contributing to the nijilive project! 
+Thank you for your interest in contributing to the nijigenerate Project! 
 
 Before getting in contact, please familiarize yourself with our [code of conduct](https://github.com/nijigenerate/nijilive/blob/main/CODE_OF_CONDUCT.md).
 
@@ -73,6 +73,6 @@ Once you have done so, you are welcome to join us on [Luna's Discord Server](htt
 [Return to top](#top)
 
 ## Donate funds
-If you would like to help Luna cover the costs of running the nijilive project, you can do so here: https://www.patreon.com/clipsey
+If you would like to help Luna cover the costs of running the nijigenerate Project, you can do so here: https://www.patreon.com/clipsey
 
 [Return to top](#top)

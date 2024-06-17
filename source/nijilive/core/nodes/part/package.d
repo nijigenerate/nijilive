@@ -1,7 +1,7 @@
 /*
     nijilive Part
 
-    Copyright © 2020, nijilive Project
+    Copyright © 2020, nijigenerate Project
     Distributed under the 2-Clause BSD License, see LICENSE file.
     
     Authors: Luna Nielsen

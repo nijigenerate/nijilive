@@ -1,7 +1,7 @@
 /*
     nijilive MeshGroup Node
 
-    Copyright © 2020, nijilive Project
+    Copyright © 2020, nijigenerate Project
     Distributed under the 2-Clause BSD License, see LICENSE file.
     
     Authors: Luna Nielsen
@@ -390,12 +390,41 @@ public:
 
 
             if  (auto binding = param.getBinding(this, "deform")) {
+
                 auto deformBinding = cast(DeformationParameterBinding)binding;
                 assert(deformBinding !is null);
                 Node target = binding.getTarget().node;
 
+
                 for (int x = 0; x < param.axisPoints[0].length; x ++) {
                     for (int y = 0; y < param.axisPoints[1].length; y ++) {
+
+                        beginUpdate();
+                        auto TXBind = param.getBinding(target, "transform.t.x");
+                        auto TYBind = param.getBinding(target, "transform.t.y");
+                        auto RZBind = param.getBinding(target, "transform.r.z");
+                        auto SXBind = param.getBinding(target, "transform.s.x");
+                        auto SYBind = param.getBinding(target, "transform.s.y");
+
+                        int xx = x, yy = y;
+                        float ofsX = 0, ofsY = 0;
+
+                        if (x == param.axisPoints[0].length - 1) {
+                            xx = x - 1;
+                            ofsX = 1;
+                        }
+                        if (y == param.axisPoints[1].length - 1) {
+                            yy = y - 1;
+                            ofsY = 1;
+                        }
+
+                        if (TXBind) TXBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
+                        if (TYBind) TYBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
+                        if (RZBind) RZBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
+                        if (SXBind) SXBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
+                        if (SYBind) SYBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
+
+                        puppet.root.transformChanged();
 
                         vec2[] deformation;
                         if (deformBinding.isSet_[x][y])
@@ -421,7 +450,7 @@ public:
                         foreach (child; children) {
                             transferChildren(child, x, y);
                         }
-
+                        endUpdate();
                     }
                 }
                 param.removeBinding(binding);
