@@ -1,7 +1,7 @@
 /*
     nijilive Composite Node
 
-    Copyright © 2020, nijilive Project
+    Copyright © 2020, nijigenerate Project
     Distributed under the 2-Clause BSD License, see LICENSE file.
     
     Authors: Luna Nielsen
@@ -56,7 +56,6 @@ public:
         Part part = cast(Part)node;
         if (part !is null && node != this) {
             subParts ~= part;
-            part.ignorePuppet = ignorePuppet;
             if (dcomposite is null) {
                 foreach(child; part.children) {
                     scanPartsRecurse(child);
@@ -163,7 +162,9 @@ protected:
         auto prevTexture = textures[0];
         auto prevStencil = stencil;
 
+        bool doUpdate = inGetUpdateBounds();
         updateBounds();
+        inSetUpdateBounds(doUpdate);
         auto bounds = this.bounds;
         uint width = cast(uint)((bounds.z-bounds.x) / transform.scale.x);
         uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
@@ -427,7 +428,9 @@ public:
     void drawContents() {
         // Optimization: Nothing to be drawn, skip context switching
         if (deferredChanged) {
-            if (createSimpleMesh()) initialized = false;
+            if (!autoResizedMesh) {
+                if (createSimpleMesh()) initialized = false;
+            }
             deferredChanged = false;
             textureInvalidated = true;
         }
