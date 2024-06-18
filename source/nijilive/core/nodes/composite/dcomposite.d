@@ -163,6 +163,7 @@ protected:
         auto prevStencil = stencil;
 
         bool doUpdate = inGetUpdateBounds();
+        inSetUpdateBounds(true);
         updateBounds();
         inSetUpdateBounds(doUpdate);
         auto bounds = this.bounds;
