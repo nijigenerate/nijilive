@@ -16,7 +16,7 @@ If a vulnerability is sufficiently severe we may backport fixes to earlier versi
 
 ## Reporting a Vulnerability
 
-Vulnerabilies should be reported as encrypted emails to our address for the purpose, security@nijilive.com
+Vulnerabilies should be reported as encrypted emails to our address for the purpose, security@github.com/nijigenerate
 
 The following PGP key should be used for encryption
 ```

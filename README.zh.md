@@ -28,7 +28,7 @@ https://user-images.githubusercontent.com/7032834/166389697-02eeeedb-6a44-4570-9
 &nbsp;
 
 # 文档
-有关标准和官方工具的文档目前正在编写和翻译过程中。官方文档在[这里](https://docs.nijilive.com)。
+有关标准和官方工具的文档目前正在编写和翻译过程中。官方文档在[这里](https://docs.github.com/nijigenerate)。
 
 &nbsp;
 
