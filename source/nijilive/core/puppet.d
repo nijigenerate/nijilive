@@ -586,6 +586,14 @@ public:
         return cast(T)findNode(root, uuid);
     }
 
+
+    T find(T = Parameter)(string name) if (is(T : Parameter)) {
+        return cast(T)parameters[findParameterIndex(name)];
+    }
+    T find(T = Parameter)(uint uuid) if (is(T :  Parameter)) {
+        return cast(T)findParameter(uuid);
+    }
+
     /**
         Returns all the parts in the puppet
     */

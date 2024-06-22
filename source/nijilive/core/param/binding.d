@@ -19,22 +19,26 @@ import std.stdio;
 /**
     A target to bind to
 */
-struct BindTarget {
+struct BindTargetBase(TargetClass, ParamId) {
     /**
         The node to bind to
     */
-    Node node;
+    TargetClass target;
+    alias node = target;
 
     /**
         The parameter to bind
     */
-    string paramName;
+    ParamId paramId;
+    alias paramName = paramId;
 }
+
+alias BindTarget = BindTargetBase!(Node, string);
 
 /**
     A binding to a parameter, of a given value type
 */
-abstract class ParameterBinding {
+abstract class ParameterBindingBase(TargetClass, ParamId) {
 
     /**
         Restructure object before finalization
@@ -134,19 +138,19 @@ abstract class ParameterBinding {
     /**
         Gets target of binding
     */
-    BindTarget getTarget();
+    BindTargetBase!(TargetClass, ParamId) getTarget();
 
-    abstract void setTarget(Node node, string paramName);
+    abstract void setTarget(TargetClass node, ParamId paramName);
 
     /**
         Gets name of binding
     */
-    abstract string getName();
+    abstract ParamId getName();
 
     /**
         Gets the node of the binding
     */
-    abstract Node getNode();
+    abstract TargetClass getNode();
 
     /**
         Gets the uuid of the node of the binding
@@ -156,7 +160,7 @@ abstract class ParameterBinding {
     /**
         Checks whether a binding is compatible with another node
     */
-    abstract bool isCompatibleWithNode(Node other);
+    abstract bool isCompatibleWithNode(TargetClass other);
 
     /**
         Gets the interpolation mode
@@ -179,10 +183,12 @@ abstract class ParameterBinding {
     SerdeException deserializeFromFghj(Fghj data);
 }
 
+alias ParameterBinding = ParameterBindingBase!(Node, string);
+
 /**
     A binding to a parameter, of a given value type
 */
-abstract class ParameterBindingImpl(T) : ParameterBinding {
+abstract class ParameterBindingImpl(T, TargetClass, ParamId) : ParameterBindingBase!(TargetClass, ParamId) {
 private:
     /**
         Node reference (for deserialization)
@@ -200,7 +206,7 @@ public:
     /**
         Reference to what parameter we're binding to
     */
-    BindTarget target;
+    BindTargetBase!(TargetClass, ParamId) target;
 
     /**
         The value at each 2D keypoint
@@ -216,12 +222,12 @@ public:
         Gets target of binding
     */
     override
-    BindTarget getTarget() {
+    BindTargetBase!(TargetClass, ParamId) getTarget() {
         return target;
     }
 
     override
-    void setTarget(Node node, string paramName) {
+    void setTarget(TargetClass node, ParamId paramName) {
         target.node = node;
         target.paramName = paramName;
     }
@@ -230,7 +236,7 @@ public:
         Gets name of binding
     */
     override
-    string getName() {
+    ParamId getName() {
         return target.paramName;
     }
 
@@ -238,7 +244,7 @@ public:
         Gets the node of the binding
     */
     override
-    Node getNode() {
+    TargetClass getNode() {
         return target.node;
     }
 
@@ -276,7 +282,7 @@ public:
         this.parameter = parameter;
     }
 
-    this(Parameter parameter, Node targetNode, string paramName) {
+    this(Parameter parameter, TargetClass targetNode, ParamId paramName) {
         this.parameter = parameter;
         this.target.node = targetNode;
         this.target.paramName = paramName;
@@ -345,7 +351,7 @@ public:
     void finalize(Puppet puppet) {
 //        writefln("finalize binding %s", this.getName());
 
-        this.target.node = puppet.find(nodeRef);
+        this.target.node = puppet.find!TargetClass(nodeRef);
 //        writefln("node for %d = %x", nodeRef, &(target.node));
     }
 
@@ -924,7 +930,7 @@ public:
     {
         if (!isSet(src)) {
             other.unset(dest);
-        } else if (auto o = cast(ParameterBindingImpl!T)(other)) {
+        } else if (auto o = cast(ParameterBindingImpl!(T, Node, string))(other)) {
             o.setValue(dest, getValue(src));
         } else {
             assert(false, "ParameterBinding class mismatch");
@@ -933,7 +939,7 @@ public:
 
     override void swapKeypointWithBinding(vec2u src, ParameterBinding other, vec2u dest)
     {
-        if (auto o = cast(ParameterBindingImpl!T)(other)) {
+        if (auto o = cast(ParameterBindingImpl!(T, Node, string))(other)) {
             bool thisSet = isSet(src);
             bool otherSet = other.isSet(dest);
             T thisVal = getValue(src);
@@ -972,7 +978,7 @@ public:
     abstract void applyToTarget(T value);
 }
 
-class ValueParameterBinding : ParameterBindingImpl!float {
+class ValueParameterBinding : ParameterBindingImpl!(float, Node, string) {
     this(Parameter parameter) {
         super(parameter);
     }
@@ -1003,7 +1009,7 @@ class ValueParameterBinding : ParameterBindingImpl!float {
     }
 }
 
-class DeformationParameterBinding : ParameterBindingImpl!Deformation {
+class DeformationParameterBinding : ParameterBindingImpl!(Deformation, Node, string) {
     this(Parameter parameter) {
         super(parameter);
     }
@@ -1065,6 +1071,47 @@ class DeformationParameterBinding : ParameterBindingImpl!Deformation {
         } else {
             return false;
         }
+    }
+}
+
+class ParameterParameterBinding : ParameterBindingImpl!(float, Parameter, int) {
+public:
+    this(Parameter parameter) {
+        super(parameter);
+    }
+
+    this(Parameter parameter, Parameter targetParameter, int axis) {
+        super(parameter, targetParameter, axis);
+    }
+
+    override
+    void applyToTarget(float value) {
+        bool prevChanged = target.target.valueChanged();
+        vec2 paramVal = target.target.latestInternal;
+        if (target.paramId == 0)
+            paramVal.x = value;
+        else if (target.paramId == 1)
+            paramVal.y = value;
+        target.target.pushIOffset(paramVal, ParamMergeMode.Forced);
+        bool changed = target.target.valueChanged();
+        if (!prevChanged && changed)
+            target.target.update();
+    }
+
+    override
+    void clearValue(ref float val) {
+        val = target.paramId == 0? target.target.defaults.x: target.target.defaults.y;
+    }
+
+    override void scaleValueAt(vec2u index, int axis, float scale)
+    {
+        /* Default to just scalar scale */
+        setValue(index, getValue(index) * scale);
+    }
+
+    override bool isCompatibleWithNode(Parameter other)
+    {
+        return false;
     }
 }
 
