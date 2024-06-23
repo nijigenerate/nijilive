@@ -353,10 +353,7 @@ public:
     */
     override
     void finalize(Puppet puppet) {
-//        writefln("finalize binding %s", this.getName());
-
         this.target.node = puppet.find!TargetClass(nodeRef);
-//        writefln("node for %d = %x", nodeRef, &(target.node));
     }
 
     /**

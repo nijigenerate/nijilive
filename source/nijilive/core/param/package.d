@@ -324,9 +324,15 @@ public:
 
                 string paramName;
                 child["param_name"].deserializeValue(paramName);
+                int paramId = -1;
+                child["param_name"].deserializeValue(paramId);
 
                 if (paramName == "deform") {
                     auto binding = new DeformationParameterBinding(this);
+                    binding.deserializeFromFghj(child);
+                    bindings ~= binding;
+                } else if (paramId == 0 || paramId == 1) {
+                    auto binding = new ParameterParameterBinding(this);
                     binding.deserializeFromFghj(child);
                     bindings ~= binding;
                 } else {
@@ -355,7 +361,7 @@ public:
 
         ParameterBinding[] validBindingList;
         foreach(i, binding; bindings) {
-            if (puppet.find!Node(binding.getNodeUUID())) {
+            if (puppet.find!Node(binding.getNodeUUID()) || puppet.find!Parameter(binding.getNodeUUID())) {
                 binding.finalize(puppet);
                 validBindingList ~= binding;
             }
