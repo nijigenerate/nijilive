@@ -393,7 +393,7 @@ public:
 
                 auto deformBinding = cast(DeformationParameterBinding)binding;
                 assert(deformBinding !is null);
-                Node target = binding.getTarget().node;
+                Node target = deformBinding.getTarget().node;
 
 
                 for (int x = 0; x < param.axisPoints[0].length; x ++) {

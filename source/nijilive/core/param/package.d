@@ -59,7 +59,7 @@ enum ParamMergeMode {
 /**
     A parameter
 */
-class Parameter {
+class Parameter : Resource {
 private:
     struct Combinator {
         vec2[] ivalues;
@@ -143,12 +143,18 @@ public:
     /**
         Unique ID of parameter
     */
-    uint uuid;
+    uint uuid_;
+
+    uint uuid() { return uuid_; }
+    void uuid(uint value) { uuid_ = value; }
 
     /**
         Name of the parameter
     */
-    string name;
+    string name_;
+
+    string name() { return name_; }
+    void name(string value) { name_ = value; }
 
     /**
         Optimized indexable name generated at runtime
@@ -262,11 +268,20 @@ public:
         newParam.axisPoints = axisPoints.dup;
 
         foreach(binding; bindings) {
-            ParameterBinding newBinding = newParam.createBinding(
-                binding.getNode(),
-                binding.getName(),
-                false
-            );
+            ParameterBinding newBinding;
+            if (auto  nodeBinding = cast(ParameterBindingBase!(Node, string))binding) {
+                newBinding = newParam.createBinding(
+                    nodeBinding.getNode(),
+                    nodeBinding.getName(),
+                    false
+                );
+            } else if (auto paramBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
+                newBinding = newParam.createBinding(
+                    paramBinding.getNode(),
+                    paramBinding.getName(),
+                    false
+                );
+            }
             newBinding.interpolateMode = binding.interpolateMode;
             foreach(x; 0..axisPointCount(0)) {
                 foreach(y; 0..axisPointCount(1)) {
@@ -292,8 +307,8 @@ public:
         Deserializes a parameter
     */
     SerdeException deserializeFromFghj(Fghj data) {
-        data["uuid"].deserializeValue(this.uuid);
-        data["name"].deserializeValue(this.name);
+        data["uuid"].deserializeValue(this.uuid_);
+        data["name"].deserializeValue(this.name_);
         if (!data["is_vec2"].isEmpty) data["is_vec2"].deserializeValue(this.isVec2);
         if (!data["min"].isEmpty) min.deserialize(data["min"]);
         if (!data["max"].isEmpty) max.deserialize(data["max"]);
@@ -379,8 +394,10 @@ public:
         findOffset(this.mapValue(latestInternal), index, offset_);
         foreach(binding; bindings) {
             binding.apply(index, offset_);
-            if (binding.getTarget().node !is null) {
-                if (valueChanged()) binding.getTarget().node.notifyChange(binding.getTarget().node);
+            if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
+                if (nBinding.getTarget().node !is null) {
+                    if (valueChanged()) nBinding.getTarget().node.notifyChange(nBinding.getTarget().node);
+                }
             }
         }
 
@@ -648,19 +665,44 @@ public:
     */
     ParameterBinding getBinding(Node n, string bindingName) {
         foreach(ref binding; bindings) {
-            if (binding.getNode() != n) continue;
-            if (binding.getName == bindingName) return binding;
+            if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
+                if (nBinding.getNode() != n) continue;
+                if (nBinding.getName == bindingName) return binding;
+            }
         }
         return null;
     }
+
+    ParameterBinding getBinding(Parameter p, int axis) {
+        foreach(ref binding; bindings) {
+            if (auto nBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
+                if (nBinding.getNode() != p) continue;
+                if (nBinding.getName == axis) return binding;
+            }
+        }
+        return null;
+    }
+    
 
     /**
         Check if a binding exists for a given node and name
     */
     bool hasBinding(Node n, string bindingName) {
         foreach(ref binding; bindings) {
-            if (binding.getNode() != n) continue;
-            if (binding.getName == bindingName) return true;
+            if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
+                if (nBinding.getNode() != n) continue;
+                if (nBinding.getName == bindingName) return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasBinding(Parameter p, int axis) {
+        foreach(ref binding; bindings) {
+            if (auto pBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
+                if (pBinding.getNode() != p) continue;
+                if (pBinding.getName == axis) return true;
+            }
         }
         return false;
     }
@@ -670,7 +712,18 @@ public:
     */
     bool hasAnyBinding(Node n) {
         foreach(ref binding; bindings) {
-            if (binding.getNode() == n) return true;
+            if (auto nBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
+                if (nBinding.getNode() == n) return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasAnyBinding(Parameter p) {
+        foreach(ref binding; bindings) {
+            if (auto pBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
+                if (pBinding.getNode() == p) return true;
+            }
         }
         return false;
     }
@@ -695,6 +748,18 @@ public:
         return b;
     }
 
+    ParameterBinding createBinding(Parameter p, int axis, bool setZero = true) {
+        ParameterBinding b = new ParameterParameterBinding(this, p, axis);
+
+        if (setZero) {
+            vec2u zeroIndex = findClosestKeypoint(vec2(0, 0));
+            vec2 zero = getKeypointValue(zeroIndex);
+            if (abs(zero.x) < 0.001 && abs(zero.y) < 0.001) b.reset(zeroIndex);
+        }
+
+        return b;
+    }
+
     /**
         Find a binding if it exists, or create and add a new one, and return it
     */
@@ -707,12 +772,26 @@ public:
         return binding;
     }
 
+    ParameterBinding getOrAddBinding(Parameter p, int axis, bool setZero = true) {
+        ParameterBinding binding = getBinding(p, axis);
+        if (binding is null) {
+            binding = createBinding(p, axis, setZero);
+            addBinding(binding);
+        }
+        return binding;
+    }
+
     /**
         Add a new binding (must not exist)
     */
     void addBinding(ParameterBinding binding) {
-        assert(!hasBinding(binding.getNode, binding.getName));
-        bindings ~= binding;
+        if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
+            assert(!hasBinding(nBinding.getNode, nBinding.getName));
+            bindings ~= nBinding;
+        } else if (auto pBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
+            assert(!hasBinding(pBinding.getNode, pBinding.getName));
+            bindings ~= pBinding;
+        }
     }
 
     /**

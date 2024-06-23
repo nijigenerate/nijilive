@@ -19,6 +19,7 @@ import std.stdio;
 /**
     A target to bind to
 */
+
 struct BindTargetBase(TargetClass, ParamId) {
     /**
         The node to bind to
@@ -38,7 +39,7 @@ alias BindTarget = BindTargetBase!(Node, string);
 /**
     A binding to a parameter, of a given value type
 */
-abstract class ParameterBindingBase(TargetClass, ParamId) {
+abstract class ParameterBinding {
 
     /**
         Restructure object before finalization
@@ -136,31 +137,9 @@ abstract class ParameterBindingBase(TargetClass, ParamId) {
     abstract void deleteKeypoints(uint axis, uint index);
 
     /**
-        Gets target of binding
-    */
-    BindTargetBase!(TargetClass, ParamId) getTarget();
-
-    abstract void setTarget(TargetClass node, ParamId paramName);
-
-    /**
-        Gets name of binding
-    */
-    abstract ParamId getName();
-
-    /**
-        Gets the node of the binding
-    */
-    abstract TargetClass getNode();
-
-    /**
         Gets the uuid of the node of the binding
     */
     abstract uint getNodeUUID();
-
-    /**
-        Checks whether a binding is compatible with another node
-    */
-    abstract bool isCompatibleWithNode(TargetClass other);
 
     /**
         Gets the interpolation mode
@@ -183,7 +162,32 @@ abstract class ParameterBindingBase(TargetClass, ParamId) {
     SerdeException deserializeFromFghj(Fghj data);
 }
 
-alias ParameterBinding = ParameterBindingBase!(Node, string);
+abstract class ParameterBindingBase(TargetClass, ParamId) : ParameterBinding {
+    /**
+        Gets target of binding
+    */
+    BindTargetBase!(TargetClass, ParamId) getTarget();
+
+    abstract void setTarget(TargetClass node, ParamId paramName);
+
+    /**
+        Gets name of binding
+    */
+    abstract ParamId getName();
+
+    /**
+        Gets the node of the binding
+    */
+    abstract TargetClass getNode();
+
+    /**
+        Checks whether a binding is compatible with another node
+    */
+    abstract bool isCompatibleWithNode(TargetClass other);
+}
+
+
+//alias ParameterBinding = ParameterBindingBase!(Node, string);
 
 /**
     A binding to a parameter, of a given value type
@@ -1088,11 +1092,8 @@ public:
     void applyToTarget(float value) {
         bool prevChanged = target.target.valueChanged();
         vec2 paramVal = target.target.latestInternal;
-        if (target.paramId == 0)
-            paramVal.x = value;
-        else if (target.paramId == 1)
-            paramVal.y = value;
-        target.target.pushIOffset(paramVal, ParamMergeMode.Forced);
+        paramVal.vector[target.paramId] = value;
+        target.target.pushIOffsetAxis(target.paramId, paramVal.vector[target.paramId], ParamMergeMode.Forced);
         bool changed = target.target.valueChanged();
         if (!prevChanged && changed)
             target.target.update();
