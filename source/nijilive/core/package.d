@@ -10,6 +10,7 @@ module nijilive.core;
 
 public import nijilive.core.shader;
 public import nijilive.core.texture;
+public import nijilive.core.resource;
 public import nijilive.core.nodes;
 public import nijilive.core.puppet;
 public import nijilive.core.meshdata;

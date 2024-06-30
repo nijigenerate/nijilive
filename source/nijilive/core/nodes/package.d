@@ -83,7 +83,7 @@ enum NotifyReason {
     A node in the nijilive rendering tree
 */
 @TypeId("Node")
-class Node : ISerializable {
+class Node : ISerializable, Resource {
 private:
 
     @Ignore
@@ -273,7 +273,10 @@ public:
     /**
         Visual name of the node
     */
-    string name = "Unnamed Node";
+    string name_ = "Unnamed Node";
+
+    string name() { return name_; }
+    void name(string value) { name_ = value; }
 
     /**
         Name of node as a null-terminated C string
@@ -836,8 +839,8 @@ public:
         if (auto exc = data["uuid"].deserializeValue(this.uuid_)) return exc;
 
         if (!data["name"].isEmpty) {
-            if (auto exc = data["name"].deserializeValue(this.name)) return exc;
-            this.name = this.name.toStringz.fromStringz;
+            if (auto exc = data["name"].deserializeValue(this.name_)) return exc;
+            this.name_ = this.name_.toStringz.fromStringz;
         }
 
         if (auto exc = data["enabled"].deserializeValue(this.enabled)) return exc;

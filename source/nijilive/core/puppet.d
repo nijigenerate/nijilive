@@ -582,10 +582,24 @@ public:
     /**
         Finds Node by its unique id
     */
-    T find(T = Node)(uint uuid) if (is(T : Node)) {
+    T find(T: Node)(uint uuid) {
         return cast(T)findNode(root, uuid);
     }
 
+
+    T find(T = Parameter)(string name) if (is(T : Parameter)) {
+        return cast(T)parameters[findParameterIndex(name)];
+    }
+    T find(T: Parameter)(uint uuid) {
+        return cast(T)findParameter(uuid);
+    }
+
+    T find(T: Resource)(uint uuid) {
+        Node node = this.findNode(root, uuid);
+        if (node) return node;
+        Parameter param = this.findParameter(uuid);
+        return param;
+    }
     /**
         Returns all the parts in the puppet
     */

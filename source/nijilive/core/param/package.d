@@ -59,7 +59,7 @@ enum ParamMergeMode {
 /**
     A parameter
 */
-class Parameter {
+class Parameter : Resource {
 private:
     struct Combinator {
         vec2[] ivalues;
@@ -143,12 +143,18 @@ public:
     /**
         Unique ID of parameter
     */
-    uint uuid;
+    uint uuid_;
+
+    uint uuid() { return uuid_; }
+    void uuid(uint value) { uuid_ = value; }
 
     /**
         Name of the parameter
     */
-    string name;
+    string name_;
+
+    string name() { return name_; }
+    void name(string value) { name_ = value; }
 
     /**
         Optimized indexable name generated at runtime
@@ -262,11 +268,14 @@ public:
         newParam.axisPoints = axisPoints.dup;
 
         foreach(binding; bindings) {
-            ParameterBinding newBinding = newParam.createBinding(
-                binding.getNode(),
-                binding.getName(),
-                false
-            );
+            ParameterBinding newBinding;
+            if (auto  nodeBinding = cast(ParameterBinding)binding) {
+                newBinding = newParam.createBinding(
+                    nodeBinding.getNode(),
+                    nodeBinding.getName(),
+                    false
+                );
+            }
             newBinding.interpolateMode = binding.interpolateMode;
             foreach(x; 0..axisPointCount(0)) {
                 foreach(y; 0..axisPointCount(1)) {
@@ -292,8 +301,8 @@ public:
         Deserializes a parameter
     */
     SerdeException deserializeFromFghj(Fghj data) {
-        data["uuid"].deserializeValue(this.uuid);
-        data["name"].deserializeValue(this.name);
+        data["uuid"].deserializeValue(this.uuid_);
+        data["name"].deserializeValue(this.name_);
         if (!data["is_vec2"].isEmpty) data["is_vec2"].deserializeValue(this.isVec2);
         if (!data["min"].isEmpty) min.deserialize(data["min"]);
         if (!data["max"].isEmpty) max.deserialize(data["max"]);
@@ -309,9 +318,15 @@ public:
 
                 string paramName;
                 child["param_name"].deserializeValue(paramName);
+                int paramId = -1;
+                child["param_name"].deserializeValue(paramId);
 
                 if (paramName == "deform") {
                     auto binding = new DeformationParameterBinding(this);
+                    binding.deserializeFromFghj(child);
+                    bindings ~= binding;
+                } else if (paramName == "X" || paramName == "Y" || paramId == 0 || paramId == 1) {
+                    auto binding = new ParameterParameterBinding(this);
                     binding.deserializeFromFghj(child);
                     bindings ~= binding;
                 } else {
@@ -340,7 +355,7 @@ public:
 
         ParameterBinding[] validBindingList;
         foreach(i, binding; bindings) {
-            if (puppet.find!Node(binding.getNodeUUID())) {
+            if (puppet.find!Node(binding.getNodeUUID()) || puppet.find!Parameter(binding.getNodeUUID())) {
                 binding.finalize(puppet);
                 validBindingList ~= binding;
             }
@@ -379,8 +394,8 @@ public:
         findOffset(this.mapValue(latestInternal), index, offset_);
         foreach(binding; bindings) {
             binding.apply(index, offset_);
-            if (binding.getTarget().node !is null) {
-                if (valueChanged()) binding.getTarget().node.notifyChange(binding.getTarget().node);
+            if (auto node = cast(Node)binding.getTarget().target) {
+                if (valueChanged()) node.notifyChange(node);
             }
         }
 
@@ -646,21 +661,22 @@ public:
     /**
         Find a binding by node ref and name
     */
-    ParameterBinding getBinding(Node n, string bindingName) {
+    ParameterBinding getBinding(Resource res, string bindingName) {
         foreach(ref binding; bindings) {
-            if (binding.getNode() != n) continue;
+            if (binding.getTarget.target != res) continue;
             if (binding.getName == bindingName) return binding;
         }
         return null;
     }
+    
 
     /**
         Check if a binding exists for a given node and name
     */
-    bool hasBinding(Node n, string bindingName) {
+    bool hasBinding(Resource res, string bindingName) {
         foreach(ref binding; bindings) {
-            if (binding.getNode() != n) continue;
-            if (binding.getName == bindingName) return true;
+            if (binding.getTarget.target != res) continue;
+            if (binding.getTarget.name == bindingName) return true;
         }
         return false;
     }
@@ -668,9 +684,9 @@ public:
     /**
         Check if any bindings exists for a given node
     */
-    bool hasAnyBinding(Node n) {
+    bool hasAnyBinding(Resource res) {
         foreach(ref binding; bindings) {
-            if (binding.getNode() == n) return true;
+            if (binding.getTarget.target == res) return true;
         }
         return false;
     }
@@ -678,6 +694,15 @@ public:
     /**
         Create a new binding (without adding it) for a given node and name
     */
+    ParameterBinding createBinding(Resource res, string bindingName, bool setZero = true) {
+        if (auto node = cast(Node)res) {
+            return this.createBinding(node, bindingName, setZero);
+        } else if (auto param = cast(Parameter)res) {
+            return this.createBinding(param, bindingName == "X"? 0: 1);
+        }
+        return null;
+    }
+
     ParameterBinding createBinding(Node n, string bindingName, bool setZero = true) {
         ParameterBinding b;
         if (bindingName == "deform") {
@@ -695,13 +720,25 @@ public:
         return b;
     }
 
+    ParameterBinding createBinding(Parameter p, int axis, bool setZero = true) {
+        ParameterBinding b = new ParameterParameterBinding(this, p, axis);
+
+        if (setZero) {
+            vec2u zeroIndex = findClosestKeypoint(vec2(0, 0));
+            vec2 zero = getKeypointValue(zeroIndex);
+            if (abs(zero.x) < 0.001 && abs(zero.y) < 0.001) b.reset(zeroIndex);
+        }
+
+        return b;
+    }
+
     /**
         Find a binding if it exists, or create and add a new one, and return it
     */
-    ParameterBinding getOrAddBinding(Node n, string bindingName, bool setZero = true) {
-        ParameterBinding binding = getBinding(n, bindingName);
+    ParameterBinding getOrAddBinding(Resource res, string bindingName, bool setZero = true) {
+        ParameterBinding binding = getBinding(res, bindingName);
         if (binding is null) {
-            binding = createBinding(n, bindingName, setZero);
+            binding = createBinding(res, bindingName, setZero);
             addBinding(binding);
         }
         return binding;
@@ -711,7 +748,7 @@ public:
         Add a new binding (must not exist)
     */
     void addBinding(ParameterBinding binding) {
-        assert(!hasBinding(binding.getNode, binding.getName));
+        assert(!hasBinding(binding.getTarget.target, binding.getTarget.name));
         bindings ~= binding;
     }
 
