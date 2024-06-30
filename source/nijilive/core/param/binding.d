@@ -178,8 +178,6 @@ abstract class ParameterBinding {
 }
 
 
-//alias ParameterBinding = ParameterBindingBase!(Node, string);
-
 /**
     A binding to a parameter, of a given value type
 */
