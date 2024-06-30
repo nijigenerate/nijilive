@@ -19,22 +19,19 @@ import std.stdio;
 /**
     A target to bind to
 */
-
-struct BindTargetBase(TargetClass, ParamId) {
+enum BindTargetIdType { StringId, IntId }
+struct BindTarget {
     /**
         The node to bind to
     */
-    TargetClass target;
+    Resource target;
     alias node = target;
 
     /**
         The parameter to bind
     */
-    ParamId paramId;
-    alias paramName = paramId;
+    string name;
 }
-
-alias BindTarget = BindTargetBase!(Node, string);
 
 /**
     A binding to a parameter, of a given value type
@@ -160,30 +157,24 @@ abstract class ParameterBinding {
         Deserialize
     */
     SerdeException deserializeFromFghj(Fghj data);
-}
 
-abstract class ParameterBindingBase(TargetClass, ParamId) : ParameterBinding {
     /**
         Gets target of binding
     */
-    BindTargetBase!(TargetClass, ParamId) getTarget();
-
-    abstract void setTarget(TargetClass node, ParamId paramName);
-
-    /**
-        Gets name of binding
-    */
-    abstract ParamId getName();
-
+    BindTarget getTarget();
     /**
         Gets the node of the binding
     */
-    abstract TargetClass getNode();
-
+    abstract Resource getNode();
+    abstract void setTarget(Resource node, string paramName);
     /**
         Checks whether a binding is compatible with another node
     */
-    abstract bool isCompatibleWithNode(TargetClass other);
+    abstract bool isCompatibleWithNode(Resource other);
+    /**
+        Gets name of binding
+    */
+    abstract string getName();
 }
 
 
@@ -192,7 +183,7 @@ abstract class ParameterBindingBase(TargetClass, ParamId) : ParameterBinding {
 /**
     A binding to a parameter, of a given value type
 */
-abstract class ParameterBindingImpl(T, TargetClass, ParamId) : ParameterBindingBase!(TargetClass, ParamId) {
+abstract class ParameterBindingImpl(T) : ParameterBinding {
 private:
     /**
         Node reference (for deserialization)
@@ -210,7 +201,7 @@ public:
     /**
         Reference to what parameter we're binding to
     */
-    BindTargetBase!(TargetClass, ParamId) target;
+    BindTarget target;
 
     /**
         The value at each 2D keypoint
@@ -226,29 +217,29 @@ public:
         Gets target of binding
     */
     override
-    BindTargetBase!(TargetClass, ParamId) getTarget() {
+    BindTarget getTarget() {
         return target;
     }
 
     override
-    void setTarget(TargetClass node, ParamId paramName) {
+    void setTarget(Resource node, string paramName) {
         target.node = node;
-        target.paramName = paramName;
+        target.name = paramName;
     }
 
     /**
         Gets name of binding
     */
     override
-    ParamId getName() {
-        return target.paramName;
+    string getName() {
+        return target.name;
     }
 
     /**
         Gets the node of the binding
     */
     override
-    TargetClass getNode() {
+    Resource getNode() {
         return target.node;
     }
 
@@ -286,10 +277,10 @@ public:
         this.parameter = parameter;
     }
 
-    this(Parameter parameter, TargetClass targetNode, ParamId paramName) {
+    this(Parameter parameter, Resource targetNode, string paramName) {
         this.parameter = parameter;
         this.target.node = targetNode;
-        this.target.paramName = paramName;
+        this.target.name = paramName;
 
         clear();
     }
@@ -303,7 +294,7 @@ public:
             serializer.putKey("node");
             serializer.putValue(target.node.uuid);
             serializer.putKey("param_name");
-            serializer.putValue(target.paramName);
+            serializer.putValue(target.name);
             serializer.putKey("values");
             serializer.serializeValue(values);
             serializer.putKey("isSet");
@@ -319,7 +310,7 @@ public:
     override
     SerdeException deserializeFromFghj(Fghj data) {
         data["node"].deserializeValue(this.nodeRef);
-        data["param_name"].deserializeValue(this.target.paramName);
+        data["param_name"].deserializeValue(this.target.name);
         data["values"].deserializeValue(this.values);
         data["isSet"].deserializeValue(this.isSet_);
         auto mode = data["interpolate_mode"];
@@ -353,7 +344,7 @@ public:
     */
     override
     void finalize(Puppet puppet) {
-        this.target.node = puppet.find!TargetClass(nodeRef);
+        this.target.node = puppet.find!Resource(nodeRef);
     }
 
     /**
@@ -931,7 +922,7 @@ public:
     {
         if (!isSet(src)) {
             other.unset(dest);
-        } else if (auto o = cast(ParameterBindingImpl!(T, Node, string))(other)) {
+        } else if (auto o = cast(ParameterBindingImpl!(T))(other)) {
             o.setValue(dest, getValue(src));
         } else {
             assert(false, "ParameterBinding class mismatch");
@@ -940,7 +931,7 @@ public:
 
     override void swapKeypointWithBinding(vec2u src, ParameterBinding other, vec2u dest)
     {
-        if (auto o = cast(ParameterBindingImpl!(T, Node, string))(other)) {
+        if (auto o = cast(ParameterBindingImpl!(T))(other)) {
             bool thisSet = isSet(src);
             bool otherSet = other.isSet(dest);
             T thisVal = getValue(src);
@@ -979,7 +970,9 @@ public:
     abstract void applyToTarget(T value);
 }
 
-class ValueParameterBinding : ParameterBindingImpl!(float, Node, string) {
+class ValueParameterBinding : ParameterBindingImpl!(float) {
+protected:
+public:
     this(Parameter parameter) {
         super(parameter);
     }
@@ -988,29 +981,33 @@ class ValueParameterBinding : ParameterBindingImpl!(float, Node, string) {
         super(parameter, targetNode, paramName);
     }
 
+    Node targetNode() {
+        return cast(Node)target.node;
+    }
+
     override
     void applyToTarget(float value) {
-        target.node.setValue(target.paramName, value);
+        targetNode.setValue(target.name, value);
     }
 
     override
     void clearValue(ref float val) {
-        val = target.node.getDefaultValue(target.paramName);
+        val = targetNode.getDefaultValue(target.name);
     }
 
     override void scaleValueAt(vec2u index, int axis, float scale)
     {
         /* Nodes know how to do axis-aware scaling */
-        setValue(index, target.node.scaleValue(target.paramName, getValue(index), axis, scale));
+        setValue(index, targetNode.scaleValue(target.name, getValue(index), axis, scale));
     }
 
-    override bool isCompatibleWithNode(Node other)
+    override bool isCompatibleWithNode(Resource other)
     {
-        return other.hasParam(this.target.paramName);
+        return (cast(Node)other).hasParam(this.target.name);
     }
 }
 
-class DeformationParameterBinding : ParameterBindingImpl!(Deformation, Node, string) {
+class DeformationParameterBinding : ParameterBindingImpl!(Deformation) {
     this(Parameter parameter) {
         super(parameter);
     }
@@ -1018,6 +1015,8 @@ class DeformationParameterBinding : ParameterBindingImpl!(Deformation, Node, str
     this(Parameter parameter, Node targetNode, string paramName) {
         super(parameter, targetNode, paramName);
     }
+
+    Node targetNode() { return cast(Node)target.target; }
 
     void update(vec2u point, vec2[] offsets) {
         this.isSet_[point.x][point.y] = true;
@@ -1027,7 +1026,7 @@ class DeformationParameterBinding : ParameterBindingImpl!(Deformation, Node, str
 
     override
     void applyToTarget(Deformation value) {
-        enforce(this.target.paramName == "deform");
+        enforce(this.target.name == "deform");
 
         if (Drawable d = cast(Drawable)target.node) {
             d.deformStack.push(value);
@@ -1061,7 +1060,7 @@ class DeformationParameterBinding : ParameterBindingImpl!(Deformation, Node, str
         setValue(index, getValue(index) * vecScale);
     }
 
-    override bool isCompatibleWithNode(Node other)
+    override bool isCompatibleWithNode(Resource other)
     {
         if (Drawable d = cast(Drawable)target.node) {
             if (Drawable o = cast(Drawable)other) {
@@ -1075,30 +1074,38 @@ class DeformationParameterBinding : ParameterBindingImpl!(Deformation, Node, str
     }
 }
 
-class ParameterParameterBinding : ParameterBindingImpl!(float, Parameter, int) {
+class ParameterParameterBinding : ParameterBindingImpl!(float) {
+protected:
 public:
     this(Parameter parameter) {
         super(parameter);
     }
 
     this(Parameter parameter, Parameter targetParameter, int axis) {
-        super(parameter, targetParameter, axis);
+        super(parameter, targetParameter, axis == 0? "X": "Y");
+    }
+
+    Parameter targetParam() {
+        return cast(Parameter)target.target;
+    }
+    int paramId() {
+        return target.name == "X"? 0: 1;
     }
 
     override
     void applyToTarget(float value) {
-        bool prevChanged = target.target.valueChanged();
-        vec2 paramVal = target.target.latestInternal;
-        paramVal.vector[target.paramId] = value;
-        target.target.pushIOffsetAxis(target.paramId, paramVal.vector[target.paramId], ParamMergeMode.Forced);
-        bool changed = target.target.valueChanged();
+        bool prevChanged = targetParam.valueChanged();
+        vec2 paramVal = targetParam.latestInternal;
+        paramVal.vector[paramId] = value;
+        targetParam.pushIOffsetAxis(paramId, paramVal.vector[paramId], ParamMergeMode.Forced);
+        bool changed = targetParam.valueChanged();
         if (!prevChanged && changed)
-            target.target.update();
+            targetParam.update();
     }
 
     override
     void clearValue(ref float val) {
-        val = target.paramId == 0? target.target.defaults.x: target.target.defaults.y;
+        val = paramId == 0? targetParam.defaults.x: targetParam.defaults.y;
     }
 
     override void scaleValueAt(vec2u index, int axis, float scale)
@@ -1107,10 +1114,23 @@ public:
         setValue(index, getValue(index) * scale);
     }
 
-    override bool isCompatibleWithNode(Parameter other)
+    override bool isCompatibleWithNode(Resource other)
     {
         return false;
     }
+
+    /**
+        Deserializes a binding
+    */
+    override
+    SerdeException deserializeFromFghj(Fghj data) {
+        int axis;
+        SerdeException ex = data["param_name"].deserializeValue(axis);
+        if (ex is null) {
+            target.name = axis == 0? "X": "Y";
+        }
+        return super.deserializeFromFghj(data);
+    }    
 }
 
 @("TestInterpolation")

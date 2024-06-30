@@ -269,16 +269,10 @@ public:
 
         foreach(binding; bindings) {
             ParameterBinding newBinding;
-            if (auto  nodeBinding = cast(ParameterBindingBase!(Node, string))binding) {
+            if (auto  nodeBinding = cast(ParameterBinding)binding) {
                 newBinding = newParam.createBinding(
                     nodeBinding.getNode(),
                     nodeBinding.getName(),
-                    false
-                );
-            } else if (auto paramBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
-                newBinding = newParam.createBinding(
-                    paramBinding.getNode(),
-                    paramBinding.getName(),
                     false
                 );
             }
@@ -331,7 +325,7 @@ public:
                     auto binding = new DeformationParameterBinding(this);
                     binding.deserializeFromFghj(child);
                     bindings ~= binding;
-                } else if (paramId == 0 || paramId == 1) {
+                } else if (paramName == "X" || paramName == "Y" || paramId == 0 || paramId == 1) {
                     auto binding = new ParameterParameterBinding(this);
                     binding.deserializeFromFghj(child);
                     bindings ~= binding;
@@ -400,10 +394,8 @@ public:
         findOffset(this.mapValue(latestInternal), index, offset_);
         foreach(binding; bindings) {
             binding.apply(index, offset_);
-            if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
-                if (nBinding.getTarget().node !is null) {
-                    if (valueChanged()) nBinding.getTarget().node.notifyChange(nBinding.getTarget().node);
-                }
+            if (auto node = cast(Node)binding.getTarget().target) {
+                if (valueChanged()) node.notifyChange(node);
             }
         }
 
@@ -669,22 +661,10 @@ public:
     /**
         Find a binding by node ref and name
     */
-    ParameterBinding getBinding(Node n, string bindingName) {
+    ParameterBinding getBinding(Resource res, string bindingName) {
         foreach(ref binding; bindings) {
-            if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
-                if (nBinding.getNode() != n) continue;
-                if (nBinding.getName == bindingName) return binding;
-            }
-        }
-        return null;
-    }
-
-    ParameterBinding getBinding(Parameter p, int axis) {
-        foreach(ref binding; bindings) {
-            if (auto nBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
-                if (nBinding.getNode() != p) continue;
-                if (nBinding.getName == axis) return binding;
-            }
+            if (binding.getTarget.target != res) continue;
+            if (binding.getName == bindingName) return binding;
         }
         return null;
     }
@@ -693,22 +673,10 @@ public:
     /**
         Check if a binding exists for a given node and name
     */
-    bool hasBinding(Node n, string bindingName) {
+    bool hasBinding(Resource res, string bindingName) {
         foreach(ref binding; bindings) {
-            if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
-                if (nBinding.getNode() != n) continue;
-                if (nBinding.getName == bindingName) return true;
-            }
-        }
-        return false;
-    }
-
-    bool hasBinding(Parameter p, int axis) {
-        foreach(ref binding; bindings) {
-            if (auto pBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
-                if (pBinding.getNode() != p) continue;
-                if (pBinding.getName == axis) return true;
-            }
+            if (binding.getTarget.target != res) continue;
+            if (binding.getTarget.name == bindingName) return true;
         }
         return false;
     }
@@ -716,20 +684,9 @@ public:
     /**
         Check if any bindings exists for a given node
     */
-    bool hasAnyBinding(Node n) {
+    bool hasAnyBinding(Resource res) {
         foreach(ref binding; bindings) {
-            if (auto nBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
-                if (nBinding.getNode() == n) return true;
-            }
-        }
-        return false;
-    }
-
-    bool hasAnyBinding(Parameter p) {
-        foreach(ref binding; bindings) {
-            if (auto pBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
-                if (pBinding.getNode() == p) return true;
-            }
+            if (binding.getTarget.target == res) return true;
         }
         return false;
     }
@@ -737,6 +694,15 @@ public:
     /**
         Create a new binding (without adding it) for a given node and name
     */
+    ParameterBinding createBinding(Resource res, string bindingName, bool setZero = true) {
+        if (auto node = cast(Node)res) {
+            return this.createBinding(node, bindingName, setZero);
+        } else if (auto param = cast(Parameter)res) {
+            return this.createBinding(param, bindingName == "X"? 0: 1);
+        }
+        return null;
+    }
+
     ParameterBinding createBinding(Node n, string bindingName, bool setZero = true) {
         ParameterBinding b;
         if (bindingName == "deform") {
@@ -769,19 +735,10 @@ public:
     /**
         Find a binding if it exists, or create and add a new one, and return it
     */
-    ParameterBinding getOrAddBinding(Node n, string bindingName, bool setZero = true) {
-        ParameterBinding binding = getBinding(n, bindingName);
+    ParameterBinding getOrAddBinding(Resource res, string bindingName, bool setZero = true) {
+        ParameterBinding binding = getBinding(res, bindingName);
         if (binding is null) {
-            binding = createBinding(n, bindingName, setZero);
-            addBinding(binding);
-        }
-        return binding;
-    }
-
-    ParameterBinding getOrAddBinding(Parameter p, int axis, bool setZero = true) {
-        ParameterBinding binding = getBinding(p, axis);
-        if (binding is null) {
-            binding = createBinding(p, axis, setZero);
+            binding = createBinding(res, bindingName, setZero);
             addBinding(binding);
         }
         return binding;
@@ -791,13 +748,8 @@ public:
         Add a new binding (must not exist)
     */
     void addBinding(ParameterBinding binding) {
-        if (auto nBinding = cast(ParameterBindingBase!(Node, string))binding) {
-            assert(!hasBinding(nBinding.getNode, nBinding.getName));
-            bindings ~= nBinding;
-        } else if (auto pBinding = cast(ParameterBindingBase!(Parameter, int))binding) {
-            assert(!hasBinding(pBinding.getNode, pBinding.getName));
-            bindings ~= pBinding;
-        }
+        assert(!hasBinding(binding.getTarget.target, binding.getTarget.name));
+        bindings ~= binding;
     }
 
     /**
