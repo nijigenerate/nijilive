@@ -437,7 +437,6 @@ public:
                 auto deformBinding = cast(DeformationParameterBinding)binding;
                 assert(deformBinding !is null);
                 Node target = deformBinding.targetNode;
-//                writefln("%s: deform by %s", name, param.name);
 
                 for (int x = 0; x < param.axisPoints[0].length; x ++) {
                     for (int y = 0; y < param.axisPoints[1].length; y ++) {
