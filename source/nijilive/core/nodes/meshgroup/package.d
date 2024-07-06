@@ -363,18 +363,6 @@ public:
                         trsBindings[name][node].apply(keypoint, ofs);
                     }
                 }
-                /*
-                auto TXBind = param.getBinding(node, "transform.t.x");
-                auto TYBind = param.getBinding(node, "transform.t.y");
-                auto RZBind = param.getBinding(node, "transform.r.z");
-                auto SXBind = param.getBinding(node, "transform.s.x");
-                auto SYBind = param.getBinding(node, "transform.s.y");
-                if (TXBind) TXBind.apply(keypoint, ofs);
-                if (TYBind) TYBind.apply(keypoint, ofs);
-                if (RZBind) RZBind.apply(keypoint, ofs);
-                if (SXBind) SXBind.apply(keypoint, ofs);
-                if (SYBind) SYBind.apply(keypoint, ofs);
-                */
             }
 
             void transferChildren(Node node, int x, int y) {
@@ -403,14 +391,6 @@ public:
 
                     auto vertices = drawable.vertices;
                     mat4 matrix = drawable.transform.matrix;
-                    /*
-                    writefln("%d, %d: %s: t=(%.2f, %.2f), r=%.2f,s=(%.2f, %.2f)", 
-                        x, y, name, transform.translation.x, transform.translation.y, 
-                        transform.rotation.z, transform.scale.x, transform.scale.y);
-                    writefln("%d, %d:     %s: t=(%.2f, %.2f), r=%.2f,s=(%.2f, %.2f)", 
-                        x, y, node.name, node.transform.translation.x, node.transform.translation.y, 
-                        node.transform.rotation.z, node.transform.scale.x, node.transform.scale.y);
-                    */
 
                     auto nodeBinding = cast(DeformationParameterBinding)param.getOrAddBinding(node, "deform");
                     auto nodeDeform = nodeBinding.values[x][y].vertexOffsets.dup;
