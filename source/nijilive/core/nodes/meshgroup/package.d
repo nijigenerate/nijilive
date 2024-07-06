@@ -19,6 +19,8 @@ import std.typecons: tuple, Tuple;
 import std.stdio;
 import nijilive.core.nodes.utils;
 import std.algorithm.searching;
+import std.algorithm;
+import std.string;
 
 package(nijilive) {
     void inInitMeshGroup() {
@@ -347,7 +349,21 @@ public:
 
 
         foreach (param; params) {
+            ParameterBinding[Resource][string] trsBindings;
+            void extractTRSBindings(Parameter param) {
+                foreach (binding; param.bindings) {
+                    trsBindings[binding.getTarget.name][binding.getTarget.target] = binding;
+                }
+            } 
+            extractTRSBindings(param);
+
             void applyTranslation(Node node, Parameter param, vec2u keypoint, vec2 ofs) {
+                foreach (name; ["t.x", "t.y", "r.z", "s.x", "s.y"].map!((x)=> "transform.%s".format(x))) {
+                    if (name in trsBindings && node in trsBindings[name]) {
+                        trsBindings[name][node].apply(keypoint, ofs);
+                    }
+                }
+                /*
                 auto TXBind = param.getBinding(node, "transform.t.x");
                 auto TYBind = param.getBinding(node, "transform.t.y");
                 auto RZBind = param.getBinding(node, "transform.r.z");
@@ -358,6 +374,7 @@ public:
                 if (RZBind) RZBind.apply(keypoint, ofs);
                 if (SXBind) SXBind.apply(keypoint, ofs);
                 if (SYBind) SYBind.apply(keypoint, ofs);
+                */
             }
 
             void transferChildren(Node node, int x, int y) {
