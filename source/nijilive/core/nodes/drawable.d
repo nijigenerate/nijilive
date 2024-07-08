@@ -11,6 +11,7 @@ public import nijilive.core.nodes.defstack;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
+import nijilive.math.triangle;
 import bindbc.opengl;
 import std.exception;
 import nijilive.core.dbg;
@@ -87,6 +88,34 @@ protected:
             this.deformation[i] = vec2(0, 0);
         }
         this.updateDeform();
+    }
+
+    Tuple!(vec2[], mat4*, bool) nodeAttachProcessor(Node node, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+        bool changed = false;
+        vec2 nodeOrigin = (this.transform.matrix.inverse * vec4(node.transform.translation, 1));
+//        writefln("%s: nodeOrigin=%s", name, nodeOrigin);
+        if (node !in attachedIndex)
+            attachedIndex[node] = findSurroundingTriangle(nodeOrigin, this.data);
+        auto triangle = attachedIndex[node];
+        if (triangle) {
+            vec2 transformedOrigin;
+            float rotateVert, rotateHorz;
+            nlCalculateTransformInTriangle(this.data.vertices, triangle, this.deformation, nodeOrigin, transformedOrigin, rotateVert, rotateHorz);
+//            mat4* newMat = new mat4;
+//            *newMat = *origTransform;
+            transformedOrigin -= nodeOrigin;
+            changed = true;
+            node.setValue("transform.t.x", transformedOrigin.x);
+            node.setValue("transform.t.y", transformedOrigin.y);
+            node.setValue("transform.r.z", (rotateHorz + rotateVert)/2.0);
+            transformChanged();
+//            writefln("%s, %s, %s, %s", name, this.deformation[triangle[0]], this.deformation[triangle[1]], this.deformation[triangle[2]]);
+//            writefln("  ->%s: %s, %.2f, %.2f", node.name, transformedOrigin + nodeOrigin, rotateVert, rotateHorz);
+//            *newMat = newMat.translate(transformedOrigin.x, transformedOrigin.y, 0.0).rotateZ((rotateVert + rotateHorz) / 2.0);
+            return tuple(cast(vec2[])null, cast(mat4*)null, changed);
+        } else {
+            return tuple(cast(vec2[])null, cast(mat4*)null, false);
+        }
     }
 
     Tuple!(vec2[], mat4*, bool) weldingProcessor(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
@@ -290,6 +319,7 @@ public:
     };
     WeldingLink[] welded;
     bool[Drawable] weldingApplied;
+    int[][Node] attachedIndex;
 
     abstract void renderMask(bool dodge = false);
 
@@ -584,6 +614,11 @@ public:
     override
     void finalize() {
         super.finalize();
+        foreach (child; children) {
+            if (child.pinToMesh) {
+                setupChild(child);
+            }
+        }
         
         WeldingLink[] validLinks;
         foreach(i; 0..welded.length) {
@@ -619,6 +654,12 @@ public:
         }
     }
 
+
+    override
+    void clearCache() {
+        attachedIndex.clear();
+    }
+
     override
     void centralize() {
         foreach (child; children) {
@@ -651,6 +692,22 @@ public:
         }
         if (dcomposite !is null)
             dcomposite.autoResizedMesh = autoResizedMesh;
+    }
+
+    override
+    void setupChild(Node node) {
+        super.setupChild(node);
+        if (node.pinToMesh) {
+            node.preProcessFilters  = node.preProcessFilters.removeByValue(&nodeAttachProcessor);
+            if (node.postProcessFilters.countUntil(&nodeAttachProcessor) == -1)
+                node.postProcessFilters ~= &nodeAttachProcessor;
+        }
+    }
+
+    override
+    void releaseChild(Node node) {
+        node.preProcessFilters = node.preProcessFilters.removeByValue(&this.nodeAttachProcessor);
+        super.releaseChild(node);
     }
 
     override
