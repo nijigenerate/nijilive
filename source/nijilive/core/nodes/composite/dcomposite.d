@@ -134,7 +134,8 @@ public:
         foreach (child; children) {
             setIgnorePuppetRecurse(child, ignorePuppet);
         }
-        puppet.rescanNodes();
+        if (puppet !is null)
+            puppet.rescanNodes();
     }
 
     void drawSelf(bool isMask = false)() {
@@ -487,13 +488,15 @@ public:
     override
     void setupChild(Node node) {
         setIgnorePuppetRecurse(node, true);
-        puppet.rescanNodes();
+        if (puppet !is null)
+            puppet.rescanNodes();
     }
 
     override
     void releaseChild(Node node) {
         setIgnorePuppetRecurse(node, false);
-        puppet.rescanNodes();
+        if (puppet !is null)
+            puppet.rescanNodes();
     }
 
     override
