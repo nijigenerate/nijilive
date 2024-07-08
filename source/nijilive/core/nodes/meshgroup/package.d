@@ -19,6 +19,8 @@ import std.typecons: tuple, Tuple;
 import std.stdio;
 import nijilive.core.nodes.utils;
 import std.algorithm.searching;
+import std.algorithm;
+import std.string;
 
 package(nijilive) {
     void inInitMeshGroup() {
@@ -345,7 +347,24 @@ public:
         forwardMatrix = transform.matrix;
         inverseMatrix = globalTransform.matrix.inverse;
 
+
         foreach (param; params) {
+            ParameterBinding[Resource][string] trsBindings;
+            void extractTRSBindings(Parameter param) {
+                foreach (binding; param.bindings) {
+                    trsBindings[binding.getTarget.name][binding.getTarget.target] = binding;
+                }
+            } 
+            extractTRSBindings(param);
+
+            void applyTranslation(Node node, Parameter param, vec2u keypoint, vec2 ofs) {
+                foreach (name; ["t.x", "t.y", "r.z", "s.x", "s.y"].map!((x)=> "transform.%s".format(x))) {
+                    if (name in trsBindings && node in trsBindings[name]) {
+                        trsBindings[name][node].apply(keypoint, ofs);
+                    }
+                }
+            }
+
             void transferChildren(Node node, int x, int y) {
                 auto drawable = cast(Drawable)node;
                 auto group = cast(MeshGroup)node;
@@ -355,6 +374,21 @@ public:
                 bool isDComposite = cast(DynamicComposite)(node) !is null;
                 bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
                 if (isDrawable) {
+                        int xx = x, yy = y;
+                        float ofsX = 0, ofsY = 0;
+
+                        if (x == param.axisPoints[0].length - 1) {
+                            xx = x - 1;
+                            ofsX = 1;
+                        }
+                        if (y == param.axisPoints[1].length - 1) {
+                            yy = y - 1;
+                            ofsY = 1;
+                        }
+
+                        applyTranslation(drawable, param, vec2u(xx, yy), vec2(ofsX, ofsY));
+                        drawable.transformChanged;
+
                     auto vertices = drawable.vertices;
                     mat4 matrix = drawable.transform.matrix;
 
@@ -388,43 +422,26 @@ public:
                 }
             }
 
+            void resetOffset(Node node) {
+                node.offsetTransform.clear();
+                node.offsetSort = 0;
+                node.transformChanged();
+                foreach (child; node.children) {
+                    resetOffset(child);
+                }
+            }
+
 
             if  (auto binding = param.getBinding(this, "deform")) {
 
                 auto deformBinding = cast(DeformationParameterBinding)binding;
                 assert(deformBinding !is null);
-                Node target = binding.getTarget().node;
-
+                Node target = deformBinding.targetNode;
 
                 for (int x = 0; x < param.axisPoints[0].length; x ++) {
                     for (int y = 0; y < param.axisPoints[1].length; y ++) {
 
-                        beginUpdate();
-                        auto TXBind = param.getBinding(target, "transform.t.x");
-                        auto TYBind = param.getBinding(target, "transform.t.y");
-                        auto RZBind = param.getBinding(target, "transform.r.z");
-                        auto SXBind = param.getBinding(target, "transform.s.x");
-                        auto SYBind = param.getBinding(target, "transform.s.y");
-
-                        int xx = x, yy = y;
-                        float ofsX = 0, ofsY = 0;
-
-                        if (x == param.axisPoints[0].length - 1) {
-                            xx = x - 1;
-                            ofsX = 1;
-                        }
-                        if (y == param.axisPoints[1].length - 1) {
-                            yy = y - 1;
-                            ofsY = 1;
-                        }
-
-                        if (TXBind) TXBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
-                        if (TYBind) TYBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
-                        if (RZBind) RZBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
-                        if (SXBind) SXBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
-                        if (SYBind) SYBind.apply(vec2u(xx, yy), vec2(ofsX, ofsY));
-
-                        puppet.root.transformChanged();
+                        resetOffset(puppet.root);
 
                         vec2[] deformation;
                         if (deformBinding.isSet_[x][y])
@@ -450,7 +467,6 @@ public:
                         foreach (child; children) {
                             transferChildren(child, x, y);
                         }
-                        endUpdate();
                     }
                 }
                 param.removeBinding(binding);
