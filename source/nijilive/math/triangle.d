@@ -117,8 +117,8 @@ mat3 calculateAffineTransform(vec2[] vertices, int[] triangle, vec2[] deform) {
     auto p5 = p2 + deform[triangle[2]];
 
     mat3 transformed = mat3(
-        p3.x, p4.x, p4.x,
-        p3.y, p4.y, p4.y,
+        p3.x, p4.x, p5.x,
+        p3.y, p4.y, p5.y,
         1.0f, 1.0f, 1.0f);
 
     mat3 affineTransform = transformed * original.inverse();
