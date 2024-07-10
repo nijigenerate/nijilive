@@ -93,7 +93,7 @@ protected:
     Tuple!(vec2[], mat4*, bool) nodeAttachProcessor(Node node, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         bool changed = false;
         vec2 nodeOrigin = (this.transform.matrix.inverse * vec4(node.transform.translation, 1));
-//        writefln("%s: nodeOrigin=%s", name, nodeOrigin);
+//        writefln("%s-->%s: nodeOrigin=%s", name, node.name, nodeOrigin);
         if (node !in attachedIndex)
             attachedIndex[node] = findSurroundingTriangle(nodeOrigin, this.data);
         auto triangle = attachedIndex[node];
@@ -698,15 +698,14 @@ public:
     void setupChild(Node node) {
         super.setupChild(node);
         if (node.pinToMesh) {
-            node.preProcessFilters  = node.preProcessFilters.removeByValue(&nodeAttachProcessor);
-            if (node.postProcessFilters.countUntil(&nodeAttachProcessor) == -1)
-                node.postProcessFilters ~= &nodeAttachProcessor;
+            if (node.preProcessFilters.countUntil(&nodeAttachProcessor) == -1)
+                node.preProcessFilters ~= &nodeAttachProcessor;
         }
     }
 
     override
     void releaseChild(Node node) {
-        node.preProcessFilters = node.preProcessFilters.removeByValue(&this.nodeAttachProcessor);
+        node.preProcessFilters = node.preProcessFilters.removeByValue(&nodeAttachProcessor);
         super.releaseChild(node);
     }
 
