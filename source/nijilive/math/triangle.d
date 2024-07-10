@@ -1,9 +1,12 @@
 module nijilive.math.triangle;
 import nijilive.math;
 import nijilive.core.meshdata;
+import nijilive.core.nodes.defstack;
 import inmath;
 import std.math;
 import std.algorithm;
+import std.array : array;
+import std.conv : to;
 
 
 bool isPointInTriangle(vec2 pt, vec2[3] triangle) {
@@ -97,4 +100,65 @@ vec2 calcOffsetInTriangleCoords(vec2 pt, ref MeshData bindingMesh, ref int[] tri
 
         return result;
     }
+}
+
+private {
+mat3 calculateAffineTransform(vec2[] vertices, int[] triangle, vec2[] deform) {
+    auto p0 = vertices[triangle[0]];
+    auto p1 = vertices[triangle[1]];
+    auto p2 = vertices[triangle[2]];
+    mat3 original = mat3(
+        p0.x, p1.x, p2.x,
+        p0.y, p1.y, p2.y,
+        1.0f, 1.0f, 1.0f
+    );
+    auto p3 = p0 + deform[triangle[0]];
+    auto p4 = p1 + deform[triangle[1]];
+    auto p5 = p2 + deform[triangle[2]];
+
+    mat3 transformed = mat3(
+        p3.x, p4.x, p5.x,
+        p3.y, p4.y, p5.y,
+        1.0f, 1.0f, 1.0f);
+
+    mat3 affineTransform = transformed * original.inverse();
+    return affineTransform;
+}
+
+vec2 applyAffineTransform(mat3 transform, vec2 point) {
+    vec3 pointHomogeneous = vec3(point, 1.0);
+    vec3 transformedPointHomogeneous = transform * pointHomogeneous;
+    return transformedPointHomogeneous.xy;
+}
+
+float calculateAngle(vec2 A, vec2 B) {
+    return atan2(B.y - A.y, B.x - A.x);
+}
+}
+
+bool nlCalculateTransformInTriangle(vec2[] vertices, int[] triangle, vec2[] deform, vec2 target, 
+        out vec2 target_prime, out float rotationAngle_vert, out float rotationAngle_horz) {
+    mat3 affineTransform = calculateAffineTransform(vertices, triangle, deform);
+    target_prime = applyAffineTransform(affineTransform, target);
+
+    // Vertical unit vector rotation
+    vec2 vert = vec2(0, 1);
+    vec2 target_vert = target + vert;
+    vec2 target_vert_prime = applyAffineTransform(affineTransform, target_vert);
+
+    // Horizontal unit vector rotation
+    vec2 horz = vec2(1, 0);
+    vec2 target_horz = target + horz;
+    vec2 target_horz_prime = applyAffineTransform(affineTransform, target_horz);
+
+    // Calculate angles from above vectors.
+    float originalAngle_vert = calculateAngle(target, target_vert);
+    float transformedAngle_vert = calculateAngle(target_prime, target_vert_prime);
+    rotationAngle_vert = transformedAngle_vert - originalAngle_vert;
+
+    float originalAngle_horz = calculateAngle(target, target_horz);
+    float transformedAngle_horz = calculateAngle(target_prime, target_horz_prime);
+    rotationAngle_horz = transformedAngle_horz - originalAngle_horz;
+
+    return true;
 }

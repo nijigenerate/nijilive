@@ -285,7 +285,7 @@ public:
 
     override
     void setupChild(Node child) {
- 
+        super.setupChild(child);
         void setGroup(Node node) {
             auto drawable = cast(Drawable)node;
             auto group    = cast(MeshGroup)node;
@@ -335,6 +335,7 @@ public:
             }
         }
         unsetGroup(child);
+        super.releaseChild(child);
     }
 
     void applyDeformToChildren(Parameter[] params) {

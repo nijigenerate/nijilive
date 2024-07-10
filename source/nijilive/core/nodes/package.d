@@ -107,6 +107,9 @@ private:
     @Ignore
     string nodePath_;
 
+    @Name("pinToMesh")
+    bool pinToMesh_;
+
 protected:
     this() { }
 
@@ -163,6 +166,9 @@ protected:
         serializer.putKey("lockToRoot");
         serializer.serializeValue(this.lockToRoot_);
         
+        serializer.putKey("pinToMesh");
+        serializer.serializeValue(this.pinToMesh_);
+        
         if (recursive && children.length > 0) {
             serializer.putKey("children");
             auto childArray = serializer.arrayBegin();
@@ -207,13 +213,15 @@ protected:
         if (preProcessed)
             return;
         preProcessed = true;
-        overrideTransformMatrix = null;
         foreach (preProcessFilter; preProcessFilters) {
-            mat4 matrix = this.parent? this.parent.transform.matrix: mat4.identity;
+            mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
             auto filterResult = preProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
+            }
+            if (filterResult[1] !is null) {
+                overrideTransformMatrix = new MatrixHolder(*filterResult[1]);
             }
             if (filterResult[2]) {
                 notifyChange(this);
@@ -225,15 +233,17 @@ protected:
         if (postProcessed)
             return;
         postProcessed = true;
-        overrideTransformMatrix = null;
         foreach (postProcessFilter; postProcessFilters) {
-            mat4 matrix = this.parent? this.parent.transform.matrix: mat4.identity;
+            mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
             auto filterResult = postProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
                 overrideTransformMatrix = new MatrixHolder(transform.matrix);
             } 
+            if (filterResult[1] !is null) {
+                overrideTransformMatrix = new MatrixHolder(*filterResult[1]);
+            }
             if (filterResult[2]) {
                 notifyChange(this);
             }
@@ -550,6 +560,18 @@ public:
         this.insertInto(node, OFFSET_END);
     }
 
+    final bool pinToMesh() { return pinToMesh_; }
+    final void pinToMesh(bool value) {
+        bool changed = value != pinToMesh_;
+        pinToMesh_ = value;
+        if (parent && changed) {
+            if (pinToMesh_)
+                parent.setupChild(this);
+            else
+                parent.releaseChild(this);
+        }
+    }
+
     final ptrdiff_t getIndexInParent() {
         import std.algorithm.searching : countUntil;
         return parent_.children_.countUntil(this);
@@ -778,6 +800,7 @@ public:
 
         offsetSort = 0;
         offsetTransform.clear();
+        overrideTransformMatrix = null;
 
         // Iterate through children
         foreach(child; children_) {
@@ -851,6 +874,10 @@ public:
         
         if (!data["lockToRoot"].isEmpty) {
             if (auto exc = data["lockToRoot"].deserializeValue(this.lockToRoot_)) return exc;
+        }
+
+        if (!data["pinToMesh"].isEmpty) {
+            if (auto exc = data["pinToMesh" ].deserializeValue(this.pinToMesh_)) return exc;
         }
 
         // Pre-populate our children with the correct types
