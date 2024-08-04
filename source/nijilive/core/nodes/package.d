@@ -343,6 +343,10 @@ public:
         zsort_ = value;
     }
 
+    void setAbsZSort(float value) {
+        zsort_ = value - zSortBase - offsetSort;
+    }
+
     /**
         Lock translation to root
     */
