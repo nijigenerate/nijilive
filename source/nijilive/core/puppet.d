@@ -883,4 +883,11 @@ public:
     vec4 getCombinedBounds(bool reupdate=false)() {
         return root.getCombinedBounds!(reupdate, true);
     }
+
+    void setRootNode(Node node) {
+        if (this.root)
+            this.root.reparent(null, 0);
+        node.reparent(this.puppetRootNode, 0);
+        this.root = node;
+    }
 }
