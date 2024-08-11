@@ -197,10 +197,10 @@ struct Deformation {
 */
 struct DeformationStack {
 private:
-    Drawable parent;
+    Deformable parent;
 
 public:
-    this(Drawable parent) {
+    this(Deformable parent) {
         this.parent = parent;
     }
 

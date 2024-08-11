@@ -9,3 +9,11 @@ T[] removeByValue(T)(T[] array, T value) {
     }
     return array;
 }
+
+T[] upsert(T)(T[] array, T value) {
+    auto index = array.countUntil(value);
+    if (index == -1) {
+        array ~= value;
+    }
+    return array;
+}

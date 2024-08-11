@@ -672,4 +672,7 @@ public:
             initTarget();
         }
     }
+
+    override
+    bool mustPropagate() { return false; }
 }

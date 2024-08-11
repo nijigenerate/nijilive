@@ -708,4 +708,7 @@ public:
         }
         super.flushNotifyChange();
     }
+
+    override
+    bool mustPropagate() { return true; }
 }
