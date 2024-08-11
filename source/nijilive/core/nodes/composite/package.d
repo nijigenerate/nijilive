@@ -710,5 +710,5 @@ public:
     }
 
     override
-    bool mustPropagate() { return true; }
+    bool mustPropagate() { return propagateMeshGroup; }
 }

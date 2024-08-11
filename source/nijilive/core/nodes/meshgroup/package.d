@@ -288,12 +288,7 @@ public:
         super.setupChild(child);
         void setGroup(Node node) {
             auto drawable = cast(Drawable)node;
-            //auto group    = cast(MeshGroup)node;
-            //auto composite = cast(Composite)node;
             bool isDrawable = drawable !is null;
-            //bool isDComposite = cast(DynamicComposite)(node) !is null;
-            //bool isComposite = composite !is null && composite.propagateMeshGroup;
-            //bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
             bool mustPropagate = node.mustPropagate();
             if (translateChildren || isDrawable) {
                 if (isDrawable && dynamic) {
@@ -327,13 +322,6 @@ public:
             node.preProcessFilters = node.preProcessFilters.removeByValue(&this.filterChildren);
             node.postProcessFilters = node.postProcessFilters.removeByValue(&this.filterChildren);
 
-            //auto drawable = cast(Drawable)node;
-            //auto group    = cast(MeshGroup)node;
-            //auto composite = cast(Composite)node;
-            //bool isDrawable = drawable !is null;
-            //bool isDComposite = cast(DynamicComposite)(node) !is null;
-            //bool isComposite = composite !is null && composite.propagateMeshGroup;
-            //bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
             bool mustPropagate = node.mustPropagate();
             if (mustPropagate) {
                 foreach (child; node.children) {
@@ -375,12 +363,10 @@ public:
 
             void transferChildren(Node node, int x, int y) {
                 auto drawable = cast(Drawable)node;
-                //auto group = cast(MeshGroup)node;
                 auto composite = cast(Composite)node;
                 bool isDrawable = drawable !is null;
                 bool isComposite = composite !is null && composite.propagateMeshGroup;
-                //bool isDComposite = cast(DynamicComposite)(node) !is null;
-                bool mustPropagate = node.mustPropagate(); //!isDComposite && ((isDrawable && group is null) || isComposite);
+                bool mustPropagate = node.mustPropagate();
                 if (isDrawable) {
                         int xx = x, yy = y;
                         float ofsX = 0, ofsY = 0;
