@@ -1201,6 +1201,10 @@ public:
         }
     }
 
+    bool coverOthers() {
+        return false;
+    }
+
     bool mustPropagate() {
         return false;
     }

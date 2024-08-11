@@ -385,4 +385,11 @@ public:
             clearCache();
         }
     }
+
+    override
+    bool coverOthers() { return true; }
+
+    override
+    bool mustPropagate() { return false; }
+
 }

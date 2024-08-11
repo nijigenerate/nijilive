@@ -403,6 +403,8 @@ public:
             if (vertices.length == 0) return;
 
             auto trans = getDynamicMatrix();
+            if (oneTimeTransform !is null)
+                trans = (*oneTimeTransform) * trans;
 
             ushort[] indices = data.indices;
 
@@ -433,6 +435,8 @@ public:
             if (vertices.length == 0) return;
 
             auto trans = getDynamicMatrix();
+            if (oneTimeTransform !is null)
+                trans = (*oneTimeTransform) * trans;
             vec3[] points = new vec3[vertices.length];
             foreach(i, point; vertices) {
                 points[i] = vec3(point-data.origin+deformation[i], 0);
