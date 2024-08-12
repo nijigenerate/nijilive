@@ -76,6 +76,10 @@ public:
         this.updateDeform();
     }
 
+    void rebuffer(vec2[] vertices) {
+        this.vertices = vertices;
+    }
+
     override
     void beginUpdate() {
         deformStack.preUpdate();

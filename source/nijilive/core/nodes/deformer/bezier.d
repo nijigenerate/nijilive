@@ -232,6 +232,7 @@ public:
     override
     string typeId() { return "BezierDeformer"; }
 
+    override
     void rebuffer(vec2[] originalControlPoints) {
         this.originalCurve = new BezierCurve(originalControlPoints);
     }
