@@ -102,6 +102,8 @@ struct BezierCurve {
         }
         return closestT;
     }
+
+    T opCast(T: bool)() { return controlPoints.length > 0; }
 }
 
 @TypeId("BezierDeformer")
@@ -119,8 +121,10 @@ protected:
 
     // Cache the closest points on the Bezier curve for each vertex in the mesh
     void cacheClosestPoints(Node node, int nSamples = 100) {
-        foreach (i, vertex; getVertices(node)) {
-            meshCaches[node][i] = originalCurve.closestPoint(vertex, nSamples);
+        if (originalCurve) {
+            foreach (i, vertex; getVertices(node)) {
+                meshCaches[node][i] = originalCurve.closestPoint(vertex, nSamples);
+            }
         }
     }
 
@@ -304,6 +308,7 @@ public:
 
     // Update method to deform a single mesh
     Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+        if (!originalCurve) return Tuple!(vec2[], mat4*, bool)(null, null, false);
         vec2[] deformedClosestPointsA;
         deformedClosestPointsA.length = origVertices.length;
         vec2[] deformedVertices;
