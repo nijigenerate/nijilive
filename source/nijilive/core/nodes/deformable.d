@@ -33,12 +33,14 @@ abstract class Deformable : Node {
         super(parent);
         // Create deformation stack
         this.deformStack = DeformationStack(this);
+        this.deformation.length = 0;
     }
 
     this(uint uuid, Node parent = null) {
         super(uuid, parent);
         // Create deformation stack
         this.deformStack = DeformationStack(this);
+        this.deformation.length = 0;
     }
 
     void onDeformPushed(ref Deformation deform) { }
@@ -78,6 +80,7 @@ public:
 
     void rebuffer(vec2[] vertices) {
         this.vertices = vertices;
+        this.deformation.length = vertices.length;
     }
 
     override

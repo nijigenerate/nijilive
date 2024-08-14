@@ -29,7 +29,7 @@ private {
     }
 }
 
-class BezierCurve {
+struct BezierCurve {
     vec2[] controlPoints;
     vec2[] derivatives; // Precomputed Bezier curve derivatives
 
@@ -126,7 +126,7 @@ protected:
 
     // Deform all registered meshes using the deformed Bezier curve
     void deform(vec2[] deformedControlPoints) {
-        deformedCurve = new BezierCurve(deformedControlPoints);
+        deformedCurve = BezierCurve(deformedControlPoints);
     }
 
 
@@ -226,7 +226,6 @@ public:
 
     this(Node parent = null) {
         super(parent);
-        this.deformStack = DeformationStack(this);
     }
 
     override
@@ -234,7 +233,9 @@ public:
 
     override
     void rebuffer(vec2[] originalControlPoints) {
-        this.originalCurve = new BezierCurve(originalControlPoints);
+        this.originalCurve = BezierCurve(originalControlPoints);
+        this.deformation.length = originalControlPoints.length;
+        writefln("BezierDeformer.rebuffer, %s, %s", name, deformation);
     }
 
     override
