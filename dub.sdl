@@ -9,7 +9,8 @@ dependency "i2d-opengl" version="~>1.0.0"
 dependency "fghj" version="~>1.0.2"
 versions "GL_32" "GL_ARB_gl_spirv" "GL_KHR_blend_equation_advanced" "GL_ARB_texture_filter_anisotropic"
 stringImportPaths "shaders/"
-preBuildCommands "dub run gitver -- --prefix IN --file source/nijilive/ver.d --mod nijilive.ver --appname nijilive"
+preBuildCommands "sh update-gitver.sh nijilive IN" platform="posix"
+preBuildCommands "dub run gitver -- --prefix IN --file source/nijilive/ver.d --mod nijilive.ver --appname nijilive" platform="windows"
 
 
 configuration "full" {
