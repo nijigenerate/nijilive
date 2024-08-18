@@ -170,10 +170,18 @@ protected:
 
     void updateDeform() {
         // Important check since the user can change this every frame
+        /*
         enforce(
             deformation.length == vertices.length, 
             "Data length mismatch for %s, deformation length=%d whereas vertices.length=%d, if you want to change the mesh you need to change its data with Part.rebuffer.".format(name, deformation.length, vertices.length)
         );
+        */
+        if (deformation.length != vertices.length) {
+            deformation.length = vertices.length;
+            foreach (i; 0..deformation.length) {
+                deformation[i] = vec2(0, 0);
+            }
+        }
         postProcess();
 
         version (InDoesRender) {
