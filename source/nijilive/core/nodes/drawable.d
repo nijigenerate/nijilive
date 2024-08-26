@@ -169,6 +169,7 @@ protected:
 
     override
     void updateDeform() {
+        super.updateDeform();
         version (InDoesRender) {
             glBindBuffer(GL_ARRAY_BUFFER, dbo);
             glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
@@ -400,7 +401,7 @@ public:
             Draws line of mesh
         */
         void drawMeshLines() {
-            if (vertices.length == 0) return;
+            if (vertices.length == 0 || data.indices.length == 0) return;
 
             auto trans = getDynamicMatrix();
             if (oneTimeTransform !is null)
