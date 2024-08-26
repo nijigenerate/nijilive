@@ -503,7 +503,7 @@ public:
             Draws line of mesh
         */
         void drawMeshLines() {
-            if (vertices.length == 0 || indices.length == 0) return;
+            if (vertices.length == 0 || data.indices.length == 0) return;
 
             auto trans = getDynamicMatrix();
 
