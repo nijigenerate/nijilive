@@ -221,23 +221,6 @@ protected:
         }
     }
 
-    /*
-    int findPoint(vec2 point) {
-        uint bestIdx = 0;
-        float bestDist = float.infinity;
-        foreach(idx, pt; points) {
-            float dist = pt.position.distance(point);
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestIdx = cast(uint)idx;
-            }
-        }
-
-        if (bestDist > selectRadius/incViewportZoom) return -1;
-        return bestIdx;
-    }
-    */
-
 public:
     BezierCurve originalCurve;
     BezierCurve deformedCurve;  // 追加: 変形後のベジェ曲線を保持する
