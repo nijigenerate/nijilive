@@ -121,6 +121,9 @@ protected:
 
     // Cache the closest points on the Bezier curve for each vertex in the mesh
     void cacheClosestPoints(Node node, int nSamples = 100) {
+        auto vertices = getVertices(node);
+        meshCaches[node] = new float[vertices.length];
+
         if (originalCurve) {
             foreach (i, vertex; getVertices(node)) {
                 meshCaches[node][i] = originalCurve.closestPoint(vertex, nSamples);
@@ -190,7 +193,7 @@ protected:
             vec2[] intersections;
             Tuple!(ulong, ulong)[] pairs;
             foreach (cell, indices; grid) {
-                auto adjacentCells = adjacentCellsCache[cell];
+                auto adjacentCells = cell in adjacentCellsCache ? adjacentCellsCache[cell]: [];
                 foreach (i; indices) {
                     foreach (adjCell; adjacentCells) {
                         if (adjCell in grid) {
@@ -218,7 +221,7 @@ protected:
         }
     }
 
-
+    /*
     int findPoint(vec2 point) {
         uint bestIdx = 0;
         float bestDist = float.infinity;
@@ -233,7 +236,8 @@ protected:
         if (bestDist > selectRadius/incViewportZoom) return -1;
         return bestIdx;
     }
-    
+    */
+
 public:
     BezierCurve originalCurve;
     BezierCurve deformedCurve;  // 追加: 変形後のベジェ曲線を保持する
@@ -255,7 +259,25 @@ public:
     void rebuffer(vec2[] originalControlPoints) {
         this.originalCurve = BezierCurve(originalControlPoints);
         this.deformation.length = originalControlPoints.length;
-        writefln("BezierDeformer.rebuffer, %s, %s", name, deformation);
+    }
+
+    override
+    void update() {
+        preProcess();
+        deformStack.update();
+
+        if (vertices.length > 0) {
+            vec2[] transformedVertices;
+            transformedVertices.length = vertices.length;
+            foreach(i, vertex; vertices) {
+                transformedVertices[i] = vertex+this.deformation[i];
+            }
+
+            deform(transformedVertices);
+        }
+
+        Node.update();
+        this.updateDeform();        
     }
 
     override
@@ -281,8 +303,6 @@ public:
             bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
 
             if (isDrawable) {
-                auto vertices = getVertices(node);
-                meshCaches[node] = new float[vertices.length];
                 cacheClosestPoints(node);
                 node.preProcessFilters  = node.preProcessFilters.upsert(&deformChildren);
             } else {
@@ -332,6 +352,8 @@ public:
 
         foreach (i, vertex; origVertices) {
             // Find the closest point on the original Bezier curve
+            if (target !in meshCaches)
+                cacheClosestPoints(target);
             float t = meshCaches[target][i];
             vec2 closestPointOriginal = originalCurve.point(t);
             vec2 tangentOriginal = originalCurve.derivative(t).normalized;
