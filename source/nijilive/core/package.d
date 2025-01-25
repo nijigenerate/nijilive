@@ -193,6 +193,7 @@ package(nijilive) {
         inInitComposite();
         inInitMeshGroup();
         inInitDComposite();
+        inInitBezierDeformer();
         version(InDoesRender) inInitDebug();
 
         inParameterSetFactory((data) {

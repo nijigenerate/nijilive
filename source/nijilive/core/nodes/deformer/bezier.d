@@ -29,13 +29,19 @@ private {
     }
 }
 
+package(nijilive) {
+    void inInitBezierDeformer() {
+        inRegisterNodeType!BezierDeformer;
+    }
+}
+
 struct BezierCurve {
     vec2[] controlPoints;
     vec2[] derivatives; // Precomputed Bezier curve derivatives
 
     this(vec2[] controlPoints) {
         this.controlPoints = controlPoints.dup;
-        this.derivatives = new vec2[controlPoints.length - 1];
+        this.derivatives = new vec2[controlPoints.length > 0? controlPoints.length - 1: 0];
         calculateDerivatives();
     }
 
@@ -219,6 +225,44 @@ protected:
 
             grid = createGrid(vertices, cellSize);
         }
+    }
+
+    /**
+        Allows serializing self data (with pretty serializer)
+    */
+    override
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true) {
+        super.serializeSelfImpl(serializer, recursive);
+        serializer.putKey("vertices");
+        auto state = serializer.arrayBegin();
+        foreach(vertex; originalCurve.controlPoints) {
+            serializer.elemBegin;
+            serializer.serializeValue(vertex.x);
+            serializer.elemBegin;
+            serializer.serializeValue(vertex.y);
+        }
+        serializer.arrayEnd(state);
+        writefln("Bezier:serialize: %s", name);
+    }
+
+    override
+    SerdeException deserializeFromFghj(Fghj data) {
+        super.deserializeFromFghj(data);
+        writefln("Bezier:deserialize: %s", name);
+
+        auto elements = data["vertices"].byElement;
+        vec2[] controlPoints;
+        while(!elements.empty) {
+            float x;
+            float y;
+            elements.front.deserializeValue(x);
+            elements.popFront;
+            elements.front.deserializeValue(y);
+            elements.popFront;
+            controlPoints ~= vec2(x, y);
+        }
+        rebuffer(controlPoints);
+        return null;
     }
 
 public:
