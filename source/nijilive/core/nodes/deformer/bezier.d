@@ -112,9 +112,13 @@ struct BezierCurve {
     T opCast(T: bool)() { return controlPoints.length > 0; }
 }
 
+
 @TypeId("BezierDeformer")
 class BezierDeformer : Deformable {
 protected:
+    mat4 forwardMatrix;
+    mat4 inverseMatrix;
+
     vec2[] getVertices(Node node) {
         vec2[] vertices;
         if (auto drawable = cast(Drawable)node) {
@@ -242,13 +246,11 @@ protected:
             serializer.serializeValue(vertex.y);
         }
         serializer.arrayEnd(state);
-        writefln("Bezier:serialize: %s", name);
     }
 
     override
     SerdeException deserializeFromFghj(Fghj data) {
         super.deserializeFromFghj(data);
-        writefln("Bezier:deserialize: %s", name);
 
         auto elements = data["vertices"].byElement;
         vec2[] controlPoints;
@@ -292,6 +294,9 @@ public:
     void update() {
         preProcess();
         deformStack.update();
+
+        forwardMatrix = transform.matrix;
+        inverseMatrix = globalTransform.matrix.inverse;
 
         if (vertices.length > 0) {
             vec2[] transformedVertices;
@@ -371,22 +376,31 @@ public:
 
     // Update method to deform a single mesh
     Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
-        if (!originalCurve) return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        if (!originalCurve || originalCurve.controlPoints.length < 2) return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        mat4 centerMatrix = inverseMatrix * (*origTransform);
+
+        vec2[] cVertices;
         vec2[] deformedClosestPointsA;
         deformedClosestPointsA.length = origVertices.length;
         vec2[] deformedVertices;
         deformedVertices.length = origVertices.length;
 
         foreach (i, vertex; origVertices) {
-            // Find the closest point on the original Bezier curve
+            vec2 cVertex;
+//            if (dynamic)
+//                cVertex = vec2(centerMatrix * vec4(vertex+origDeformation[i], 0, 1));
+//            else
+                cVertex = vec2(centerMatrix * vec4(vertex, 0, 1));            // Find the closest point on the original Bezier curve
+            cVertices ~= cVertex;
+
             if (target !in meshCaches)
                 cacheClosestPoints(target);
             float t = meshCaches[target][i];
             vec2 closestPointOriginal = originalCurve.point(t);
             vec2 tangentOriginal = originalCurve.derivative(t).normalized;
             vec2 normalOriginal = vec2(-tangentOriginal.y, tangentOriginal.x);
-            float originalNormalDistance = dot(vertex - closestPointOriginal, normalOriginal);
-            float tangentialDistance = dot(vertex - closestPointOriginal, tangentOriginal);
+            float originalNormalDistance = dot(cVertex - closestPointOriginal, normalOriginal);
+            float tangentialDistance = dot(cVertex - closestPointOriginal, tangentOriginal);
 
             // Find the corresponding point on the deformed Bezier curve
             vec2 closestPointDeformedA = deformedCurve.point(t); // 修正: deformedCurve を使用
@@ -398,11 +412,24 @@ public:
 
             deformedVertices[i] = deformedVertex;
             deformedClosestPointsA[i] = closestPointDeformedA;
+
         }
 
         adjust(deformedVertices, deformedClosestPointsA);
+
+        foreach (i, cVertex; cVertices) {
+//            if (!dynamic) {
+                mat4 inv = centerMatrix.inverse;
+                inv[0][3] = 0;
+                inv[1][3] = 0;
+                inv[2][3] = 0;
+                origDeformation[i] += (inv * vec4(deformedVertices[i] - cVertex, 0, 1)).xy;
+//            } else
+//                origDeformation[i] = newPos - origVertices[i];
+        }
+
         //mesh.vertices = deformedVertices;
-        return Tuple!(vec2[], mat4*, bool)(deformedVertices, null, true);
+        return Tuple!(vec2[], mat4*, bool)(origDeformation, null, true);
     }
 
     override
