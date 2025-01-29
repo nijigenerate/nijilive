@@ -5,6 +5,7 @@ import nijilive.math;
 import nijilive.core.nodes;
 import nijilive.core.nodes.utils;
 import nijilive.core.nodes.defstack;
+import nijilive.core.nodes.deformer.drivers.phys;
 import nijilive.core;
 import inmath.linalg;
 
@@ -118,6 +119,7 @@ class BezierDeformer : Deformable {
 protected:
     mat4 forwardMatrix;
     mat4 inverseMatrix;
+    PhysicsDriver driver;
 
     vec2[] getVertices(Node node) {
         vec2[] vertices;
@@ -268,6 +270,9 @@ protected:
     }
 
 public:
+    vec2 prevRoot;
+    bool prevRootSet;
+    bool driverInitialized = false;
     BezierCurve originalCurve;
     BezierCurve deformedCurve;  // 追加: 変形後のベジェ曲線を保持する
     float[][Node] meshCaches; // Cache for each Mesh
@@ -279,6 +284,9 @@ public:
 
     this(Node parent = null) {
         super(parent);
+        driver = null;
+        driver = new ConnectedPendulumDriver(this);
+        prevRootSet = false;
     }
 
     override
@@ -288,12 +296,27 @@ public:
     void rebuffer(vec2[] originalControlPoints) {
         this.originalCurve = BezierCurve(originalControlPoints);
         this.deformation.length = originalControlPoints.length;
+        driverInitialized = false;
     }
 
     override
     void update() {
+        if (!driverInitialized) {
+            driver.setup();
+            driverInitialized = true;
+        }
         preProcess();
+
         deformStack.update();
+        if (driver) {
+            if (prevRootSet) {
+                vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+                vec2 deform = root - prevRoot;
+                driver.reset();
+                driver.enforce(deform);
+                driver.update();
+            }
+        }
 
         forwardMatrix = transform.matrix;
         inverseMatrix = globalTransform.matrix.inverse;
@@ -309,7 +332,12 @@ public:
         }
 
         Node.update();
-        this.updateDeform();        
+        this.updateDeform();
+        if (driver) {
+            driver.updateDefaultShape();
+            prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+            prevRootSet = true;
+        }
     }
 
     override
