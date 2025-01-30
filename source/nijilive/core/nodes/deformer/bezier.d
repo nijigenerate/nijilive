@@ -117,7 +117,6 @@ struct BezierCurve {
 @TypeId("BezierDeformer")
 class BezierDeformer : Deformable {
 protected:
-    mat4 forwardMatrix;
     mat4 inverseMatrix;
     PhysicsDriver driver;
 
@@ -137,8 +136,12 @@ protected:
         meshCaches[node] = new float[vertices.length];
 
         if (originalCurve) {
+            mat4 forwardMatrix = node.transform.matrix;
+            mat4 inverseMatrix = transform.matrix.inverse;
+            mat4 tran = inverseMatrix * forwardMatrix;
             foreach (i, vertex; getVertices(node)) {
-                meshCaches[node][i] = originalCurve.closestPoint(vertex, nSamples);
+                vec2 cVertex = (tran * vec4(vertex, 0, 1)).xy;
+                meshCaches[node][i] = originalCurve.closestPoint(cVertex, nSamples);
             }
         }
     }
@@ -296,6 +299,7 @@ public:
     void rebuffer(vec2[] originalControlPoints) {
         this.originalCurve = BezierCurve(originalControlPoints);
         this.deformation.length = originalControlPoints.length;
+        clearCache();
         driverInitialized = false;
     }
 
@@ -303,6 +307,7 @@ public:
     void update() {
         if (!driverInitialized && driver !is null) {
             driver.setup();
+            driver.updateDefaultShape();
             driverInitialized = true;
         }
         preProcess();
@@ -310,18 +315,20 @@ public:
         deformStack.update();
         if (driver) {
             if (prevRootSet) {
-                driver.updateDefaultShape();
                 vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
                 vec2 deform = root - prevRoot;
+                if (deformation.length > 0) {
+                    deform += deformation[0];
+                }
                 driver.reset();
                 driver.enforce(deform);
+                driver.rotate(transform.rotation.z);
                 driver.update();
             }
             prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
             prevRootSet = true;
         }
 
-        forwardMatrix = transform.matrix;
         inverseMatrix = globalTransform.matrix.inverse;
 
         if (vertices.length > 0) {
@@ -336,8 +343,6 @@ public:
 
         Node.update();
         this.updateDeform();
-        if (driver) {
-        }
     }
 
     override
@@ -355,12 +360,9 @@ public:
         super.setupChild(child);
         void setGroup(Node node) {
             auto drawable = cast(Drawable)node;
-            auto group    = cast(MeshGroup)node;
             auto composite = cast(Composite)node;
             bool isDrawable = drawable !is null;
-            bool isDComposite = cast(DynamicComposite)(node) !is null;
-            bool isComposite = composite !is null && composite.propagateMeshGroup;
-            bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
+            bool mustPropagate = node.mustPropagate();
 
             if (isDrawable) {
                 cacheClosestPoints(node);
@@ -385,13 +387,7 @@ public:
     void releaseChild(Node child) {
         void unsetGroup(Node node) {
             node.preProcessFilters = node.preProcessFilters.removeByValue(&deformChildren);
-            auto drawable = cast(Drawable)node;
-            auto group    = cast(MeshGroup)node;
-            auto composite = cast(Composite)node;
-            bool isDrawable = drawable !is null;
-            bool isDComposite = cast(DynamicComposite)(node) !is null;
-            bool isComposite = composite !is null && composite.propagateMeshGroup;
-            bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
+            bool mustPropagate = !node.mustPropagate();
             if (mustPropagate) {
                 foreach (child; node.children) {
                     unsetGroup(child);
@@ -415,10 +411,7 @@ public:
 
         foreach (i, vertex; origVertices) {
             vec2 cVertex;
-//            if (dynamic)
-//                cVertex = vec2(centerMatrix * vec4(vertex+origDeformation[i], 0, 1));
-//            else
-                cVertex = vec2(centerMatrix * vec4(vertex, 0, 1));            // Find the closest point on the original Bezier curve
+                cVertex = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));            // Find the closest point on the original Bezier curve
             cVertices ~= cVertex;
 
             if (target !in meshCaches)
@@ -436,7 +429,8 @@ public:
             vec2 normalDeformed = vec2(-tangentDeformed.y, tangentDeformed.x);
 
             // Adjust the vertex to maintain the same normal and tangential distances
-            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance + tangentDeformed * tangentialDistance;
+//            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance + tangentDeformed * tangentialDistance;
+            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance;
 
             deformedVertices[i] = deformedVertex;
             deformedClosestPointsA[i] = closestPointDeformedA;
@@ -446,16 +440,12 @@ public:
         adjust(deformedVertices, deformedClosestPointsA);
 
         foreach (i, cVertex; cVertices) {
-//            if (!dynamic) {
-                mat4 inv = centerMatrix.inverse;
-                inv[0][3] = 0;
-                inv[1][3] = 0;
-                inv[2][3] = 0;
-                origDeformation[i] += (inv * vec4(deformedVertices[i] - cVertex, 0, 1)).xy;
-//            } else
-//                origDeformation[i] = newPos - origVertices[i];
+            mat4 inv = centerMatrix.inverse;
+            inv[0][3] = 0;
+            inv[1][3] = 0;
+            inv[2][3] = 0;
+            origDeformation[i] += (inv * vec4(deformedVertices[i] - cVertex, 0, 1)).xy;
         }
-
         //mesh.vertices = deformedVertices;
         return Tuple!(vec2[], mat4*, bool)(origDeformation, null, true);
     }

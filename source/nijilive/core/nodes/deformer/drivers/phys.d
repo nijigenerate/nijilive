@@ -12,6 +12,7 @@ interface PhysicsDriver {
     void setup();
     void reset();
     void enforce(vec2 force);
+    void rotate(float angle);
     void update();
     void updateDefaultShape();
 }
@@ -29,10 +30,15 @@ private {
 
 class ConnectedPendulumDriver : PhysicsDriver {
     vec2 externalForce = vec2(0, 0); // External force vector
+    float worldAngle = 0.0; // Rotation angle of the coordinate system
 
     override
     void reset() {
         externalForce = vec2(0, 0);
+    }
+
+    void rotate(float angle) {
+        worldAngle = angle;
     }
 
     override
@@ -44,11 +50,13 @@ class ConnectedPendulumDriver : PhysicsDriver {
     float[] initialAngles;
     float[] angularVelocities;
     float[] lengths;
+    vec2[] physDeformation;
     float damping = 1.0;
     float restoreConstant = 300;
     float timeStep = 0.01;
     float gravity = 9.8; // Gravitational acceleration
-    float inputScale = 0.1;
+    float inputScale = 0.01;
+    float propagateScale = 0.2;
     vec2 base;
 
     this(BezierDeformer deformer) {
@@ -65,6 +73,10 @@ class ConnectedPendulumDriver : PhysicsDriver {
         foreach (i; 0..angularVelocities.length) {
             angularVelocities[i] = 0;
         }
+        physDeformation = new vec2[deformer.vertices.length];
+        foreach (i; 0..physDeformation.length) {
+            physDeformation[i] = vec2(0, 0);
+        }
         base = vec2(deformer.originalCurve.controlPoints[0].x, screenToPhysicsY(deformer.originalCurve.controlPoints[0].y));
     }
 
@@ -72,7 +84,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
     void updateDefaultShape() {
         vec2[] physicsControlPoints;
         foreach (i, p; deformer.originalCurve.controlPoints) {
-            physicsControlPoints ~= vec2(p.x, screenToPhysicsY(p.y)) + deformer.deformation[i];
+            physicsControlPoints ~= vec2(p.x, screenToPhysicsY(p.y));
         }
         auto initialAnglesAndLengths = extractAnglesAndLengths(physicsControlPoints);
         initialAngles = initialAnglesAndLengths[0];
@@ -96,7 +108,10 @@ class ConnectedPendulumDriver : PhysicsDriver {
         // Update deformation based on new angles
         auto newPositions = calculatePositions(base, angles, lengths).map!(p => vec2(p.x, physicsToScreenY(p.y)));
         for (int i = 0; i < newPositions.length; i++) {
-            deformer.deformation[i] = newPositions[i] - deformer.originalCurve.controlPoints[i];
+            physDeformation[i] = newPositions[i] - deformer.originalCurve.controlPoints[i];
+        }
+        for (int i = 0; i < physDeformation.length; i++) {
+            deformer.deformation[i] += physDeformation[i];
         }
     }
 
@@ -129,16 +144,18 @@ class ConnectedPendulumDriver : PhysicsDriver {
     void updatePendulum(ref float[] currentAngles, ref float[] angularVelocities, float[] lengths, float damping, float restoreConstant, float v1Velocity, float timeStep) {
         if (lengths.length < 1)
             return;
+
         float externalTorque = externalForce.x * timeStep * lengths[0]; // Simplified external torque calculation
         for (int i = 0; i < angles.length; i++) {
             float restoreTorque = -min(1 / timeStep, restoreConstant) * (currentAngles[i] - initialAngles[i]);
             float dampingTorque = -damping * angularVelocities[i];
             float baseVelocityEffect = v1Velocity / lengths[i] * cos(angles[i]);
-            float gravitationalTorque = -gravity * sin(angles[i]);
+            float gravitationalTorque = -gravity * sin(angles[i] + worldAngle);
             float angularAcceleration = restoreTorque + dampingTorque + baseVelocityEffect + gravitationalTorque + externalTorque;
             angularVelocities[i] += angularAcceleration * timeStep;
             currentAngles[i] += angularVelocities[i] * timeStep;
-            externalTorque += (-angularAcceleration * sin(currentAngles[i])) * timeStep * lengths[i] / 10;
+            externalTorque += (-angularAcceleration * sin(currentAngles[i])) * timeStep * lengths[i] * propagateScale;
+            // Rotate x-y coordinates by worldAngle before finalizing
         }
     }
 }
@@ -160,6 +177,7 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
     vec2[] velocities;
     vec2[] initialPositions;  // 初期形状を保存
     float[] lengths;
+    vec2[] physDeformation;
     float damping = 0.3;
     float springConstant = 10;
     float restorationConstant = 0.; // 初期形状への復元力
@@ -178,6 +196,7 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
         foreach (i; 0..velocities.length) {
             velocities[i] = vec2(0, 0);
         }
+        physDeformation = new vec2[deformer.vertices.length];
         lengths = new float[positions.length - 1];
         for (int i = 0; i < lengths.length; i++) {
             lengths[i] = (positions[i + 1] - positions[i]).length;
@@ -203,9 +222,15 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
         updateSpringPendulum(positions, velocities, initialPositions, lengths, damping, springConstant, restorationConstant, h);
 
         for (int i = 0; i < positions.length; i++) {
-            deformer.deformation[i] = vec2(positions[i].x, physicsToScreenY(positions[i].y)) - deformer.originalCurve.controlPoints[i];
+            physDeformation[i] = vec2(positions[i].x, physicsToScreenY(positions[i].y)) - deformer.originalCurve.controlPoints[i];
+        }
+        for (int i = 0; i < physDeformation.length; i++) {
+            deformer.deformation[i] += physDeformation[i];
         }
     }
+
+    override
+    void rotate(float angle) { }
 
 private:
     void updateSpringPendulum(
