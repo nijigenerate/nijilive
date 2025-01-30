@@ -301,7 +301,7 @@ public:
 
     override
     void update() {
-        if (!driverInitialized) {
+        if (!driverInitialized && driver !is null) {
             driver.setup();
             driverInitialized = true;
         }
@@ -310,12 +310,15 @@ public:
         deformStack.update();
         if (driver) {
             if (prevRootSet) {
+                driver.updateDefaultShape();
                 vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
                 vec2 deform = root - prevRoot;
                 driver.reset();
                 driver.enforce(deform);
                 driver.update();
             }
+            prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+            prevRootSet = true;
         }
 
         forwardMatrix = transform.matrix;
@@ -334,9 +337,6 @@ public:
         Node.update();
         this.updateDeform();
         if (driver) {
-            driver.updateDefaultShape();
-            prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
-            prevRootSet = true;
         }
     }
 

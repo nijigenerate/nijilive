@@ -37,7 +37,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
 
     override
     void enforce(vec2 force) {
-        externalForce = force;
+        externalForce = force * inputScale;
     }
     BezierDeformer deformer;
     float[] angles;
@@ -45,9 +45,10 @@ class ConnectedPendulumDriver : PhysicsDriver {
     float[] angularVelocities;
     float[] lengths;
     float damping = 1.0;
-    float restoreConstant = 80.0;
-    float timeStep = 0.1;
+    float restoreConstant = 300;
+    float timeStep = 0.01;
     float gravity = 9.8; // Gravitational acceleration
+    float inputScale = 0.1;
     vec2 base;
 
     this(BezierDeformer deformer) {
@@ -56,6 +57,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
 
     override
     void setup() {
+        if (deformer.vertices.length < 2) return;
         // Initialize angles and lengths based on original control points
         updateDefaultShape();
         angles = initialAngles.dup;
@@ -68,7 +70,10 @@ class ConnectedPendulumDriver : PhysicsDriver {
 
     override
     void updateDefaultShape() {
-        auto physicsControlPoints = deformer.originalCurve.controlPoints.map!(p => vec2(p.x, screenToPhysicsY(p.y))).array;
+        vec2[] physicsControlPoints;
+        foreach (i, p; deformer.originalCurve.controlPoints) {
+            physicsControlPoints ~= vec2(p.x, screenToPhysicsY(p.y)) + deformer.deformation[i];
+        }
         auto initialAnglesAndLengths = extractAnglesAndLengths(physicsControlPoints);
         initialAngles = initialAnglesAndLengths[0];
         lengths = initialAnglesAndLengths[1];
@@ -76,6 +81,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
 
     override
     void update() {
+        if (deformer is null || deformer.vertices.length < 2) return;
         // Automatically set timeStep similar to SimplePhysics
         float h = min(deltaTime(), 10); // Limit to 10 seconds max
 
@@ -121,15 +127,18 @@ class ConnectedPendulumDriver : PhysicsDriver {
     }
 
     void updatePendulum(ref float[] currentAngles, ref float[] angularVelocities, float[] lengths, float damping, float restoreConstant, float v1Velocity, float timeStep) {
+        if (lengths.length < 1)
+            return;
         float externalTorque = externalForce.x * timeStep * lengths[0]; // Simplified external torque calculation
         for (int i = 0; i < angles.length; i++) {
-            float restoreTorque = -restoreConstant * (currentAngles[i] - initialAngles[i]);
+            float restoreTorque = -min(1 / timeStep, restoreConstant) * (currentAngles[i] - initialAngles[i]);
             float dampingTorque = -damping * angularVelocities[i];
             float baseVelocityEffect = v1Velocity / lengths[i] * cos(angles[i]);
             float gravitationalTorque = -gravity * sin(angles[i]);
             float angularAcceleration = restoreTorque + dampingTorque + baseVelocityEffect + gravitationalTorque + externalTorque;
             angularVelocities[i] += angularAcceleration * timeStep;
             currentAngles[i] += angularVelocities[i] * timeStep;
+            externalTorque += (-angularAcceleration * sin(currentAngles[i])) * timeStep * lengths[i] / 10;
         }
     }
 }

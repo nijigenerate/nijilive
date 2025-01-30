@@ -289,11 +289,11 @@ public:
     void setupChild(Node child) {
         super.setupChild(child);
         void setGroup(Node node) {
-            auto drawable = cast(Drawable)node;
-            bool isDrawable = drawable !is null;
+            auto drawable = cast(Deformable)node;
+            bool isDeformable = drawable !is null;
             bool mustPropagate = node.mustPropagate();
-            if (translateChildren || isDrawable) {
-                if (isDrawable && dynamic) {
+            if (translateChildren || isDeformable) {
+                if (isDeformable && dynamic) {
                     node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
                     node.postProcessFilters = node.postProcessFilters.upsert(&filterChildren);
                 } else {
@@ -304,7 +304,7 @@ public:
                 node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
                 node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
             }
-            // traverse children if node is Drawable and is not MeshGroup instance.
+            // traverse children if node is Deformable and is not MeshGroup instance.
             if (mustPropagate) {
                 foreach (child; node.children) {
                     setGroup(child);
@@ -364,12 +364,12 @@ public:
             }
 
             void transferChildren(Node node, int x, int y) {
-                auto drawable = cast(Drawable)node;
+                auto drawable = cast(Deformable)node;
                 auto composite = cast(Composite)node;
-                bool isDrawable = drawable !is null;
+                bool isDeformable = drawable !is null;
                 bool isComposite = composite !is null && composite.propagateMeshGroup;
                 bool mustPropagate = node.mustPropagate();
-                if (isDrawable) {
+                if (isDeformable) {
                         int xx = x, yy = y;
                         float ofsX = 0, ofsY = 0;
 
