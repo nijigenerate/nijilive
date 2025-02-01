@@ -8,6 +8,7 @@ import nijilive; // Import for deltaTime
 import std.algorithm;
 import std.array;
 
+
 interface PhysicsDriver {
     void setup();
     void reset();
@@ -15,6 +16,7 @@ interface PhysicsDriver {
     void rotate(float angle);
     void update();
     void updateDefaultShape();
+    void retarget(BezierDeformer deformer);
 }
 
 private {
@@ -61,6 +63,12 @@ class ConnectedPendulumDriver : PhysicsDriver {
 
     this(BezierDeformer deformer) {
         this.deformer = deformer;
+    }
+
+    override
+    void retarget(BezierDeformer deformer) {
+        this.deformer = deformer;
+        setup();
     }
 
     override
@@ -162,6 +170,12 @@ class ConnectedPendulumDriver : PhysicsDriver {
 
 class ConnectedSpringPendulumDriver : PhysicsDriver {
     vec2 externalForce = vec2(0, 0); // External force vector
+
+    override
+    void retarget(BezierDeformer deformer) {
+        this.deformer = deformer;
+        setup();
+    }
 
     override
     void reset() {

@@ -288,7 +288,6 @@ public:
     this(Node parent = null) {
         super(parent);
         driver = null;
-        driver = new ConnectedPendulumDriver(this);
         prevRootSet = false;
     }
 
@@ -303,9 +302,16 @@ public:
         driverInitialized = false;
     }
 
+    void setDriver(PhysicsDriver driver) {
+        this.driver = driver;
+        if (driver !is null) {
+            driver.retarget(this);
+        }
+    }
+
     override
     void update() {
-        if (!driverInitialized && driver !is null) {
+        if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
             driver.setup();
             driver.updateDefaultShape();
             driverInitialized = true;
@@ -313,7 +319,7 @@ public:
         preProcess();
 
         deformStack.update();
-        if (driver) {
+        if (driver !is null && puppet !is null && puppet.enableDrivers) {
             if (prevRootSet) {
                 vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
                 vec2 deform = root - prevRoot;
@@ -424,13 +430,12 @@ public:
             float tangentialDistance = dot(cVertex - closestPointOriginal, tangentOriginal);
 
             // Find the corresponding point on the deformed Bezier curve
-            vec2 closestPointDeformedA = deformedCurve.point(t); // 修正: deformedCurve を使用
-            vec2 tangentDeformed = deformedCurve.derivative(t).normalized; // 修正: deformedCurve を使用
+            vec2 closestPointDeformedA = deformedCurve.point(t);
+            vec2 tangentDeformed = deformedCurve.derivative(t).normalized;
             vec2 normalDeformed = vec2(-tangentDeformed.y, tangentDeformed.x);
 
             // Adjust the vertex to maintain the same normal and tangential distances
-//            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance + tangentDeformed * tangentialDistance;
-            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance;
+            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance + tangentDeformed * tangentialDistance;
 
             deformedVertices[i] = deformedVertex;
             deformedClosestPointsA[i] = closestPointDeformedA;
