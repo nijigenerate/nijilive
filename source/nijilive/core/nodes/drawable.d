@@ -9,7 +9,6 @@
     Authors: Luna Nielsen
 */
 module nijilive.core.nodes.drawable;
-public import nijilive.core.nodes.defstack;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
@@ -64,9 +63,8 @@ bool inGetUpdateBounds() {
 
     The main types of Drawables are Parts and Masks
 */
-
 @TypeId("Drawable")
-abstract class Drawable : Node {
+abstract class Drawable : Deformable {
 protected:
 
     void updateIndices() {
@@ -76,6 +74,7 @@ protected:
         }
     }
 
+    override
     void updateVertices() {
         version (InDoesRender) {
 
@@ -170,22 +169,9 @@ protected:
         return tuple(origDeformation, cast(mat4*)null, changed);
     }
 
+    override
     void updateDeform() {
-        // Important check since the user can change this every frame
-        /*
-        enforce(
-            deformation.length == vertices.length, 
-            "Data length mismatch for %s, deformation length=%d whereas vertices.length=%d, if you want to change the mesh you need to change its data with Part.rebuffer.".format(name, deformation.length, vertices.length)
-        );
-        */
-        if (deformation.length != vertices.length) {
-            deformation.length = vertices.length;
-            foreach (i; 0..deformation.length) {
-                deformation[i] = vec2(0, 0);
-            }
-        }
-        postProcess();
-
+        super.updateDeform();
         version (InDoesRender) {
             glBindBuffer(GL_ARRAY_BUFFER, dbo);
             glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
@@ -267,54 +253,6 @@ protected:
         return null;
     }
 
-    void onDeformPushed(ref Deformation deform) { }
-
-    override
-    void preProcess() {
-        if (preProcessed)
-            return;
-        preProcessed = true;
-        foreach (preProcessFilter; preProcessFilters) {
-            mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
-            auto filterResult = preProcessFilter(this, vertices, deformation, &matrix);
-            if (filterResult[0] !is null) {
-                deformation = filterResult[0];
-            } 
-            if (filterResult[1] !is null) {
-                overrideTransformMatrix = new MatrixHolder(*filterResult[1]);
-            }
-            if (filterResult[2]) {
-                notifyChange(this);
-            }
-
-        }
-    }
-
-    override
-    void postProcess() {
-        if (postProcessed)
-            return;
-        postProcessed = true;
-        foreach (postProcessFilter; postProcessFilters) {
-            mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
-            auto filterResult = postProcessFilter(this, vertices, deformation, &matrix);
-            if (filterResult[0] !is null) {
-                deformation = filterResult[0];
-            } 
-            if (filterResult[1] !is null) {
-                overrideTransformMatrix = new MatrixHolder(*filterResult[1]);
-            }
-            if (filterResult[2]) {
-                notifyChange(this);
-            }
-        }
-    }
-
-package(nijilive):
-    final void notifyDeformPushed(ref Deformation deform) {
-        onDeformPushed(deform);
-    }
-
 public:
 
     struct WeldingLink {
@@ -346,9 +284,6 @@ public:
             glGenBuffers(1, &ibo);
             glGenBuffers(1, &dbo);
         }
-
-        // Create deformation stack
-        this.deformStack = DeformationStack(this);
     }
 
     /**
@@ -364,7 +299,6 @@ public:
     this(MeshData data, uint uuid, Node parent = null) {
         super(uuid, parent);
         this.data = data;
-        this.deformStack = DeformationStack(this);
 
         // Set the deformable points to their initial position
         this.vertices = data.vertices.dup;
@@ -382,58 +316,22 @@ public:
         this.updateVertices();
     }
 
+    override
     ref vec2[] vertices() {
         return data.vertices;
     }
-
-    /**
-        Deformation offset to apply
-    */
-    vec2[] deformation;
 
     /**
         The bounds of this drawable
     */
     vec4 bounds;
 
-    /**
-        Deformation stack
-    */
-    DeformationStack deformStack;
-
-    /**
-        Refreshes the drawable, updating its vertices
-    */
-    final void refresh() {
-        this.updateVertices();
-    }
-    
-    /**
-        Refreshes the drawable, updating its deformation deltas
-    */
-    final void refreshDeform() {
-        this.updateDeform();
-    }
-
     override
     void beginUpdate() {
-        deformStack.preUpdate();
         weldingApplied.clear();
-        overrideTransformMatrix = null;
         foreach (link; welded)
             weldingApplied[link.target] = false;
         super.beginUpdate();
-    }
-
-    /**
-        Updates the drawable
-    */
-    override
-    void update() {
-        preProcess();
-        deformStack.update();
-        super.update();
-        this.updateDeform();
     }
 
     /**
@@ -511,6 +409,8 @@ public:
             if (vertices.length == 0 || data.indices.length == 0) return;
 
             auto trans = getDynamicMatrix();
+            if (oneTimeTransform !is null)
+                trans = (*oneTimeTransform) * trans;
 
             ushort[] indices = data.indices;
 
@@ -541,6 +441,8 @@ public:
             if (vertices.length == 0) return;
 
             auto trans = getDynamicMatrix();
+            if (oneTimeTransform !is null)
+                trans = (*oneTimeTransform) * trans;
             vec3[] points = new vec3[vertices.length];
             foreach(i, point; vertices) {
                 points[i] = vec3(point-data.origin+deformation[i], 0);
@@ -730,6 +632,9 @@ public:
         setupSelf();
         super.build(force);
     }
+
+    override
+    bool mustPropagate() { return true; }
 
 }
 

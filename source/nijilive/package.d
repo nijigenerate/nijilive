@@ -44,7 +44,7 @@ void inUpdate() {
 /**
     Gets the time difference between the last frame and the current frame
 */
-double deltaTime() {
+public double deltaTime() {
     return deltaTime_;
 }
 

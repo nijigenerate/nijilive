@@ -10,6 +10,7 @@
 */
 module nijilive.core.nodes.meshgroup;
 import nijilive.core.nodes.drawable;
+import nijilive.core.nodes.deformer.path;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
@@ -289,28 +290,22 @@ public:
     void setupChild(Node child) {
         super.setupChild(child);
         void setGroup(Node node) {
-            auto drawable = cast(Drawable)node;
-            auto group    = cast(MeshGroup)node;
-            auto composite = cast(Composite)node;
-            bool isDrawable = drawable !is null;
-            bool isDComposite = cast(DynamicComposite)(node) !is null;
-            bool isComposite = composite !is null && composite.propagateMeshGroup;
-            bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
-            if (translateChildren || isDrawable) {
-                if (isDrawable && dynamic) {
+            auto drawable = cast(Deformable)node;
+            bool isDeformable = drawable !is null;
+            bool mustPropagate = node.mustPropagate();
+            if (translateChildren || isDeformable) {
+                if (isDeformable && dynamic) {
                     node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
-                    if (node.postProcessFilters.countUntil(&filterChildren) == -1)
-                        node.postProcessFilters ~= &filterChildren;
+                    node.postProcessFilters = node.postProcessFilters.upsert(&filterChildren);
                 } else {
-                    if (node.preProcessFilters.countUntil(&filterChildren) == -1)
-                        node.preProcessFilters  ~= &filterChildren;
+                    node.preProcessFilters  = node.preProcessFilters.upsert(&filterChildren);
                     node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
                 }
             } else {
                 node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
                 node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
             }
-            // traverse children if node is Drawable and is not MeshGroup instance.
+            // traverse children if node is Deformable and is not MeshGroup instance.
             if (mustPropagate) {
                 foreach (child; node.children) {
                     setGroup(child);
@@ -329,8 +324,9 @@ public:
         void unsetGroup(Node node) {
             node.preProcessFilters = node.preProcessFilters.removeByValue(&this.filterChildren);
             node.postProcessFilters = node.postProcessFilters.removeByValue(&this.filterChildren);
-            auto group = cast(MeshGroup)node;
-            if (group is null) {
+
+            bool mustPropagate = node.mustPropagate();
+            if (mustPropagate) {
                 foreach (child; node.children) {
                     unsetGroup(child);
                 }
@@ -369,14 +365,12 @@ public:
             }
 
             void transferChildren(Node node, int x, int y) {
-                auto drawable = cast(Drawable)node;
-                auto group = cast(MeshGroup)node;
+                auto drawable = cast(Deformable)node;
                 auto composite = cast(Composite)node;
-                bool isDrawable = drawable !is null;
+                bool isDeformable = drawable !is null;
                 bool isComposite = composite !is null && composite.propagateMeshGroup;
-                bool isDComposite = cast(DynamicComposite)(node) !is null;
-                bool mustPropagate = !isDComposite && ((isDrawable && group is null) || isComposite);
-                if (isDrawable) {
+                bool mustPropagate = node.mustPropagate();
+                if (isDeformable) {
                         int xx = x, yy = y;
                         float ofsX = 0, ofsY = 0;
 
@@ -569,4 +563,10 @@ public:
         setupSelf();
         super.build(force);
     }
+
+    override
+    bool coverOthers() { return true; }
+
+    override
+    bool mustPropagate() { return false; }
 }

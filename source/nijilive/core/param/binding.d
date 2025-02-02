@@ -1027,7 +1027,7 @@ class DeformationParameterBinding : ParameterBindingImpl!(Deformation) {
     void applyToTarget(Deformation value) {
         enforce(this.target.name == "deform");
 
-        if (Drawable d = cast(Drawable)target.node) {
+        if (auto d = cast(Deformable)target.node) {
             d.deformStack.push(value);
         }
     }
@@ -1035,7 +1035,7 @@ class DeformationParameterBinding : ParameterBindingImpl!(Deformation) {
     override
     void clearValue(ref Deformation val) {
         // Reset deformation to identity, with the right vertex count
-        if (Drawable d = cast(Drawable)target.node) {
+        if (auto d = cast(Deformable)target.node) {
             val.vertexOffsets.length = d.vertices.length;
             foreach(i; 0..d.vertices.length) {
                 val.vertexOffsets[i] = vec2(0);
@@ -1061,8 +1061,8 @@ class DeformationParameterBinding : ParameterBindingImpl!(Deformation) {
 
     override bool isCompatibleWithNode(Resource other)
     {
-        if (Drawable d = cast(Drawable)target.node) {
-            if (Drawable o = cast(Drawable)other) {
+        if (auto d = cast(Deformable)target.node) {
+            if (auto o = cast(Deformable)other) {
                 return d.vertices.length == o.vertices.length;
             } else {
                 return false;
