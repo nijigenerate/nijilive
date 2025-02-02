@@ -10,7 +10,7 @@
 */
 module nijilive.core.nodes.meshgroup;
 import nijilive.core.nodes.drawable;
-import nijilive.core.nodes.deformer.bezier;
+import nijilive.core.nodes.deformer.path;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;

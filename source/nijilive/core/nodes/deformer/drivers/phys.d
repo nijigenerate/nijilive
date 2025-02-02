@@ -1,6 +1,6 @@
 module nijilive.core.nodes.deformer.drivers.phys;
 
-import nijilive.core.nodes.deformer.bezier;
+import nijilive.core.nodes.deformer.path;
 import nijilive.math;
 import std.math;
 import std.typecons : tuple; // Import for tuple
@@ -16,7 +16,7 @@ interface PhysicsDriver {
     void rotate(float angle);
     void update();
     void updateDefaultShape();
-    void retarget(BezierDeformer deformer);
+    void retarget(PathDeformer deformer);
 }
 
 private {
@@ -47,7 +47,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
     void enforce(vec2 force) {
         externalForce = force * inputScale;
     }
-    BezierDeformer deformer;
+    PathDeformer deformer;
     float[] angles;
     float[] initialAngles;
     float[] angularVelocities;
@@ -61,13 +61,13 @@ class ConnectedPendulumDriver : PhysicsDriver {
     float propagateScale = 0.2;
     vec2 base;
 
-    this(BezierDeformer deformer) {
+    this(PathDeformer deformer) {
         this.deformer = deformer;
     }
 
     override
-    void retarget(BezierDeformer deformer) {
-        this.deformer = deformer;
+    void retarget(PathDeformer deformer) {
+        this.deformer = cast(PathDeformer)deformer;
         setup();
     }
 
@@ -172,7 +172,7 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
     vec2 externalForce = vec2(0, 0); // External force vector
 
     override
-    void retarget(BezierDeformer deformer) {
+    void retarget(PathDeformer deformer) {
         this.deformer = deformer;
         setup();
     }
@@ -186,7 +186,7 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
     void enforce(vec2 force) {
         externalForce = force;
     }
-    BezierDeformer deformer;
+    PathDeformer deformer;
     vec2[] positions;
     vec2[] velocities;
     vec2[] initialPositions;  // 初期形状を保存
@@ -198,7 +198,7 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
     float timeStep = 0.1;
     vec2 gravity = vec2(0, 9.8); // 重力
 
-    this(BezierDeformer deformer) {
+    this(PathDeformer deformer) {
         this.deformer = deformer;
     }
     

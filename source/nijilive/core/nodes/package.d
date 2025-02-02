@@ -23,7 +23,7 @@ public import nijilive.core.nodes.composite;
 public import nijilive.core.nodes.meshgroup;
 public import nijilive.core.nodes.drivers; 
 public import nijilive.core.nodes.composite.dcomposite;
-public import nijilive.core.nodes.deformer.bezier;
+public import nijilive.core.nodes.deformer.path;
 import nijilive.core.nodes.utils;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
@@ -1250,6 +1250,12 @@ void inRegisterNodeType(T)() if (is(T : Node)) {
     typeFactories[getUDAs!(T, TypeId)[0].id] = (Node parent) {
         return new T(parent);
     };
+}
+
+void inAliasNodeType(T, string id)() if (is(T : Node)) {
+    import std.traits : getUDAs;
+    if (getUDAs!(T, TypeId)[0].id in typeFactories)
+        typeFactories[id] = typeFactories[getUDAs!(T, TypeId)[0].id];
 }
 
 /**
