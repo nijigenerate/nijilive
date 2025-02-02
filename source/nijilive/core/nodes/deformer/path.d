@@ -104,6 +104,7 @@ protected:
 public:
     CurveType curveType;
     Curve originalCurve;
+    Curve prevCurve;
     Curve deformedCurve;
 
 
@@ -131,6 +132,7 @@ public:
         originalCurve = createCurve([]);
         deformedCurve = createCurve([]);
         driver = null;
+//        driver = new ConnectedPendulumDriver(this);
         prevRootSet = false;
     }
 
@@ -158,39 +160,35 @@ public:
     void update() {
         if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
             driver.setup();
-            driver.updateDefaultShape();
             driverInitialized = true;
         }
         preProcess();
 
-        deformStack.update();
-        if (driver !is null && puppet !is null && puppet.enableDrivers) {
-            if (prevRootSet) {
-                vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
-                vec2 deform = root - prevRoot;
-                if (deformation.length > 0) {
-                    deform += deformation[0];
+        if (vertices.length >= 2) {
+
+            prevCurve = createCurve(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+            clearCache();
+            driver.updateDefaultShape();
+            deformStack.update();
+            if (driver !is null && puppet !is null && puppet.enableDrivers) {
+                if (prevRootSet) {
+                    vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+                    vec2 deform = root - prevRoot;
+                    if (deformation.length > 0) {
+                        deform += deformation[0];
+                    }
+                    driver.reset();
+                    driver.enforce(deform);
+                    driver.rotate(transform.rotation.z);
+                    driver.update();
                 }
-                driver.reset();
-                driver.enforce(deform);
-                driver.rotate(transform.rotation.z);
-                driver.update();
+                prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+                prevRootSet = true;
             }
-            prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
-            prevRootSet = true;
-        }
 
+            deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+        }
         inverseMatrix = globalTransform.matrix.inverse;
-
-        if (vertices.length > 0) {
-            vec2[] transformedVertices;
-            transformedVertices.length = vertices.length;
-            foreach(i, vertex; vertices) {
-                transformedVertices[i] = vertex + this.deformation[i];
-            }
-
-            deform(transformedVertices);
-        }
 
         Node.update();
         this.updateDeform();
@@ -267,8 +265,8 @@ public:
             if (target !in meshCaches)
                 cacheClosestPoints(target);
             float t = meshCaches[target][i];
-            vec2 closestPointOriginal = originalCurve.point(t);
-            vec2 tangentOriginal = originalCurve.derivative(t).normalized;
+            vec2 closestPointOriginal = prevCurve.point(t);
+            vec2 tangentOriginal = prevCurve.derivative(t).normalized;
             vec2 normalOriginal = vec2(-tangentOriginal.y, tangentOriginal.x);
             float originalNormalDistance = dot(cVertex - closestPointOriginal, normalOriginal); 
             float tangentialDistance = dot(cVertex - closestPointOriginal, tangentOriginal);
@@ -342,5 +340,5 @@ public:
     bool coverOthers() { return true; }
 
     override
-    bool mustPropagate() { return false; }
+    bool mustPropagate() { return true; }
 }
