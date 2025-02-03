@@ -35,7 +35,7 @@ package(nijilive) {
 class PathDeformer : Deformable {
 protected:
     mat4 inverseMatrix;
-    PhysicsDriver driver;
+    PhysicsDriver _driver;
 
     vec2[] getVertices(Node node) {
         vec2[] vertices;
@@ -132,7 +132,6 @@ public:
         originalCurve = createCurve([]);
         deformedCurve = createCurve([]);
         driver = null;
-//        driver = new ConnectedPendulumDriver(this);
         prevRootSet = false;
     }
 
@@ -149,11 +148,14 @@ public:
         driverInitialized = false;
     }
 
-    void setDriver(PhysicsDriver driver) {
-        this.driver = driver;
-        if (driver !is null) {
-            driver.retarget(this);
+    void driver(PhysicsDriver d) {
+        _driver = d;
+        if (_driver !is null) {
+            _driver.retarget(this);
         }
+    }
+    auto driver() {
+        return _driver;
     }
 
     override
@@ -168,7 +170,8 @@ public:
 
             prevCurve = createCurve(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
             clearCache();
-            driver.updateDefaultShape();
+            if (driver !is null && puppet !is null && puppet.enableDrivers)
+                driver.updateDefaultShape();
             deformStack.update();
             if (driver !is null && puppet !is null && puppet.enableDrivers) {
                 if (prevRootSet) {
