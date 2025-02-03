@@ -110,7 +110,7 @@ protected:
 
         if (!data["physics"].isEmpty) {
             string type;
-            if (!data["physics", "type"].isEmpty) data["physics", "type"].deserializeValue(type); else type = "Pendulum";
+            data["physics", "type"].deserializeValue(type);
             switch (type) {
             case "Pendulum":
                 auto phys = new ConnectedPendulumDriver(this);

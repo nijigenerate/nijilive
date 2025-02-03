@@ -9,7 +9,7 @@ import std.algorithm;
 import std.array;
 import fghj;
 
-interface PhysicsDriver {
+interface PhysicsDriver : ISerializable {
     void setup();
     void reset();
     void enforce(vec2 force);
@@ -17,6 +17,14 @@ interface PhysicsDriver {
     void update();
     void updateDefaultShape();
     void retarget(PathDeformer deformer);
+    void serializeSelfImpl(ref InochiSerializer serializer); 
+    SerdeException deserializeFromFghj(Fghj data);
+    void serialize(S)(ref S serializer) {
+        auto state = serializer.objectBegin();
+
+        serializeSelfImpl(serializer);
+        serializer.objectEnd(state);        
+    }
 }
 
 private {
@@ -30,7 +38,7 @@ private {
 
 }
 
-class ConnectedPendulumDriver : ISerializable, PhysicsDriver {
+class ConnectedPendulumDriver : PhysicsDriver {
     vec2 externalForce = vec2(0, 0); // External force vector
     float worldAngle = 0.0; // Rotation angle of the coordinate system
 
@@ -123,24 +131,23 @@ class ConnectedPendulumDriver : ISerializable, PhysicsDriver {
         }
     }
 
-    void serialize(S)(ref S serializer) {
-        auto state = serializer.objectBegin();
-            serializer.putKey("type");
-            serializer.serializeValue("Pendulum");
-            serializer.putKey("damping");
-            serializer.serializeValue(damping);
-            serializer.putKey("restore_constant");
-            serializer.serializeValue(restoreConstant);
-            serializer.putKey("gravity");
-            serializer.serializeValue(gravity);
-            serializer.putKey("input_scale");
-            serializer.serializeValue(inputScale);
-            serializer.putKey("propagate_scale");
-            serializer.serializeValue(propagateScale);
-
-        serializer.objectEnd(state);
+    override
+    void serializeSelfImpl(ref InochiSerializer serializer) {
+        serializer.putKey("type");
+        serializer.serializeValue("Pendulum");
+        serializer.putKey("damping");
+        serializer.serializeValue(damping);
+        serializer.putKey("restore_constant");
+        serializer.serializeValue(restoreConstant);
+        serializer.putKey("gravity");
+        serializer.serializeValue(gravity);
+        serializer.putKey("input_scale");
+        serializer.serializeValue(inputScale);
+        serializer.putKey("propagate_scale");
+        serializer.serializeValue(propagateScale);
     }
 
+    override
     SerdeException deserializeFromFghj(Fghj data) {
         if (data.isEmpty) return null;
 
@@ -203,7 +210,7 @@ class ConnectedPendulumDriver : ISerializable, PhysicsDriver {
     }
 }
 
-class ConnectedSpringPendulumDriver : ISerializable, PhysicsDriver {
+class ConnectedSpringPendulumDriver : PhysicsDriver {
     vec2 externalForce = vec2(0, 0); // External force vector
 
     override
@@ -281,16 +288,15 @@ class ConnectedSpringPendulumDriver : ISerializable, PhysicsDriver {
     override
     void rotate(float angle) { }
 
-    void serialize(S)(ref S serializer) {
-        auto state = serializer.objectBegin();
+    override
+    void serializeSelfImpl(ref InochiSerializer serializer) {
         serializer.putKey("type");
         serializer.serializeValue("SpringPendulum");
 
         // TBD
-
-        serializer.objectEnd(state);
     }
 
+    override
     SerdeException deserializeFromFghj(Fghj data) {
         if (data.isEmpty) return null;
 
