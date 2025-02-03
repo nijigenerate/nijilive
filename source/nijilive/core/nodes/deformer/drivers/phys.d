@@ -7,7 +7,7 @@ import std.typecons : tuple; // Import for tuple
 import nijilive; // Import for deltaTime
 import std.algorithm;
 import std.array;
-
+import fghj;
 
 interface PhysicsDriver {
     void setup();
@@ -30,7 +30,7 @@ private {
 
 }
 
-class ConnectedPendulumDriver : PhysicsDriver {
+class ConnectedPendulumDriver : ISerializable, PhysicsDriver {
     vec2 externalForce = vec2(0, 0); // External force vector
     float worldAngle = 0.0; // Rotation angle of the coordinate system
 
@@ -123,6 +123,41 @@ class ConnectedPendulumDriver : PhysicsDriver {
         }
     }
 
+    void serialize(S)(ref S serializer) {
+        auto state = serializer.objectBegin();
+            serializer.putKey("type");
+            serializer.serializeValue("Pendulum");
+            serializer.putKey("damping");
+            serializer.serializeValue(damping);
+            serializer.putKey("restore_constant");
+            serializer.serializeValue(restoreConstant);
+            serializer.putKey("gravity");
+            serializer.serializeValue(gravity);
+            serializer.putKey("input_scale");
+            serializer.serializeValue(inputScale);
+            serializer.putKey("propagate_scale");
+            serializer.serializeValue(propagateScale);
+
+        serializer.objectEnd(state);
+    }
+
+    SerdeException deserializeFromFghj(Fghj data) {
+        if (data.isEmpty) return null;
+
+        if (!data["damping"].isEmpty)
+            if (auto exc = data["damping"].deserializeValue(this.damping)) return exc;
+        if (!data["restore_constant"].isEmpty)
+            if (auto exc = data["restore_constant"].deserializeValue(this.restoreConstant)) return exc;
+        if (!data["gravity"].isEmpty)
+            if (auto exc = data["gravity"].deserializeValue(this.gravity)) return exc;
+        if (!data["input_scale"].isEmpty)
+            if (auto exc = data["input_scale"].deserializeValue(this.inputScale)) return exc;
+        if (!data["propagate_scale"].isEmpty)
+            if (auto exc = data["propagate_scale"].deserializeValue(this.propagateScale)) return exc;
+
+        return null;
+    }
+
     private:
     auto extractAnglesAndLengths(vec2[] controlPoints) {
         float[] angles;
@@ -168,7 +203,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
     }
 }
 
-class ConnectedSpringPendulumDriver : PhysicsDriver {
+class ConnectedSpringPendulumDriver : ISerializable, PhysicsDriver {
     vec2 externalForce = vec2(0, 0); // External force vector
 
     override
@@ -246,6 +281,24 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
     override
     void rotate(float angle) { }
 
+    void serialize(S)(ref S serializer) {
+        auto state = serializer.objectBegin();
+        serializer.putKey("type");
+        serializer.serializeValue("SpringPendulum");
+
+        // TBD
+
+        serializer.objectEnd(state);
+    }
+
+    SerdeException deserializeFromFghj(Fghj data) {
+        if (data.isEmpty) return null;
+
+        // TBD
+
+        return null;
+    }
+    
 private:
     void updateSpringPendulum(
         ref vec2[] positions,
@@ -281,4 +334,5 @@ private:
             positions[i] += velocities[i] * timeStep;
         }
     }
+
 }
