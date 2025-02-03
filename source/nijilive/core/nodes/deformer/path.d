@@ -186,15 +186,16 @@ public:
 
     override
     void update() {
+        vec2[] origDeform = deformation.dup;
         if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
             driver.setup();
             driverInitialized = true;
         }
         preProcess();
+        vec2[] diffDeform = zip(origDeform, deformation).map!((t) => t[1] - t[0]).array;
 
         if (vertices.length >= 2) {
-
-            prevCurve = createCurve(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+            prevCurve = createCurve(zip(vertices(), diffDeform).map!((t) => t[0] + t[1] ).array);
             clearCache();
             if (driver !is null && puppet !is null && puppet.enableDrivers)
                 driver.updateDefaultShape();
