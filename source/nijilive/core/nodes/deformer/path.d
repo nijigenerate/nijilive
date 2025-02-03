@@ -35,7 +35,7 @@ package(nijilive) {
 class PathDeformer : Deformable {
 protected:
     mat4 inverseMatrix;
-    PhysicsDriver driver;
+    PhysicsDriver _driver;
 
     vec2[] getVertices(Node node) {
         vec2[] vertices;
@@ -69,6 +69,8 @@ protected:
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
         super.serializeSelfImpl(serializer, recursive);
+        serializer.putKey("curve_type");
+        serializer.serializeValue(curveType);
         serializer.putKey("vertices");
         auto state = serializer.arrayBegin();
         if (originalCurve) {
@@ -80,11 +82,18 @@ protected:
             }
         }
         serializer.arrayEnd(state);
+        if (_driver !is null) {
+            serializer.putKey("physics");
+            serializer.serializeValue(_driver);
+        }
     }
 
     override
     SerdeException deserializeFromFghj(Fghj data) {
         super.deserializeFromFghj(data);
+
+        if (!data["curve_type"].isEmpty)
+            if (auto exc = data["curve_type"].deserializeValue(curveType)) return exc;
 
         auto elements = data["vertices"].byElement;
         vec2[] controlPoints;
@@ -98,6 +107,23 @@ protected:
             controlPoints ~= vec2(x, y);
         }
         rebuffer(controlPoints);
+
+        if (!data["physics"].isEmpty) {
+            string type;
+            if (!data["physics", "type"].isEmpty) data["physics", "type"].deserializeValue(type); else type = "Pendulum";
+            switch (type) {
+            case "Pendulum":
+                auto phys = new ConnectedPendulumDriver(this);
+                data["physics"].deserializeValue(phys);
+                _driver = phys;
+                break;
+            case "SpringPendulum":
+                break;
+            default:
+                break;
+            }
+        }
+
         return null;
     }
 
@@ -132,7 +158,6 @@ public:
         originalCurve = createCurve([]);
         deformedCurve = createCurve([]);
         driver = null;
-//        driver = new ConnectedPendulumDriver(this);
         prevRootSet = false;
     }
 
@@ -149,11 +174,14 @@ public:
         driverInitialized = false;
     }
 
-    void setDriver(PhysicsDriver driver) {
-        this.driver = driver;
-        if (driver !is null) {
-            driver.retarget(this);
+    void driver(PhysicsDriver d) {
+        _driver = d;
+        if (_driver !is null) {
+            _driver.retarget(this);
         }
+    }
+    auto driver() {
+        return _driver;
     }
 
     override
@@ -168,7 +196,8 @@ public:
 
             prevCurve = createCurve(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
             clearCache();
-            driver.updateDefaultShape();
+            if (driver !is null && puppet !is null && puppet.enableDrivers)
+                driver.updateDefaultShape();
             deformStack.update();
             if (driver !is null && puppet !is null && puppet.enableDrivers) {
                 if (prevRootSet) {
