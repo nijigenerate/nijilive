@@ -116,119 +116,181 @@ public:
 }
 
 class SplineCurve : Curve {
+    // スプラインの制御点配列
     vec2[] _controlPoints;
+
+    // キャッシュ: 計算済みの t => point(t)
     vec2[float] pointCache;
+    // キャッシュ: 計算済みの t => derivative(t)
     vec2[float] derivativeCache;
 
 public:
+    // コンストラクタ
     this(vec2[] controlPoints) {
+        // 制御点をコピー
         this.controlPoints = controlPoints.dup;
+        // キャッシュの初期化
         pointCache.clear();
         derivativeCache.clear();
     }
 
+    // インターフェイス実装: 制御点のゲッター
     override
-    ref vec2[] controlPoints() { return _controlPoints; }
+    ref vec2[] controlPoints() { 
+        return _controlPoints; 
+    }
 
+    // インターフェイス実装: 制御点のセッター
     override
     void controlPoints(ref vec2[] points) {
         this._controlPoints = points;
+        // 制御点変更時はキャッシュをクリア
         pointCache.clear();
         derivativeCache.clear();
     }
 
+    // インターフェイス実装: スプライン上の点 (0 <= t <= 1)
     override
     vec2 point(float t) {
+        // すでにキャッシュにあれば再利用
         if (t in pointCache)
             return pointCache[t];
 
         int p0, p1, p2, p3;
         float lt;
 
-        // Handling case when length of control points are less than tree.
-        if (controlPoints.length < 2) {
-            return vec2(0.0, 0.0);
+        // 制御点が2つ未満の場合 (1点 or 0点)
+        // → (0,0) を返す
+        if (_controlPoints.length < 2) {
+            vec2 fallback = vec2(0.0, 0.0);
+            pointCache[t] = fallback;
+            return fallback;
         }
 
-        if (controlPoints.length == 2) {
-            // linear interpolation in case of two vertices.
-            vec2 a = controlPoints[0];
-            vec2 b = controlPoints[1];
-            return a * (1 - t) + b * t;
+        // 制御点がちょうど2点の場合 → 線形補間 (Lerp)
+        if (_controlPoints.length == 2) {
+            vec2 a = _controlPoints[0];
+            vec2 b = _controlPoints[1];
+            vec2 linear = a * (1 - t) + b * t;
+            pointCache[t] = linear;
+            return linear;
         }
 
-        // Handling normal case
-        float segment = t * (controlPoints.length - 1);
+        // 3点以上 → 通常の Catmull-Rom スプライン
+        float segment = t * (_controlPoints.length - 1);
         int segmentIndex = cast(int)segment;
 
-        p1 = clamp(segmentIndex, 0, cast(int)controlPoints.length - 2);
+        // p1 が「該当セグメントの始点」を指す
+        // p0, p2, p3 はその前後の点
+        p1 = clamp(segmentIndex, 0, cast(int)_controlPoints.length - 2);
         p0 = max(0, p1 - 1);
-        p2 = min(controlPoints.length - 1, p1 + 1);
-        p3 = min(controlPoints.length - 1, p2 + 1);
+        p2 = min(_controlPoints.length - 1, p1 + 1);
+        p3 = min(_controlPoints.length - 1, p2 + 1);
 
+        // ローカル t (セグメント内の進捗)
         lt = segment - segmentIndex;
 
-        // Calculating Catmull-Rom factor.
-        vec2 a = 2.0 * controlPoints[p1];
-        vec2 b = controlPoints[p2] - controlPoints[p0];
-        vec2 c = 2.0 * controlPoints[p0] - 5.0 * controlPoints[p1] + 4.0 * controlPoints[p2] - controlPoints[p3];
-        vec2 d = -controlPoints[p0] + 3.0 * controlPoints[p1] - 3.0 * controlPoints[p2] + controlPoints[p3];
+        // Catmull-Rom スプライン (t=0.5) の標準係数
+        vec2 A = 2.0 * _controlPoints[p1];
+        vec2 B = _controlPoints[p2] - _controlPoints[p0];
+        vec2 C = 2.0 * _controlPoints[p0]
+               - 5.0 * _controlPoints[p1]
+               + 4.0 * _controlPoints[p2]
+               - _controlPoints[p3];
+        vec2 D = -_controlPoints[p0]
+               + 3.0 * _controlPoints[p1]
+               - 3.0 * _controlPoints[p2]
+               + _controlPoints[p3];
 
-        // points on spline curve
-        vec2 result = 0.5 * (a + (b * lt) + (c * lt * lt) + (d * lt * lt * lt));
+        // p(t) = 0.5 * [A + B t + C t^2 + D t^3]
+        vec2 result = 0.5 * (A
+                           + B * lt
+                           + C * lt * lt
+                           + D * lt * lt * lt);
+
+        // キャッシュに保存
         pointCache[t] = result;
         return result;
     }
 
-    // Calculating the derivative (tangent vector) of a spline curve
+    // インターフェイス実装: スプライン上の接線（微分）
     override
     vec2 derivative(float t) {
+        // すでにキャッシュにあれば再利用
         if (t in derivativeCache)
             return derivativeCache[t];
 
         int p0, p1, p2, p3;
         float lt;
 
-        // Handling case when length of control points are less than tree.
-        if (controlPoints.length < 2) {
-            return vec2(0.0, 0.0);
+        // 制御点が2つ未満 → (0,0) を返す
+        if (_controlPoints.length < 2) {
+            vec2 fallback = vec2(0.0, 0.0);
+            derivativeCache[t] = fallback;
+            return fallback;
         }
 
-        if (controlPoints.length == 2) {
-            return controlPoints[1] - controlPoints[0];
+        // 制御点が2点しかない → 接線は一定 (b - a)
+        if (_controlPoints.length == 2) {
+            vec2 deriv2 = _controlPoints[1] - _controlPoints[0];
+            derivativeCache[t] = deriv2;
+            return deriv2;
         }
 
-        // Handling normal case.
-        float segment = t * (controlPoints.length - 1);
+        // 3点以上 → 通常の Catmull-Rom
+        float segment = t * (_controlPoints.length - 1);
         int segmentIndex = cast(int)segment;
 
-        p1 = clamp(segmentIndex, 0, cast(int)controlPoints.length - 2);
+        p1 = clamp(segmentIndex, 0, cast(int)_controlPoints.length - 2);
         p0 = max(0, p1 - 1);
-        p2 = min(controlPoints.length - 1, p1 + 1);
-        p3 = min(controlPoints.length - 1, p2 + 1);
+        p2 = min(_controlPoints.length - 1, p1 + 1);
+        p3 = min(_controlPoints.length - 1, p2 + 1);
 
         lt = segment - segmentIndex;
 
-        vec2 b = controlPoints[p2] - controlPoints[p0];
-        vec2 c = 2.0 * (2.0 * controlPoints[p0] - 5.0 * controlPoints[p1] + 4.0 * controlPoints[p2] - controlPoints[p3]);
-        vec2 d = 3.0 * (-controlPoints[p0] + 3.0 * controlPoints[p1] - 3.0 * controlPoints[p2] + controlPoints[p3]);
+        // point() で使った A, B, C, D のうち、
+        // derivative で必要なのは B, C, D のみ
+        // (C, D は掛け算を外しておく)
+        vec2 B = _controlPoints[p2] - _controlPoints[p0];
+        vec2 C = 2.0 * _controlPoints[p0]
+               - 5.0 * _controlPoints[p1]
+               + 4.0 * _controlPoints[p2]
+               - _controlPoints[p3];
+        vec2 D = -_controlPoints[p0]
+               + 3.0 * _controlPoints[p1]
+               - 3.0 * _controlPoints[p2]
+               + _controlPoints[p3];
 
-        vec2 result = 0.5 * (b + (2.0 * c * lt) + (3.0 * d * lt * lt));
+        // p(t) = 0.5 * [A + B t + C t^2 + D t^3]
+        // → p'(t) = 0.5 * [B + 2 C t + 3 D t^2]
+        vec2 result = 0.5 * (
+            B
+          + 2.0 * C * lt
+          + 3.0 * D * lt * lt
+        );
+
         derivativeCache[t] = result;
         return result;
     }
 
+    // インターフェイス実装: 与えられた点に最も近いパラメータ t を探索
     override
-    float closestPoint(vec2 point, int nSamples = 100) {
+    float closestPoint(vec2 point, int nSamples = 500) {
         float minDistanceSquared = float.max;
         float closestT = 0.0;
+
+        // 指定したサンプル数で等間隔に t を振って
+        // 最小距離になる t を探す
         for (int i = 0; i < nSamples; ++i) {
-            float t = i / float(nSamples - 1);
-            vec2 splinePoint = this.point(t);
+            // t の値
+            float tt = i / float(nSamples - 1);
+            // スプライン上の点
+            vec2 splinePoint = this.point(tt);
+            // 距離二乗
             float distanceSquared = (splinePoint - point).lengthSquared;
             if (distanceSquared < minDistanceSquared) {
                 minDistanceSquared = distanceSquared;
-                closestT = t;
+                closestT = tt;
             }
         }
         return closestT;

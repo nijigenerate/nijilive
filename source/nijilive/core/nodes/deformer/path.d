@@ -17,6 +17,7 @@ import std.array;
 import std.range;
 import std.typecons;
 import nijilive.core;
+import nijilive.core.dbg;
 
 enum CurveType {
     Bezier,
@@ -51,13 +52,13 @@ protected:
         auto vertices = getVertices(node);
         meshCaches[node] = new float[vertices.length];
 
-        if (originalCurve) {
+        if (prevCurve) {
             mat4 forwardMatrix = node.transform.matrix;
             mat4 inverseMatrix = transform.matrix.inverse;
             mat4 tran = inverseMatrix * forwardMatrix;
             foreach (i, vertex; getVertices(node)) {
                 vec2 cVertex = (tran * vec4(vertex, 0, 1)).xy;
-                meshCaches[node][i] = originalCurve.closestPoint(cVertex, nSamples);
+                meshCaches[node][i] = prevCurve.closestPoint(cVertex, nSamples);
             }
         }
     }
@@ -275,10 +276,14 @@ public:
         super.releaseChild(child);
     }
 
+//    vec2[][Node] closestPointsDeformed; // debug code
+//    vec2[][Node] closestPointsOriginal; // debug code
     Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         if (!originalCurve || vertices.length < 2) {
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
         }
+//        closestPointsDeformed[target] = []; // debug code
+//        closestPointsOriginal[target] = []; // debug code
         mat4 centerMatrix = inverseMatrix * (*origTransform);
 
         vec2[] cVertices;
@@ -287,15 +292,16 @@ public:
         vec2[] deformedVertices;
         deformedVertices.length = origVertices.length;
 
+        if (target !in meshCaches)
+            cacheClosestPoints(target);
         foreach (i, vertex; origVertices) {
             vec2 cVertex;
             cVertex = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
             cVertices ~= cVertex;
 
-            if (target !in meshCaches)
-                cacheClosestPoints(target);
             float t = meshCaches[target][i];
             vec2 closestPointOriginal = prevCurve.point(t);
+//            closestPointsOriginal[target] ~= closestPointOriginal; // debug code
             vec2 tangentOriginal = prevCurve.derivative(t).normalized;
             vec2 normalOriginal = vec2(-tangentOriginal.y, tangentOriginal.x);
             float originalNormalDistance = dot(cVertex - closestPointOriginal, normalOriginal); 
@@ -303,6 +309,7 @@ public:
 
             // Find the corresponding point on the deformed Bezier curve
             vec2 closestPointDeformedA = deformedCurve.point(t); // 修正: deformedCurve を使用
+//            closestPointsDeformed[target] ~= closestPointDeformedA; // debug code
             vec2 tangentDeformed = deformedCurve.derivative(t).normalized; // 修正: deformedCurve を使用
             vec2 normalDeformed = vec2(-tangentDeformed.y, tangentDeformed.x);
 
