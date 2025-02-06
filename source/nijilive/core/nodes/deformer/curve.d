@@ -275,7 +275,7 @@ public:
 
     // インターフェイス実装: 与えられた点に最も近いパラメータ t を探索
     override
-    float closestPoint(vec2 point, int nSamples = 500) {
+    float closestPoint(vec2 point, int nSamples = 100) {
         float minDistanceSquared = float.max;
         float closestT = 0.0;
 
