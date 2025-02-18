@@ -10,7 +10,6 @@
 */
 module nijilive.core.nodes.drivers;
 import nijilive.core.nodes.common;
-//import nijilive.core.nodes;
 import nijilive.core;
 public import nijilive.core.nodes.drivers.simplephysics;
 

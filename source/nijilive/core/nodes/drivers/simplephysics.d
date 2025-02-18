@@ -12,10 +12,8 @@ module nijilive.core.nodes.drivers.simplephysics;
 private {
 import nijilive.core.nodes.drivers;
 import nijilive.core.nodes.common;
-//import nijilive.core.nodes;
 import nijilive.fmt;
 import nijilive.core.dbg;
-//import nijilive.core;
 import nijilive.math;
 import nijilive.phys;
 import nijilive;
