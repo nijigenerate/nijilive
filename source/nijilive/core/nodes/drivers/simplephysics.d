@@ -646,8 +646,8 @@ public:
     vec2 getOutputScale() { return outputScale * offsetOutputScale; }
 
     override
-    void copyFrom(Node src, bool inPlace = false, bool deepCopy = true) {
-        super.copyFrom(src, inPlace, deepCopy);
+    void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
+        super.copyFrom(src, clone, deepCopy);
 
         if (auto sphysics = cast(SimplePhysics)src) {
             modelType_ = sphysics.modelType_;

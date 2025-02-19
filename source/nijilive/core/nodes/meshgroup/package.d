@@ -538,8 +538,8 @@ public:
     }
 
     override
-    void copyFrom(Node src, bool inPlace = false, bool deepCopy = true) {
-        super.copyFrom(src, inPlace, deepCopy);
+    void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
+        super.copyFrom(src, clone, deepCopy);
 
         if (auto mgroup = cast(MeshGroup)src) {
             dynamic = mgroup.dynamic;
