@@ -910,12 +910,12 @@ public:
     }
 
     override
-    void copyFrom(Node src, bool inPlace = false, bool deepCopy = true) {
+    void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
         if ((cast(DynamicComposite)src) !is null &&
             (cast(DynamicComposite)this) is null) {
                 deepCopy = false;
         }
-        super.copyFrom(src, inPlace, deepCopy);
+        super.copyFrom(src, clone, deepCopy);
 
         if (auto part = cast(Part)src) {
             offsetMaskThreshold = 0;

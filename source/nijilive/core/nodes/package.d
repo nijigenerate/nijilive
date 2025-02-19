@@ -1047,7 +1047,7 @@ public:
     /** 
      * set new Parent
      */
-    void reparent(Node parent, ulong pOffset) {
+    void reparent(Node parent, ulong pOffset, bool ignoreTransform = false) {
 
         auto c = this;
         releaseSelf();
@@ -1055,7 +1055,7 @@ public:
             p.releaseChild(c);
         }
 
-        if (parent !is null)
+        if (parent !is null && !ignoreTransform)
             setRelativeTo(parent);
         insertInto(parent, pOffset);
         c = this;
@@ -1154,41 +1154,36 @@ public:
         }
     }
 
-    void copyFrom(Node src, bool inPlace = false, bool deepCopy = true) {
+    void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
         name = src.name;
         enabled = src.enabled;
         zsort_ = src.zsort_;
         lockToRoot_ = src.lockToRoot_;
         nodePath_ = src.nodePath_;
         changed = src.changed;
-//        localTransform = src.localTransform;
-        if (inPlace) {
+        if (clone) {
             uuid_ = src.uuid_;
-            Node parent = src.parent_;
-            auto tmpTransform = src.transform;
-            localTransform = tmpTransform;
-            recalculateTransform = true;
             puppet_ = src.puppet_;
-            ulong offset = 0;
-            reparent(parent, offset);
             this.finalize();
             if (deepCopy) {
                 children_.length = 0;
                 while (src.children.length != 0) {
-                    src.children[0].reparent(this, src.children.length - 1);
+                    Transform trans = src.children[0].localTransform;
+                    src.children[0].reparent(this, src.children.length - 1, true);
+                    src.children[$-1].localTransform = trans;
                 }
             }
-            src.reparent(null, 0);
-            src.localTransform = tmpTransform;
         } else {
             uuid_ = inCreateUUID();
             if (deepCopy) {
                 children_.length = 0;
                 localTransform = src.transform;
                 foreach (i, srcChild; src.children) {
+                    Transform trans = srcChild.localTransform;
                     auto child = inInstantiateNode(srcChild.typeId, null);
                     child.copyFrom(srcChild);
-                    child.reparent(this, i);
+                    child.reparent(this, i, true);
+                    child.localTransform = trans;
                 }
             }
         }
