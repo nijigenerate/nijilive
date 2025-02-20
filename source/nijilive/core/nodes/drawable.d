@@ -602,8 +602,8 @@ public:
                     newData.gridAxes ~= ax.dup;
                 }
             }
-            rebuffer(newData);
             deformation = drawable.deformation.dup;
+            rebuffer(newData);
         }
         if (dcomposite !is null)
             dcomposite.autoResizedMesh = autoResizedMesh;

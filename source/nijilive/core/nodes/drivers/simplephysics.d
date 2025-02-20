@@ -661,7 +661,7 @@ public:
             outputScale = sphysics.outputScale;
             prevAnchorSet = false;
             anchor = vec2(0, 0);
-            system = sphysics.system;
+            reset();
 
             paramRef = sphysics.paramRef;
             param_ = sphysics.param_;
