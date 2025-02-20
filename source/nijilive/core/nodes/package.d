@@ -1155,7 +1155,7 @@ public:
     }
 
     void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
-        name = src.name;
+        name = src.name ~ "'";
         enabled = src.enabled;
         zsort_ = src.zsort_;
         lockToRoot_ = src.lockToRoot_;
@@ -1179,9 +1179,10 @@ public:
                 children_.length = 0;
                 localTransform = src.transform;
                 foreach (i, srcChild; src.children) {
+//                    if (cast(SimplePhysics)srcChild) continue;
                     Transform trans = srcChild.localTransform;
                     auto child = inInstantiateNode(srcChild.typeId, null);
-                    child.copyFrom(srcChild);
+                    child.copyFrom(srcChild, clone, deepCopy);
                     child.reparent(this, i, true);
                     child.localTransform = trans;
                 }

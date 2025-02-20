@@ -368,6 +368,9 @@ public:
     void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
         super.copyFrom(src, clone, deepCopy);
 
+        if (auto deformable = cast(Deformable)src)
+            originalCurve.controlPoints = deformable.vertices;
+
         if (auto pathDeformer = cast(PathDeformer)src) {
             clearCache();
         }
