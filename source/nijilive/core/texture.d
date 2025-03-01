@@ -444,7 +444,6 @@ public:
     */
     ubyte[] getTextureData(bool unmultiply=false) {
         if (locked) {
-            writefln("return cached");
             return lockedData;
         } else {
             ubyte[] buf = new ubyte[width*height*channels_];
@@ -483,7 +482,6 @@ public:
     void lock() {
         if (!locked) {
             lockedData = getTextureData();
-            writefln("lock %d", getTextureId());
             modified = false;
             locked = true;
         }
@@ -496,7 +494,6 @@ public:
                 setData(lockedData);
             modified = false;
             lockedData = null;
-            writefln("unlock %d", getTextureId());
         }
     }
 }
