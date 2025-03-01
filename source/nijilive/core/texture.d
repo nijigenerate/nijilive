@@ -197,6 +197,10 @@ private:
 
     uint uuid;
 
+    ubyte[] lockedData = null;
+    bool locked = false;
+    bool modified = false;
+
 public:
 
     /**
@@ -373,12 +377,17 @@ public:
         Sets the data of the texture
     */
     void setData(ubyte[] data) {
-        this.bind();
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, outColorMode_, width_, height_, 0, inColorMode_, GL_UNSIGNED_BYTE, data.ptr);
-        
-        this.genMipmap();
+        if (locked) {
+            lockedData = data;
+            modified = true;
+        } else {
+            this.bind();
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glTexImage2D(GL_TEXTURE_2D, 0, outColorMode_, width_, height_, 0, inColorMode_, GL_UNSIGNED_BYTE, data.ptr);
+            
+            this.genMipmap();
+        }
     }
 
     /**
@@ -434,13 +443,18 @@ public:
         Gets the texture data for the texture
     */
     ubyte[] getTextureData(bool unmultiply=false) {
-        ubyte[] buf = new ubyte[width*height*channels_];
-        bind();
-        glGetTexImage(GL_TEXTURE_2D, 0, outColorMode_, GL_UNSIGNED_BYTE, buf.ptr);
-        if (unmultiply && channels == 4) {
-            inTexUnPremuliply(buf);
+        if (locked) {
+            writefln("return cached");
+            return lockedData;
+        } else {
+            ubyte[] buf = new ubyte[width*height*channels_];
+            bind();
+            glGetTexImage(GL_TEXTURE_2D, 0, outColorMode_, GL_UNSIGNED_BYTE, buf.ptr);
+            if (unmultiply && channels == 4) {
+                inTexUnPremuliply(buf);
+            }
+            return buf;
         }
-        return buf;
     }
 
     /**
@@ -464,6 +478,26 @@ public:
         // FIXME: copy must be done in OpenGL Framebuffer, but currently uses offline copy instead.
         result.setData(getTextureData());
         return result;
+    }
+
+    void lock() {
+        if (!locked) {
+            lockedData = getTextureData();
+            writefln("lock %d", getTextureId());
+            modified = false;
+            locked = true;
+        }
+    }
+
+    void unlock() {
+        if (locked) {
+            locked = false;
+            if (modified)
+                setData(lockedData);
+            modified = false;
+            lockedData = null;
+            writefln("unlock %d", getTextureId());
+        }
     }
 }
 
