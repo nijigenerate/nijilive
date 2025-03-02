@@ -316,7 +316,7 @@ struct MeshData {
         return data;
     }
 
-    bool isGrid() {
+    const bool isGrid() {
         return gridAxes.length == 2 && gridAxes[0].length > 2 && gridAxes[1].length > 2;
     }
 

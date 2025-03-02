@@ -289,7 +289,7 @@ public:
     */
     string name_ = "Unnamed Node";
 
-    string name() { return name_; }
+    string name() const { return name_; }
     void name(string value) { name_ = value; }
 
     /**
@@ -303,7 +303,7 @@ public:
     /**
         Returns the unique identifier for this node
     */
-    uint uuid() {
+    uint uuid() const {
         return uuid_;
     }
 
