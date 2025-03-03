@@ -549,7 +549,7 @@ public:
                 width = bounds.z - bounds.x;
             }
             if (height < bounds.w - bounds.y) {
-                width = bounds.w - bounds.y;
+                height = bounds.w - bounds.y;
             }
             float centerX = (minX + maxX) / 2 / width;
             float centerY = (minY + maxY) / 2 / height;
