@@ -1051,7 +1051,7 @@ public:
 
         auto c = this;
         releaseSelf();
-        for (auto p = c.parent; p !is null && c !is null; p = p.parent, c = c.parent) {
+        for (auto p = c.parent; p !is null && c !is null; p = p.parent) {
             p.releaseChild(c);
         }
 
@@ -1059,7 +1059,7 @@ public:
             setRelativeTo(parent);
         insertInto(parent, pOffset);
         c = this;
-        for (auto p = parent; p !is null; p = p.parent, c = c.parent) {
+        for (auto p = parent; p !is null; p = p.parent) {
             p.setupChild(c);
         }
         setupSelf();

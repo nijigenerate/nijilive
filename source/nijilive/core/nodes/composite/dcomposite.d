@@ -13,6 +13,7 @@ import nijilive.fmt;
 import nijilive.core;
 import nijilive.math;
 import nijilive;
+import nijilive.core.nodes.utils;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm;
@@ -34,6 +35,7 @@ package(nijilive) {
 class DynamicComposite : Part {
 protected:
     bool initialized = false;
+    bool forceResize = false;
 
 public:
     this(bool delegatedMode) { }
@@ -296,19 +298,24 @@ protected:
         vec2 origSize = shouldUpdateVertices? autoResizedSize: textures[0] !is null? vec2(textures[0].width, textures[0].height): vec2(0, 0);
         vec2 size = newBounds.zw - newBounds.xy;
         bool resizing = false;
-        if (cast(int)origSize.x > cast(int)size.x) {
-            float diff = (origSize.x - size.x) / 2;
-            newBounds.z += diff;
-            newBounds.x -= diff;
-        } else if (cast(int)size.x > cast(int)origSize.x) {
+        if (forceResize) {
             resizing = true;
-        }
-        if (cast(int)origSize.y > cast(int)size.y) {
-            float diff = (origSize.y - size.y) / 2;
-            newBounds.w += diff;
-            newBounds.y -= diff;
-        } else if (cast(int)size.y > cast(int)origSize.y) {
-            resizing = true;
+            forceResize = false;
+        } else {
+            if (cast(int)origSize.x > cast(int)size.x) {
+                float diff = (origSize.x - size.x) / 2;
+                newBounds.z += diff;
+                newBounds.x -= diff;
+            } else if (cast(int)size.x > cast(int)origSize.x) {
+                resizing = true;
+            }
+            if (cast(int)origSize.y > cast(int)size.y) {
+                float diff = (origSize.y - size.y) / 2;
+                newBounds.w += diff;
+                newBounds.y -= diff;
+            } else if (cast(int)size.y > cast(int)origSize.y) {
+                resizing = true;
+            }
         }
         if (resizing) {
             MeshData newData = MeshData([
@@ -495,8 +502,10 @@ public:
     override
     void releaseChild(Node node) {
         setIgnorePuppetRecurse(node, false);
-        if (puppet !is null)
-            puppet.rescanNodes();
+        if (auto part = cast(Part)node) {
+            subParts = subParts.removeByValue(part);
+            forceResize = true;
+        }
     }
 
     override
