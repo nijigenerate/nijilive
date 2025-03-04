@@ -602,21 +602,23 @@ public:
     }
 
     override
-    void setupChild(Node node) {
+    bool setupChild(Node node) {
         if (delegated) {
             synchronizeDelegated();
 //            writefln("%s: delegate: setupChild", name);
             delegated.setupChild(node);
         }
+        return mustPropagate;
     }
 
     override
-    void releaseChild(Node node) {
+    bool releaseChild(Node node) {
         if (delegated) {
             synchronizeDelegated();
 //            writefln("%s: delegate: releaseChild", name);
             delegated.releaseChild(node);
         }
+        return mustPropagate;
     }
 
     override

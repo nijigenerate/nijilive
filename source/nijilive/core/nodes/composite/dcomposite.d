@@ -493,19 +493,23 @@ public:
     }
 
     override
-    void setupChild(Node node) {
+    bool setupChild(Node node) {
         setIgnorePuppetRecurse(node, true);
         if (puppet !is null)
             puppet.rescanNodes();
+
+        return false;
     }
 
     override
-    void releaseChild(Node node) {
+    bool releaseChild(Node node) {
         setIgnorePuppetRecurse(node, false);
         if (auto part = cast(Part)node) {
             subParts = subParts.removeByValue(part);
             forceResize = true;
         }
+
+        return false;
     }
 
     override
