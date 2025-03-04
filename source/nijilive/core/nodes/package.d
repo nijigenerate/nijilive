@@ -1052,7 +1052,7 @@ public:
         auto c = this;
         releaseSelf();
         for (auto p = c.parent; p !is null && c !is null; p = p.parent) {
-            p.releaseChild(c);
+            if (!p.releaseChild(c)) break;
         }
 
         if (parent !is null && !ignoreTransform)
@@ -1060,13 +1060,13 @@ public:
         insertInto(parent, pOffset);
         c = this;
         for (auto p = parent; p !is null; p = p.parent) {
-            p.setupChild(c);
+            if (!p.setupChild(c)) break;
         }
         setupSelf();
     }
 
-    void setupChild(Node child) { }
-    void releaseChild(Node child) { }
+    bool setupChild(Node child) { return false; }
+    bool releaseChild(Node child) { return false; }
     void setupSelf() { }
     void releaseSelf() { }
 

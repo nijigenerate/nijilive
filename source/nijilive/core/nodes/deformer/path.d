@@ -235,7 +235,7 @@ public:
     }
 
     override
-    void setupChild(Node child) {
+    bool setupChild(Node child) {
         super.setupChild(child);
         void setGroup(Node node) {
             auto drawable = cast(Drawable)node;
@@ -259,10 +259,12 @@ public:
         }
 
         setGroup(child);
+
+        return true;
     }
 
     override
-    void releaseChild(Node child) {
+    bool releaseChild(Node child) {
         void unsetGroup(Node node) {
             node.preProcessFilters = node.preProcessFilters.removeByValue(&deformChildren);
             bool mustPropagate = !node.mustPropagate();
@@ -274,6 +276,8 @@ public:
         }
         unsetGroup(child);
         super.releaseChild(child);
+
+        return true;
     }
 
 //    vec2[][Node] closestPointsDeformed; // debug code

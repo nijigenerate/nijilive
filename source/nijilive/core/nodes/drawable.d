@@ -610,18 +610,20 @@ public:
     }
 
     override
-    void setupChild(Node node) {
+    bool setupChild(Node node) {
         super.setupChild(node);
         if (node.pinToMesh) {
             if (node.preProcessFilters.countUntil(&nodeAttachProcessor) == -1)
                 node.preProcessFilters ~= &nodeAttachProcessor;
         }
+        return true;
     }
 
     override
-    void releaseChild(Node node) {
+    bool releaseChild(Node node) {
         node.preProcessFilters = node.preProcessFilters.removeByValue(&nodeAttachProcessor);
         super.releaseChild(node);
+        return true;
     }
 
     override

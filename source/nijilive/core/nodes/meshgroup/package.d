@@ -287,7 +287,7 @@ public:
     }
 
     override
-    void setupChild(Node child) {
+    bool setupChild(Node child) {
         super.setupChild(child);
         void setGroup(Node node) {
             auto drawable = cast(Deformable)node;
@@ -317,10 +317,11 @@ public:
             setGroup(child);
         } 
 
+        return false;
     }
 
     override
-    void releaseChild(Node child) {
+    bool releaseChild(Node child) {
         void unsetGroup(Node node) {
             node.preProcessFilters = node.preProcessFilters.removeByValue(&this.filterChildren);
             node.postProcessFilters = node.postProcessFilters.removeByValue(&this.filterChildren);
@@ -334,6 +335,7 @@ public:
         }
         unsetGroup(child);
         super.releaseChild(child);
+        return false;
     }
 
     void applyDeformToChildren(Parameter[] params) {
