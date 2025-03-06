@@ -173,6 +173,7 @@ public:
         this.deformation.length = originalControlPoints.length;
         clearCache();
         driverInitialized = false;
+        prevCurve = originalCurve;
     }
 
     void driver(PhysicsDriver d) {
@@ -187,39 +188,50 @@ public:
 
     override
     void update() {
-        vec2[] origDeform = deformation.dup;
-        if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
-            driver.setup();
-            driverInitialized = true;
-        }
-        preProcess();
-        vec2[] diffDeform = zip(origDeform, deformation).map!((t) => t[1] - t[0]).array;
-
-        if (vertices.length >= 2) {
-            prevCurve = createCurve(zip(vertices(), diffDeform).map!((t) => t[0] + t[1] ).array);
-            clearCache();
-            if (driver !is null && puppet !is null && puppet.enableDrivers)
-                driver.updateDefaultShape();
-            deformStack.update();
-            if (driver !is null && puppet !is null && puppet.enableDrivers) {
-                if (prevRootSet) {
-                    vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
-                    vec2 deform = root - prevRoot;
-                    if (deformation.length > 0) {
-                        deform += deformation[0];
-                    }
-                    driver.reset();
-                    driver.enforce(deform);
-                    driver.rotate(transform.rotation.z);
-                    driver.update();
-                }
-                prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
-                prevRootSet = true;
+        if (driver) {
+            vec2[] origDeform = deformation.dup;
+            if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
+                driver.setup();
+                driverInitialized = true;
             }
+            preProcess();
+            vec2[] diffDeform = zip(origDeform, deformation).map!((t) => t[1] - t[0]).array;
 
-            deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+            if (vertices.length >= 2) {
+                prevCurve = createCurve(zip(vertices(), diffDeform).map!((t) => t[0] + t[1] ).array);
+                clearCache();
+                if (driver !is null && puppet !is null && puppet.enableDrivers)
+                    driver.updateDefaultShape();
+                deformStack.update();
+                if (driver !is null && puppet !is null && puppet.enableDrivers) {
+                    if (prevRootSet) {
+                        vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+                        vec2 deform = root - prevRoot;
+                        if (deformation.length > 0) {
+                            deform += deformation[0];
+                        }
+                        driver.reset();
+                        driver.enforce(deform);
+                        driver.rotate(transform.rotation.z);
+                        driver.update();
+                    }
+                    prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+                    prevRootSet = true;
+                }
+
+                deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+            }
+            inverseMatrix = globalTransform.matrix.inverse;
+        } else {
+            preProcess();
+
+            if (vertices.length >= 2) {
+                deformStack.update();
+                deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+            }
+            inverseMatrix = globalTransform.matrix.inverse;
+
         }
-        inverseMatrix = globalTransform.matrix.inverse;
 
         Node.update();
         this.updateDeform();
