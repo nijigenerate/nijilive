@@ -98,17 +98,10 @@ public:
     // Find the closest point on the Bezier curve
     override
     float closestPoint(vec2 point, int nSamples = 100) {
-        float minDistanceSquared = float.max;
         float closestT = 0.0;
-        for (int i = 0; i < nSamples; ++i) {
-            float t = i / float(nSamples - 1);
-            vec2 bezierPoint = this.point(t);
-            float distanceSquared = (bezierPoint - point).lengthSquared;
-            if (distanceSquared < minDistanceSquared) {
-                minDistanceSquared = distanceSquared;
-                closestT = t;
-            }
-        }
+        import std.numeric;
+        auto result = findLocalMin((float t)=>(this.point(t) - point).lengthSquared, 0f, 1f);
+        closestT = result[0];
         return closestT;
     }
 
@@ -276,23 +269,11 @@ public:
     // インターフェイス実装: 与えられた点に最も近いパラメータ t を探索
     override
     float closestPoint(vec2 point, int nSamples = 100) {
-        float minDistanceSquared = float.max;
+        //float minDistanceSquared = float.max;
         float closestT = 0.0;
-
-        // 指定したサンプル数で等間隔に t を振って
-        // 最小距離になる t を探す
-        for (int i = 0; i < nSamples; ++i) {
-            // t の値
-            float tt = i / float(nSamples - 1);
-            // スプライン上の点
-            vec2 splinePoint = this.point(tt);
-            // 距離二乗
-            float distanceSquared = (splinePoint - point).lengthSquared;
-            if (distanceSquared < minDistanceSquared) {
-                minDistanceSquared = distanceSquared;
-                closestT = tt;
-            }
-        }
+        import std.numeric;
+        auto result = findLocalMin((float t)=>(this.point(t) - point).lengthSquared, 0f, 1f);
+        closestT = result[0];
         return closestT;
     }
 }
