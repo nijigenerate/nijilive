@@ -352,6 +352,24 @@ public:
         meshCaches.clear();
     }
 
+    void applyDeformToChildren(Parameter[] params) {
+        if (driver !is null)
+            return;
+
+        void prepare(vec2[] deformation) {
+            if (vertices.length >= 2) {
+                deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+            }
+            inverseMatrix = globalTransform.matrix.inverse;
+        }
+
+        bool transfer() { return false; }
+
+        _applyDeformToChildren(&deformChildren, &prepare, &transfer, params);
+
+        rebuffer([]);
+    }
+
     override
     void centralize() {
         foreach (child; children) {

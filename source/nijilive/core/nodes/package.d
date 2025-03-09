@@ -210,8 +210,9 @@ protected:
     }
     MatrixHolder overrideTransformMatrix = null;
 
-    Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*)[] preProcessFilters;
-    Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*)[] postProcessFilters;
+    alias Filter = Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*);
+    Filter[] preProcessFilters;
+    Filter[] postProcessFilters;
 
     import std.stdio;
     void preProcess() {

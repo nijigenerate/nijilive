@@ -610,7 +610,7 @@ public:
     /**
         Finds nodes based on their type
     */
-    final T[] findNodesType(T)(Node n) if (is(T : Node)) {
+    final T[] findNodesType(T)(Node n) if (is(T : Node) || is (T : NodeFilter)) {
         T[] nodes;
 
         if (T item = cast(T)n) {
@@ -871,7 +871,7 @@ public:
     }
 
     void applyDeformToChildren() {
-        auto nodes = findNodesType!MeshGroup(root);
+        auto nodes = findNodesType!NodeFilter(root);
         foreach (node; nodes) {
             node.applyDeformToChildren(parameters);
         }
