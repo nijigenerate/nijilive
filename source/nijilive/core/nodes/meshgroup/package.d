@@ -45,7 +45,9 @@ struct Triangle{
     children of this node
 */
 @TypeId("MeshGroup")
-class MeshGroup : Drawable {
+class MeshGroup : Drawable, NodeFilter {
+    mixin NodeFilterMixin;
+
 protected:
     ushort[] bitMask;
     vec4 bounds;

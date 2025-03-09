@@ -33,7 +33,8 @@ package(nijilive) {
 
 
 @TypeId("PathDeformer")
-class PathDeformer : Deformable {
+class PathDeformer : Deformable, NodeFilter {
+    mixin NodeFilterMixin;
 protected:
     mat4 inverseMatrix;
     PhysicsDriver _driver;
