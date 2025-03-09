@@ -71,6 +71,10 @@ protected:
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
         super.serializeSelfImpl(serializer, recursive);
+        if (physicsOnly) {
+            serializer.putKey("physics_only");
+            serializer.serializeValue(physicsOnly);
+        }
         serializer.putKey("curve_type");
         serializer.serializeValue(curveType);
         serializer.putKey("vertices");
@@ -93,6 +97,9 @@ protected:
     override
     SerdeException deserializeFromFghj(Fghj data) {
         super.deserializeFromFghj(data);
+
+        if (!data["physics_only"].isEmpty)
+            if (auto exc = data["physics_only"].deserializeValue(physicsOnly)) return exc;
 
         if (!data["curve_type"].isEmpty)
             if (auto exc = data["curve_type"].deserializeValue(curveType)) return exc;
@@ -140,6 +147,7 @@ public:
     bool prevRootSet;
     bool driverInitialized = false;
     float[][Node] meshCaches;
+    bool physicsOnly = false;
 
     Curve createCurve(vec2[] points) {
         if (curveType == CurveType.Bezier) {
@@ -214,7 +222,13 @@ public:
                         driver.reset();
                         driver.enforce(deform);
                         driver.rotate(transform.rotation.z);
-                        driver.update();
+                        if (physicsOnly) {
+                            vec2[] prevDeform = deformation.dup;
+                            driver.update();
+                            prevCurve = createCurve(vertices());
+                            deformation = zip(deformation, prevDeform).map!(t=>t[0] - t[1]).array;
+                        } else
+                            driver.update();
                     }
                     prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
                     prevRootSet = true;
@@ -353,10 +367,12 @@ public:
     }
 
     void applyDeformToChildren(Parameter[] params) {
-        if (driver !is null)
+        if (driver !is null) {
+            physicsOnly = true;
             return;
+        }
 
-        void prepare(vec2[] deformation) {
+        void update(vec2[] deformation) {
             if (vertices.length >= 2) {
                 deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
             }
@@ -365,8 +381,8 @@ public:
 
         bool transfer() { return false; }
 
-        _applyDeformToChildren(&deformChildren, &prepare, &transfer, params);
-
+        _applyDeformToChildren(&deformChildren, &update, &transfer, params);
+        physicsOnly = true;
         rebuffer([]);
     }
 
