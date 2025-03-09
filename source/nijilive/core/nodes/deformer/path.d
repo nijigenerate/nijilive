@@ -24,6 +24,11 @@ enum CurveType {
     Spline
 }
 
+enum PhysicsType {
+    Pendulum,
+    SpringPendulum
+}
+
 package(nijilive) {
     void inInitPathDeformer() {
         inRegisterNodeType!PathDeformer;
@@ -138,6 +143,7 @@ protected:
 
 public:
     CurveType curveType;
+    PhysicsType physicsType;
     Curve originalCurve;
     Curve prevCurve;
     Curve deformedCurve;
@@ -154,6 +160,15 @@ public:
             return new BezierCurve(points);
         } else {
             return new SplineCurve(points);
+        }
+    }
+
+    PhysicsDriver createPhysics() {
+        switch (physicsType) {
+        case PhysicsType.SpringPendulum:
+            return new ConnectedSpringPendulumDriver(this);
+        default:
+            return new ConnectedPendulumDriver(this);
         }
     }
 
@@ -432,4 +447,15 @@ public:
 
     override
     bool mustPropagate() { return true; }
+
+    bool physicsEnabled() { return _driver !is null; }
+    void physicsEnabled(bool value) {
+        if (value) {
+            if (driver is null) {
+                driver = createPhysics();
+            }
+        } else {
+            driver = null;
+        }
+    }
 }
