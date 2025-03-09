@@ -32,7 +32,7 @@ mixin template NodeFilterMixin() {
         children_ref.length = 0;
     }
 
-    void _applyDeformToChildren(Node.Filter filterChildren, void delegate(vec2[]) prepare, bool delegate() transferCondition, Parameter[] params) {
+    void _applyDeformToChildren(Node.Filter filterChildren, void delegate(vec2[]) update, bool delegate() transferCondition, Parameter[] params) {
         foreach (param; params) {
             ParameterBinding[Resource][string] trsBindings;
             void extractTRSBindings(Parameter param) {
@@ -134,7 +134,7 @@ mixin template NodeFilterMixin() {
                             bool bottomMost = y == param.axisPoints[1].length - 1;
                             deformation = deformBinding.interpolate(vec2u(rightMost? x - 1: x, bottomMost? y - 1: y), vec2(rightMost? 1: 0, bottomMost? 1:0)).vertexOffsets;
                         }
-                        prepare(deformation);
+                        update(deformation);
 
                         foreach (child; children) {
                             transferChildren(child, x, y);
