@@ -8,21 +8,10 @@ interface NodeFilter {
     void captureTarget(Node target);
     void releaseTarget(Node target);
     void dispose();
-    void applyDeformToChildren(Parameter[] params);
+    void applyDeformToChildren(Parameter[] params, bool recursive = true);
 }
 
 mixin template NodeFilterMixin() {
-    override
-    void captureTarget(Node target) {
-        children_ref ~= target;
-        setupChild(target);
-    }
-
-    override
-    void releaseTarget(Node target) {
-        releaseChild(target);
-        children_ref = children_ref.removeByValue(target);
-    }
 
     override
     void dispose() {
@@ -32,7 +21,7 @@ mixin template NodeFilterMixin() {
         children_ref.length = 0;
     }
 
-    void _applyDeformToChildren(Node.Filter filterChildren, void delegate(vec2[]) update, bool delegate() transferCondition, Parameter[] params) {
+    void _applyDeformToChildren(Node.Filter filterChildren, void delegate(vec2[]) update, bool delegate() transferCondition, Parameter[] params, bool recursive = true) {
         foreach (param; params) {
             ParameterBinding[Resource][string] trsBindings;
             void extractTRSBindings(Parameter param) {
@@ -98,7 +87,7 @@ mixin template NodeFilterMixin() {
                     }
 
                 }
-                if (mustPropagate) {
+                if (recursive && mustPropagate) {
                     foreach (child; node.children) {
                         transferChildren(child, x, y);
                     }

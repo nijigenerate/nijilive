@@ -288,25 +288,30 @@ public:
         return null;
     }
 
+    bool setupChildNoRecurse(bool prepend = false)(Node node) {
+        auto drawable = cast(Deformable)node;
+        bool isDeformable = drawable !is null;
+        if (translateChildren || isDeformable) {
+            if (isDeformable && dynamic) {
+                node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
+                node.postProcessFilters = node.postProcessFilters.upsert!(Node.Filter, prepend)(&filterChildren);
+            } else {
+                node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(&filterChildren);
+                node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
+            }
+        } else {
+            node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
+            node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
+        }
+        return false;
+     }
+
     override
     bool setupChild(Node child) {
         super.setupChild(child);
         void setGroup(Node node) {
-            auto drawable = cast(Deformable)node;
-            bool isDeformable = drawable !is null;
             bool mustPropagate = node.mustPropagate();
-            if (translateChildren || isDeformable) {
-                if (isDeformable && dynamic) {
-                    node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
-                    node.postProcessFilters = node.postProcessFilters.upsert(&filterChildren);
-                } else {
-                    node.preProcessFilters  = node.preProcessFilters.upsert(&filterChildren);
-                    node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
-                }
-            } else {
-                node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
-                node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
-            }
+            setupChildNoRecurse(node);
             // traverse children if node is Deformable and is not MeshGroup instance.
             if (mustPropagate) {
                 foreach (child; node.children) {
@@ -322,11 +327,17 @@ public:
         return false;
     }
 
+
+    bool releaseChildNoRecurse(Node node) {
+        node.preProcessFilters = node.preProcessFilters.removeByValue(&this.filterChildren);
+        node.postProcessFilters = node.postProcessFilters.removeByValue(&this.filterChildren);
+        return false;
+    }
+
     override
     bool releaseChild(Node child) {
         void unsetGroup(Node node) {
-            node.preProcessFilters = node.preProcessFilters.removeByValue(&this.filterChildren);
-            node.postProcessFilters = node.postProcessFilters.removeByValue(&this.filterChildren);
+            releaseChildNoRecurse(node);
 
             bool mustPropagate = node.mustPropagate();
             if (mustPropagate) {
@@ -340,7 +351,20 @@ public:
         return false;
     }
 
-    void applyDeformToChildren(Parameter[] params) {
+    override
+    void captureTarget(Node target) {
+        children_ref ~= target;
+        setupChildNoRecurse!true(target);
+    }
+
+    override
+    void releaseTarget(Node target) {
+        releaseChildNoRecurse(target);
+        children_ref = children_ref.removeByValue(target);
+    }
+
+
+    void applyDeformToChildren(Parameter[] params, bool recursive = true) {
         if (dynamic || data.indices.length == 0)
             return;
 
@@ -350,7 +374,7 @@ public:
         forwardMatrix = transform.matrix;
         inverseMatrix = globalTransform.matrix.inverse;
 
-        void prepare(vec2[] deformation) {
+        void update(vec2[] deformation) {
             transformedVertices.length = vertices.length;
             foreach(i, vertex; vertices) {
                 transformedVertices[i] = vertex + deformation[i];
@@ -369,7 +393,7 @@ public:
             return translateChildren;
         }
 
-        _applyDeformToChildren(&filterChildren, &prepare, &transfer, params);
+        _applyDeformToChildren(&filterChildren, &update, &transfer, params, recursive);
 
         data.indices.length = 0;
         data.vertices.length = 0;

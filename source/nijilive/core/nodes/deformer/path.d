@@ -276,23 +276,25 @@ public:
         super.build(force);
     }
 
+    bool setupChildNoRecurse(bool prepend = false)(Node node) {
+        auto drawable = cast(Drawable)node;
+        bool isDrawable = drawable !is null;
+        if (isDrawable) {
+            cacheClosestPoints(node);
+            node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(&deformChildren);
+        } else {
+            meshCaches.remove(node); 
+            node.preProcessFilters  = node.preProcessFilters.removeByValue(&deformChildren);
+        }
+        return true;
+    }
+
     override
     bool setupChild(Node child) {
         super.setupChild(child);
         void setGroup(Node node) {
-            auto drawable = cast(Drawable)node;
-            auto composite = cast(Composite)node;
-            bool isDrawable = drawable !is null;
+            setupChildNoRecurse(node);
             bool mustPropagate = node.mustPropagate();
-
-            if (isDrawable) {
-                cacheClosestPoints(node);
-                node.preProcessFilters  = node.preProcessFilters.upsert(&deformChildren);
-            } else {
-                meshCaches.remove(node); 
-                node.preProcessFilters  = node.preProcessFilters.removeByValue(&deformChildren);
-            }
-
             if (mustPropagate) {
                 foreach (child; node.children) {
                     setGroup(child);
@@ -305,10 +307,15 @@ public:
         return true;
     }
 
+    bool releaseChildNoRecurse(Node node) {
+        node.preProcessFilters = node.preProcessFilters.removeByValue(&deformChildren);
+        return true;
+    }
+
     override
     bool releaseChild(Node child) {
         void unsetGroup(Node node) {
-            node.preProcessFilters = node.preProcessFilters.removeByValue(&deformChildren);
+            releaseChildNoRecurse(node);
             bool mustPropagate = !node.mustPropagate();
             if (mustPropagate) {
                 foreach (child; node.children) {
@@ -320,6 +327,18 @@ public:
         super.releaseChild(child);
 
         return true;
+    }
+
+    override
+    void captureTarget(Node target) {
+        children_ref ~= target;
+        setupChildNoRecurse!true(target);
+    }
+
+    override
+    void releaseTarget(Node target) {
+        releaseChildNoRecurse(target);
+        children_ref = children_ref.removeByValue(target);
     }
 
     debug(path_deform) {
@@ -381,7 +400,7 @@ public:
         meshCaches.clear();
     }
 
-    void applyDeformToChildren(Parameter[] params) {
+    void applyDeformToChildren(Parameter[] params, bool recursive = true) {
         if (driver !is null) {
             physicsOnly = true;
             return;
@@ -396,7 +415,7 @@ public:
 
         bool transfer() { return false; }
 
-        _applyDeformToChildren(&deformChildren, &update, &transfer, params);
+        _applyDeformToChildren(&deformChildren, &update, &transfer, params, recursive);
         physicsOnly = true;
         rebuffer([]);
     }
