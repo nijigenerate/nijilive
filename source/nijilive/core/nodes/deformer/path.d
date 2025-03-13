@@ -18,6 +18,7 @@ import std.range;
 import std.typecons;
 import nijilive.core;
 import nijilive.core.dbg;
+import core.exception;
 
 enum CurveType {
     Bezier,
@@ -364,7 +365,14 @@ public:
             cVertex = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
             cVertices ~= cVertex;
 
-            float t = meshCaches[target][i];
+            float t;
+            try {
+                t = meshCaches[target][i];
+            } catch (ArrayIndexError e) {
+                meshCaches.remove(target);
+                cacheClosestPoints(target);
+                t = meshCaches[target][i];
+            }
             vec2 closestPointOriginal = prevCurve.point(t);
             debug(path_deform) closestPointsOriginal[target] ~= closestPointOriginal; // debug code
             vec2 tangentOriginal = prevCurve.derivative(t).normalized;

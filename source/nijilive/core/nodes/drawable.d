@@ -18,7 +18,7 @@ import std.exception;
 import nijilive.core.dbg;
 import nijilive.core;
 import std.string;
-import std.typecons: tuple, Tuple;
+import std.typecons;
 import std.algorithm.searching;
 import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
@@ -482,10 +482,13 @@ public:
     void addWeldedTarget(Drawable target, ptrdiff_t[] weldedVertexIndices, float weldingWeight) {
         // FIXME: must check whether target is already added.
         auto index = welded.countUntil!"a.target == b"(target);
-        if (index != -1)
-            return;
-        auto link = WeldingLink(target.uuid, target, weldedVertexIndices, weldingWeight);
-        welded ~= link;
+        if (index != -1) {
+//            welded[index].weight = weldingWeight;
+            welded[index].indices = weldedVertexIndices;
+        } else {
+            auto link = WeldingLink(target.uuid, target, weldedVertexIndices, weldingWeight);
+            welded ~= link;
+        }
 
         ptrdiff_t[] counterWeldedVertexIndices;
         counterWeldedVertexIndices.length = target.vertices.length;
@@ -494,11 +497,17 @@ public:
             if (ind != NOINDEX)
                 counterWeldedVertexIndices[ind] = i;
         }
-        auto counterLink = WeldingLink(uuid, this, counterWeldedVertexIndices, 1 - weldingWeight);
-        target.welded ~= counterLink;
+        auto counterIndex = target.welded.countUntil!"a.target == b"(this);
+        if (counterIndex != -1) {
+//            target.welded[counterIndex].weight = 1 - weldingWeight;
+            target.welded[counterIndex].indices = counterWeldedVertexIndices;
+        } else {
+            auto counterLink = WeldingLink(uuid, this, counterWeldedVertexIndices, 1 - weldingWeight);
+            target.welded ~= counterLink;
+        }
 
-        target.postProcessFilters ~= &weldingProcessor;
-        postProcessFilters ~= &target.weldingProcessor;
+        target.postProcessFilters.upsert(&weldingProcessor);
+        postProcessFilters.upsert(&target.weldingProcessor);
     }
 
     void removeWeldedTarget(Drawable target) {
