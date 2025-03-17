@@ -25,6 +25,7 @@ interface PhysicsDriver : ISerializable {
         serializeSelfImpl(serializer);
         serializer.objectEnd(state);        
     }
+    void copyFrom(PhysicsDriver src);
 }
 
 private {
@@ -163,6 +164,17 @@ class ConnectedPendulumDriver : PhysicsDriver {
             if (auto exc = data["propagate_scale"].deserializeValue(this.propagateScale)) return exc;
 
         return null;
+    }
+
+    override
+    void copyFrom(PhysicsDriver src) {
+        if (auto driver = cast(ConnectedPendulumDriver)src) {
+            damping = driver.damping;
+            restoreConstant = driver.restoreConstant;
+            gravity = driver.gravity;
+            inputScale = driver.inputScale;
+            propagateScale = driver.propagateScale;
+        }
     }
 
     private:
@@ -304,6 +316,11 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
 
         return null;
     }
+
+    override 
+    void copyFrom(PhysicsDriver src) {
+        // TBD
+    }
     
 private:
     void updateSpringPendulum(
@@ -340,5 +357,4 @@ private:
             positions[i] += velocities[i] * timeStep;
         }
     }
-
 }

@@ -456,17 +456,26 @@ public:
             child.transformChanged();
         }
     }
-
+    
     override
     void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
         super.copyFrom(src, clone, deepCopy);
 
-        if (auto deformable = cast(Deformable)src)
-            originalCurve.controlPoints = deformable.vertices;
-
         if (auto pathDeformer = cast(PathDeformer)src) {
             clearCache();
+            curveType = pathDeformer.curveType;
+            physicsType = pathDeformer.physicsType;
+            physicsOnly = pathDeformer.physicsOnly;
+            if (pathDeformer.driver) {
+                driver = createPhysics();
+                
+            }
+            driverInitialized = false;
         }
+        if (auto deformable = cast(Deformable)src) {
+            originalCurve = createCurve(deformable.vertices);
+        }
+        deformation.length = originalCurve.controlPoints.length;
     }
 
     override
