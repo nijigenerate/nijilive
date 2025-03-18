@@ -468,7 +468,7 @@ public:
             physicsOnly = pathDeformer.physicsOnly;
             if (pathDeformer.driver) {
                 driver = createPhysics();
-                
+
             }
             driverInitialized = false;
         }
@@ -493,5 +493,15 @@ public:
         } else {
             driver = null;
         }
+    }
+
+    override
+    void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
+        if (target != this && reason == NotifyReason.StructureChanged) {
+            if (target in meshCaches) {
+                meshCaches.remove(target);
+            }
+        }
+        super.notifyChange(target, reason);
     }
 }
