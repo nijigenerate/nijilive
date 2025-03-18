@@ -437,7 +437,7 @@ public:
     void drawContents() {
         // Optimization: Nothing to be drawn, skip context switching
         if (deferredChanged) {
-            if (!autoResizedMesh) {
+            if (autoResizedMesh) {
                 if (createSimpleMesh()) initialized = false;
             }
             deferredChanged = false;
