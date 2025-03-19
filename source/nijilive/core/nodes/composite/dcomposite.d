@@ -283,6 +283,7 @@ protected:
 
     vec4 getChildrenBounds() {
         if (subParts.length > 0) {
+            foreach (p; subParts) p.updateBounds();
             float minX = (subParts.map!(p=> p.bounds.x).array).minElement();
             float minY = (subParts.map!(p=> p.bounds.y).array).minElement();
             float maxX = (subParts.map!(p=> p.bounds.z).array).maxElement();
@@ -347,13 +348,19 @@ protected:
                     vec2(newBounds.z, newBounds.y) - transform.translation.xy,
                     vec2(newBounds.z, newBounds.w) - transform.translation.xy
                 ];
+                data.indices = [
+                    0, 1, 2,
+                    2, 1, 3
+                ];
                 shouldUpdateVertices = true;
                 autoResizedSize = newBounds.zw - newBounds.xy;
                 // FIXME!: This updateVertices call is relatively slow, and createSimpleMesh is called everytime notifyChange is called.
                 // To optimize performance, we should call updateVertices to a series of changes per parameters.
                 // Currently, it produces nasty result when update vertices only once in every rendering loop. 
                 updateVertices();
-                textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+                textureOffset = newTextureOffset;
+//                vec2i toVec2i(vec2 pt) { return vec2i(cast(int)pt.x, cast(int)pt.y); }
+//                writefln("%s: %s=%s(=[%s, %s])-%s %s<->%s : %s", name, toVec2i(newTextureOffset), toVec2i((newBounds.xy + newBounds.zw)/2), toVec2i(newBounds.xy), toVec2i(newBounds.zw), toVec2i(transform.translation.xy), toVec2i(origSize), toVec2i(size), toVec2i(autoResizedSize));
             }
         }
         return resizing;
