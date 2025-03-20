@@ -605,6 +605,9 @@ public:
             MeshData newData;
             newData.vertices = drawable.data.vertices.dup;
             newData.uvs = drawable.data.uvs.dup;
+            if (newData.uvs.length != newData.vertices.length) {
+                newData.uvs = newData.vertices.dup;
+            }
             newData.indices = drawable.data.indices.dup;
             if (drawable.data.gridAxes.length > 0) {
                 foreach (ax; drawable.data.gridAxes) {
