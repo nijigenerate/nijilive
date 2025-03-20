@@ -400,6 +400,10 @@ public:
             inv[2][3] = 0;
             origDeformation[i] += (inv * vec4(deformedVertices[i] - cVertex, 0, 1)).xy;
         }
+
+        if (driver) {
+            target.notifyChange(target);
+        }
         return Tuple!(vec2[], mat4*, bool)(origDeformation, null, true);
     }
 
