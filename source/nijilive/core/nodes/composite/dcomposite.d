@@ -420,6 +420,7 @@ public:
                 shouldUpdateVertices = false;
             }
             Node.update();
+            if (createSimpleMesh()) initialized = false;
         } else super.update();
     }
 
