@@ -49,7 +49,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
     }
 
     void rotate(float angle) {
-        worldAngle = angle;
+        worldAngle = -angle;
     }
 
     override
