@@ -117,13 +117,9 @@ public:
                 foreach (child; comp.children) {
                     dcomposite.children_ref ~= child;
                 }
-                dcomposite.setupSelf();
                 comp.setDelegation(dcomposite);
             } else {
                 // Remove delegated DynamicComposite.
-                if (comp.delegated) {
-                    comp.delegated.releaseSelf();
-                }
                 comp.setDelegation(null);
             }
         }
@@ -469,11 +465,13 @@ public:
 
     override
     void drawOne() {
+//        writefln("%s: drawOne", name);
         if (!enabled || puppet is null) return;
         this.drawContents();
 
         // No masks, draw normally
         drawSelf();
+//        writefln("  %s: end", name);
     }
 
     override
@@ -523,8 +521,8 @@ public:
     override
     void setupSelf() { 
         transformChanged();
+        scanSubParts(children);
         if (autoResizedMesh) {
-            scanSubParts(children);
             if (createSimpleMesh()) initialized = false;
         }
         for (Node c = this; c !is null; c = c.parent) {

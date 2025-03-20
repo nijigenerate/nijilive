@@ -106,6 +106,9 @@ private:
             delegated.opacity = opacity;
             delegated.blendingMode = blendingMode;
             delegated.zSort = relZSort;
+            if (oneTimeTransform) {
+                delegated.setOneTimeTransform(oneTimeTransform);
+            }
         }
     }
 
@@ -524,8 +527,11 @@ public:
     void drawOne() {
         if (delegated) {
             synchronizeDelegated();
+//            writefln("%s: delegate: drawOne", name);
             delegated.drawOne();
             return;
+        } else {
+//            writefln("%s: drawOne", name);
         }
         if (!enabled) return;
         
@@ -703,9 +709,12 @@ public:
             this.delegated.children_ref.length = 0;
             this.delegated.parent = null;
         }
-        this.delegated = delegated;
-        if (this.delegated)
-            this.delegated.setupSelf();
+        if (this.delegated != delegated) {
+            this.delegated = delegated;
+            if (this.delegated)
+                this.delegated.setupSelf();
+            writefln("%s: setDelegation -->%s",name, delegated?delegated.name: null);
+        }
     }
 
     override
