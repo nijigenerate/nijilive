@@ -713,7 +713,6 @@ public:
             this.delegated = delegated;
             if (this.delegated)
                 this.delegated.setupSelf();
-            writefln("%s: setDelegation -->%s",name, delegated?delegated.name: null);
         }
     }
 

@@ -21,6 +21,7 @@ import std.algorithm.sorting;
 import std.stdio;
 import std.array;
 import std.format;
+import std.range;
 
 package(nijilive) {
     void inInitDComposite() {
@@ -160,16 +161,23 @@ protected:
     bool initTarget() {
         auto prevTexture = textures[0];
         auto prevStencil = stencil;
-
         bool doUpdate = inGetUpdateBounds();
         inSetUpdateBounds(true);
         updateBounds();
         inSetUpdateBounds(doUpdate);
         auto bounds = this.bounds;
+        /*
         uint width = cast(uint)((bounds.z-bounds.x) / transform.scale.x);
         uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
+        */
+        vec2[] deformVerts = zip(vertices, deformation).map!(p=>p[0]+p[1]).array;
+        auto xs = deformVerts.map!(p=>p.x);
+        auto ys = deformVerts.map!(p=>p.y);
+        auto localBounds = vec4(xs.minElement, ys.minElement, xs.maxElement, ys.maxElement);
+        uint width  = cast(uint)(localBounds.z - localBounds.x);
+        uint height = cast(uint)(localBounds.w - localBounds.y);
         if (width == 0 || height == 0) return false;
-
+        
         texWidth = width + 1;
         texHeight = height + 1;
         textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
