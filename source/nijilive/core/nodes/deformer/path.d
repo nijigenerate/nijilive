@@ -229,12 +229,13 @@ public:
                     driver.updateDefaultShape();
                 deformStack.update();
                 if (driver !is null && puppet !is null && puppet.enableDrivers) {
+                    vec2 root;
+                    if (deformation.length > 0)
+                        root = (transform.matrix * vec4(vertices[0] + deformation[0], 0, 1)).xy;
+                    else
+                        root = vec2(0, 0);
                     if (prevRootSet) {
-                        vec2 root = (transform.matrix * vec4(0, 0, 0, 1)).xy;
                         vec2 deform = root - prevRoot;
-                        if (deformation.length > 0) {
-                            deform += deformation[0];
-                        }
                         driver.reset();
                         driver.enforce(deform);
                         driver.rotate(transform.rotation.z);
@@ -246,7 +247,7 @@ public:
                         } else
                             driver.update();
                     }
-                    prevRoot = (transform.matrix * vec4(0, 0, 0, 1)).xy;
+                    prevRoot = root;
                     prevRootSet = true;
                 }
 
