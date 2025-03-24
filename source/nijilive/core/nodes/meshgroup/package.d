@@ -471,7 +471,7 @@ public:
             translateChildren = mgroup.translateChildren;
             clearCache();
         } else if (auto dcomposite = cast(DynamicComposite)src) {
-            dynamic = true;
+//            dynamic = true;  // disabled dynamic mode by default.
             translateChildren = true;
             clearCache();
         }

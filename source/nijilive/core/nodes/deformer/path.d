@@ -239,7 +239,7 @@ public:
                         driver.reset();
                         driver.enforce(deform);
                         driver.rotate(transform.rotation.z);
-                        if (physicsOnly) {
+                        if (physicsOnly) { // Tentative solution.
                             vec2[] prevDeform = deformation.dup;
                             driver.update();
                             prevCurve = createCurve(vertices());

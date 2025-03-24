@@ -565,24 +565,27 @@ public:
     void normalizeUV(MeshData* data) {
         import std.algorithm: map;
         import std.algorithm: minElement, maxElement;
+        data.uvs.length = data.vertices.length;
         if (data.uvs.length != 0) {
-            float minX = data.uvs.map!(a => a.x).minElement;
-            float maxX = data.uvs.map!(a => a.x).maxElement;
-            float minY = data.uvs.map!(a => a.y).minElement;
-            float maxY = data.uvs.map!(a => a.y).maxElement;
+            float minX = data.vertices.map!(a => a.x).minElement;
+            float maxX = data.vertices.map!(a => a.x).maxElement;
+            float minY = data.vertices.map!(a => a.y).minElement;
+            float maxY = data.vertices.map!(a => a.y).maxElement;
             float width = maxX - minX;
             float height = maxY - minY;
-            if (width < bounds.z - bounds.x) {
-                width = bounds.z - bounds.x;
-            }
-            if (height < bounds.w - bounds.y) {
-                height = bounds.w - bounds.y;
+            if (autoResizedMesh) {
+                if (width < bounds.z - bounds.x) {
+                    width = bounds.z - bounds.x;
+                }
+                if (height < bounds.w - bounds.y) {
+                    height = bounds.w - bounds.y;
+                }
             }
             float centerX = (minX + maxX) / 2 / width;
             float centerY = (minY + maxY) / 2 / height;
             foreach(i; 0..data.uvs.length) {
-                data.uvs[i].x /= width;
-                data.uvs[i].y /= height;
+                data.uvs[i].x = data.vertices[i].x / width;
+                data.uvs[i].y = data.vertices[i].y / height;
                 data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);
             }
         }
