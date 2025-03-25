@@ -320,7 +320,7 @@ struct MeshData {
         return gridAxes.length == 2 && gridAxes[0].length > 2 && gridAxes[1].length > 2;
     }
 
-    bool clearGridIsDirty() {
+    bool clearGridIfDirty() {
         if (gridAxes.length < 2 || gridAxes[0].length == 0 || gridAxes[1].length == 0)
             return false;
 
