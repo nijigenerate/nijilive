@@ -421,9 +421,10 @@ public:
             localTransform.update();
             offsetTransform.update();
 
-            if (lockToRoot_)
-                globalTransform = localTransform.calcOffset(offsetTransform) * puppet.root.localTransform;
-            else if (parent !is null)
+            if (lockToRoot_) {
+                Transform trans = (puppet !is null && puppet.root !is null)? puppet.root.localTransform : Transform(vec3(0, 0, 0));
+                globalTransform = localTransform.calcOffset(offsetTransform) * trans;
+            } else if (parent !is null)
                 globalTransform = localTransform.calcOffset(offsetTransform) * parent.transform();
             else
                 globalTransform = localTransform.calcOffset(offsetTransform);
