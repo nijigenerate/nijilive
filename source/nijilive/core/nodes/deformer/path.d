@@ -283,10 +283,10 @@ public:
         bool isDrawable = drawable !is null;
         if (isDrawable) {
             cacheClosestPoints(node);
-            node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(&deformChildren);
+            node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
         } else {
             meshCaches.remove(node); 
-            node.preProcessFilters  = node.preProcessFilters.removeByValue(&deformChildren);
+            node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
         }
         return true;
     }
@@ -310,7 +310,7 @@ public:
     }
 
     bool releaseChildNoRecurse(Node node) {
-        node.preProcessFilters = node.preProcessFilters.removeByValue(&deformChildren);
+        node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
         return true;
     }
 
@@ -428,7 +428,7 @@ public:
 
         bool transfer() { return false; }
 
-        _applyDeformToChildren(&deformChildren, &update, &transfer, params, recursive);
+        _applyDeformToChildren(tuple(1, &deformChildren), &update, &transfer, params, recursive);
         physicsOnly = true;
         rebuffer([]);
     }

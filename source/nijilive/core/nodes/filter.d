@@ -66,7 +66,7 @@ mixin template NodeFilterMixin() {
 
                     auto nodeBinding = cast(DeformationParameterBinding)param.getOrAddBinding(node, "deform");
                     auto nodeDeform = nodeBinding.values[x][y].vertexOffsets.dup;
-                    Tuple!(vec2[], mat4*, bool) filterResult = filterChildren(node, vertices, nodeDeform, &matrix);
+                    Tuple!(vec2[], mat4*, bool) filterResult = filterChildren[1](node, vertices, nodeDeform, &matrix);
                     if (filterResult[0] !is null) {
                         nodeBinding.values[x][y].vertexOffsets = filterResult[0];
                         nodeBinding.getIsSet()[x][y] = true;
@@ -78,7 +78,7 @@ mixin template NodeFilterMixin() {
                     auto nodeBindingX = cast(ValueParameterBinding)param.getOrAddBinding(node, "transform.t.x");
                     auto nodeBindingY = cast(ValueParameterBinding)param.getOrAddBinding(node, "transform.t.y");
                     auto nodeDeform = [node.offsetTransform.translation.xy];
-                    Tuple!(vec2[], mat4*, bool) filterResult = filterChildren(node, vertices, nodeDeform, &matrix);
+                    Tuple!(vec2[], mat4*, bool) filterResult = filterChildren[1](node, vertices, nodeDeform, &matrix);
                     if (filterResult[0] !is null) {
                         nodeBindingX.values[x][y] += filterResult[0][0].x;
                         nodeBindingY.values[x][y] += filterResult[0][0].y;

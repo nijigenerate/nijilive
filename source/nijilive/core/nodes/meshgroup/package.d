@@ -68,8 +68,8 @@ protected:
     }
 
     override
-    void postProcess() {
-        super.preProcess();
+    void postProcess(int id = 0) {
+        super.postProcess(id);
     }
 
 public:
@@ -102,19 +102,14 @@ public:
                 index = bit - 1;
             }
             vec2 newPos = (index < 0)? cVertex: (triangles[index].transformMatrix * vec3(cVertex, 1)).xy;
-            if (!dynamic) {
-                mat4 inv = centerMatrix.inverse;
-                inv[0][3] = 0;
-                inv[1][3] = 0;
-                inv[2][3] = 0;
-                origDeformation[i] += (inv * vec4(newPos - cVertex, 0, 1)).xy;
-            } else
-                origDeformation[i] = newPos - origVertices[i];
+            mat4 inv = centerMatrix.inverse;
+            inv[0][3] = 0;
+            inv[1][3] = 0;
+            inv[2][3] = 0;
+            origDeformation[i] += (inv * vec4(newPos - cVertex, 0, 1)).xy;
         }
 
-        if (!dynamic)
-            return tuple(origDeformation, cast(mat4*)null, changed);
-        return tuple(origDeformation, &forwardMatrix, changed);
+        return tuple(origDeformation, cast(mat4*)null, changed);
     }
 
     /**
@@ -146,7 +141,6 @@ public:
         }
 
         Node.update();
-        this.updateDeform();
    }
 
     override
@@ -293,15 +287,15 @@ public:
         bool isDeformable = drawable !is null;
         if (translateChildren || isDeformable) {
             if (isDeformable && dynamic) {
-                node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
-                node.postProcessFilters = node.postProcessFilters.upsert!(Node.Filter, prepend)(&filterChildren);
+                node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(0, &filterChildren));
+                node.postProcessFilters = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(0, &filterChildren));
             } else {
-                node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(&filterChildren);
-                node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
+                node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(0, &filterChildren));
+                node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &filterChildren));
             }
         } else {
-            node.preProcessFilters  = node.preProcessFilters.removeByValue(&filterChildren);
-            node.postProcessFilters = node.postProcessFilters.removeByValue(&filterChildren);
+            node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(0, &filterChildren));
+            node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &filterChildren));
         }
         return false;
      }
@@ -329,8 +323,8 @@ public:
 
 
     bool releaseChildNoRecurse(Node node) {
-        node.preProcessFilters = node.preProcessFilters.removeByValue(&this.filterChildren);
-        node.postProcessFilters = node.postProcessFilters.removeByValue(&this.filterChildren);
+        node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(0, &this.filterChildren));
+        node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &this.filterChildren));
         return false;
     }
 
@@ -393,7 +387,7 @@ public:
             return translateChildren;
         }
 
-        _applyDeformToChildren(&filterChildren, &update, &transfer, params, recursive);
+        _applyDeformToChildren(tuple(0, &filterChildren), &update, &transfer, params, recursive);
 
         data.indices.length = 0;
         data.vertices.length = 0;
