@@ -98,7 +98,13 @@ public:
         preProcess();
         deformStack.update();
         super.update();
-        this.updateDeform();
+    }
+
+    override
+    void endUpdate(int id = 0) {
+        postProcess(id);
+        updateDeform();
+        super.endUpdate(id);
     }
 
     void updateDeform() {
@@ -108,7 +114,6 @@ public:
                 deformation[i] = vec2(0, 0);
             }
         }
-        postProcess();
     }
 
     override
@@ -118,7 +123,7 @@ public:
         preProcessed = true;
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
-            auto filterResult = preProcessFilter(this, vertices, deformation, &matrix);
+            auto filterResult = preProcessFilter[1](this, vertices, deformation, &matrix);
             if (filterResult[0] !is null) {
                 deformation = filterResult[0];
             } 
@@ -133,13 +138,14 @@ public:
     }
 
     override
-    void postProcess() {
-        if (postProcessed)
+    void postProcess(int id = 0) {
+        if (postProcessed >= id)
             return;
-        postProcessed = true;
+        postProcessed = id;
         foreach (postProcessFilter; postProcessFilters) {
+            if (postProcessFilter[0] != id) continue;
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
-            auto filterResult = postProcessFilter(this, vertices, deformation, &matrix);
+            auto filterResult = postProcessFilter[1](this, vertices, deformation, &matrix);
             if (filterResult[0] !is null) {
                 deformation = filterResult[0];
             } 

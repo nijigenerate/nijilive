@@ -119,7 +119,7 @@ protected:
     this() { }
 
     bool preProcessed  = false;
-    bool postProcessed = false;
+    int postProcessed = -1;
     bool changed = false;
     bool changeDeferred = false;
     struct ChangeRecord {
@@ -210,7 +210,7 @@ protected:
     }
     MatrixHolder overrideTransformMatrix = null;
 
-    alias Filter = Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*);
+    alias Filter = Tuple!(int, Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*));
     Filter[] preProcessFilters;
     Filter[] postProcessFilters;
 
@@ -221,7 +221,7 @@ protected:
         preProcessed = true;
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
-            auto filterResult = preProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
+            auto filterResult = preProcessFilter[1](this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
@@ -235,13 +235,14 @@ protected:
         }
     }
 
-    void postProcess() {
-        if (postProcessed)
+    void postProcess(int id = 0) {
+        if (postProcessed >= id)
             return;
-        postProcessed = true;
+        postProcessed = id;
         foreach (postProcessFilter; postProcessFilters) {
+            if (postProcessFilter[0] != id) continue;
             mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
-            auto filterResult = postProcessFilter(this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
+            auto filterResult = postProcessFilter[1](this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
             if (filterResult[0] !is null && filterResult[0].length > 0) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
@@ -804,7 +805,7 @@ public:
 
     void beginUpdate() {
         preProcessed  = false;
-        postProcessed = false;
+        postProcessed = -1;
         changed = false;
         changeDeferred = true;
         changePooled.length = 0;
@@ -830,14 +831,15 @@ public:
         foreach(child; children) {
             child.update();
         }
-        postProcess();
     }
 
-    void endUpdate() {
-        flushNotifyChange();
+    void endUpdate(int id = 0) {
+        postProcess(id);
         foreach (child; children) {
-            child.endUpdate();
+            child.endUpdate(id);
         }
+        if (id == -1)
+            flushNotifyChange();
     }
 
     /**

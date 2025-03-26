@@ -438,11 +438,11 @@ public:
     }
 
     override
-    void postProcess() {
+    void postProcess(int id = 0) {
         if (!autoResizedMesh) {
-            super.postProcess();
+            super.postProcess(id);
         } else {
-            Node.postProcess();
+            Node.postProcess(id);
         }
     }
 

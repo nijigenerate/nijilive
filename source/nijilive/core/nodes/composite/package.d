@@ -342,12 +342,12 @@ protected:
     }
 
     override
-    void postProcess() {
+    void postProcess(int id = 0) {
         if (delegated) {
-            delegated.postProcess();
+            delegated.postProcess(id);
         }
         if (!propagateMeshGroup)
-            Node.postProcess();
+            Node.postProcess(id);
     }
 
 public:

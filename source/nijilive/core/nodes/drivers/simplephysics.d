@@ -429,11 +429,11 @@ public:
     }
 
     override
-    void postProcess() { 
+    void postProcess(int id = 0) { 
         auto prevPos = (localOnly ? 
             (vec4(transformLocal.translation, 1)) : 
             (transform.matrix * vec4(0, 0, 0, 1))).xy;
-        super.postProcess(); 
+        super.postProcess(id); 
         auto anchorPos = (localOnly ? 
             (vec4(transformLocal.translation, 1)) : 
             (transform.matrix * vec4(0, 0, 0, 1))).xy;

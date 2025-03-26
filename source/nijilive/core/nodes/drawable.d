@@ -123,7 +123,7 @@ protected:
         auto linkIndex = welded.countUntil!((a)=>a.target == target)();
         bool changed = false;
         WeldingLink link = welded[linkIndex];
-        if (!postProcessed)
+        if (postProcessed < 2)
             return Tuple!(vec2[], mat4*, bool)(null, null, changed);
         if (weldingApplied[link.target] || link.target.weldingApplied[this])
             return Tuple!(vec2[], mat4*, bool)(null, null, changed);
@@ -154,16 +154,16 @@ protected:
             selfMatrixInv[1][3] = 0;
             selfMatrixInv[2][3] = 0;
             deformation[i] += (selfMatrixInv * vec4(newPos - selfVertex, 0, 1)).xy;
-            version (InDoesRender) {
-                glBindBuffer(GL_ARRAY_BUFFER, dbo);
-                glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
-            }
 
             auto targetMatrixInv = (*origTransform).inverse;
             targetMatrixInv[0][3] = 0;
             targetMatrixInv[1][3] = 0;
             targetMatrixInv[2][3] = 0;
             origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
+        }
+        version (InDoesRender) {
+            glBindBuffer(GL_ARRAY_BUFFER, dbo);
+            glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
         }
 
         return tuple(origDeformation, cast(mat4*)null, changed);
@@ -506,20 +506,20 @@ public:
             target.welded ~= counterLink;
         }
 
-        target.postProcessFilters.upsert(&weldingProcessor);
-        postProcessFilters.upsert(&target.weldingProcessor);
+        target.postProcessFilters.upsert(tuple(2, &weldingProcessor));
+        postProcessFilters.upsert(tuple(2, &target.weldingProcessor));
     }
 
     void removeWeldedTarget(Drawable target) {
         auto index = welded.countUntil!((a) => a.target == target)();
         if (index != -1) {
             welded = welded.remove(index);
-            postProcessFilters = postProcessFilters.removeByValue(&target.weldingProcessor);
+            postProcessFilters = postProcessFilters.removeByValue(tuple(2, &target.weldingProcessor));
         }
         index = target.welded.countUntil!((a) => a.target == this)();
         if (index != -1) {
             target.welded = target.welded.remove(index);
-            target.postProcessFilters = target.postProcessFilters.removeByValue(&weldingProcessor);
+            target.postProcessFilters = target.postProcessFilters.removeByValue(tuple(2, &weldingProcessor));
         }
     }
 
@@ -530,8 +530,8 @@ public:
     override
     void setupSelf() {
         foreach (link; welded) {
-            if (postProcessFilters.countUntil(&link.target.weldingProcessor) == -1)
-                postProcessFilters ~= &link.target.weldingProcessor;
+            if (postProcessFilters.countUntil(tuple(2, &link.target.weldingProcessor)) == -1)
+                postProcessFilters ~= tuple(2, &link.target.weldingProcessor);
         }
     }
 
@@ -625,15 +625,15 @@ public:
     bool setupChild(Node node) {
         super.setupChild(node);
         if (node.pinToMesh) {
-            if (node.preProcessFilters.countUntil(&nodeAttachProcessor) == -1)
-                node.preProcessFilters ~= &nodeAttachProcessor;
+            if (node.preProcessFilters.countUntil(tuple(0, &nodeAttachProcessor)) == -1)
+                node.preProcessFilters ~= tuple(0, &nodeAttachProcessor);
         }
         return true;
     }
 
     override
     bool releaseChild(Node node) {
-        node.preProcessFilters = node.preProcessFilters.removeByValue(&nodeAttachProcessor);
+        node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(0, &nodeAttachProcessor));
         super.releaseChild(node);
         return true;
     }

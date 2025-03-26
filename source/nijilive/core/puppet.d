@@ -465,7 +465,9 @@ public:
         // Update nodes
         actualRoot.update();
 
-        actualRoot.endUpdate();
+        foreach (id; [0, 1, 2, -1]) {
+            actualRoot.endUpdate(id);
+        }
     }
 
     /**
