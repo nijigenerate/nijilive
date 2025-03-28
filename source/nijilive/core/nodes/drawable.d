@@ -506,8 +506,8 @@ public:
             target.welded ~= counterLink;
         }
 
-        target.postProcessFilters.upsert(tuple(2, &weldingProcessor));
-        postProcessFilters.upsert(tuple(2, &target.weldingProcessor));
+        target.postProcessFilters = target.postProcessFilters.upsert(tuple(2, &weldingProcessor));
+        postProcessFilters = postProcessFilters.upsert(tuple(2, &target.weldingProcessor));
     }
 
     void removeWeldedTarget(Drawable target) {
@@ -530,8 +530,7 @@ public:
     override
     void setupSelf() {
         foreach (link; welded) {
-            if (postProcessFilters.countUntil(tuple(2, &link.target.weldingProcessor)) == -1)
-                postProcessFilters ~= tuple(2, &link.target.weldingProcessor);
+            postProcessFilters ~= postProcessFilters.upsert(tuple(2, &link.target.weldingProcessor));
         }
     }
 
