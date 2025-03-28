@@ -530,7 +530,7 @@ public:
     override
     void setupSelf() {
         foreach (link; welded) {
-            postProcessFilters ~= postProcessFilters.upsert(tuple(2, &link.target.weldingProcessor));
+            postProcessFilters = postProcessFilters.upsert(tuple(2, &link.target.weldingProcessor));
         }
     }
 
