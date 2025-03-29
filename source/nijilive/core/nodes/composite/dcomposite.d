@@ -653,6 +653,8 @@ public:
             updateBounds();
             initialized = false;
         }
+        clearCache();
+        initialized = false;
         transformChanged();
         foreach (i, child; children) {
             child.localTransform.translation = (transform.matrix.inverse * childTranslations[i]).xyz;
@@ -662,7 +664,7 @@ public:
             createSimpleMesh();
             updateBounds();
             initialized = false;
-       }
+        }
     }
 
     override
