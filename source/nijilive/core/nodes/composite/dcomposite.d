@@ -304,7 +304,6 @@ protected:
         vec2 size = newBounds.zw - newBounds.xy;
         bool resizing = false;
         if (forceResize) {
-            writefln("%s: forceResize", name);
             resizing = true;
             forceResize = false;
         } else {
@@ -338,7 +337,6 @@ protected:
                 0, 1, 2,
                 2, 1, 3
             ], vec2(0, 0),[]);
-            writefln("%s: %s", name, newBounds);
             super.rebuffer(newData);
             shouldUpdateVertices = true;
             autoResizedSize = newBounds.zw - newBounds.xy;
