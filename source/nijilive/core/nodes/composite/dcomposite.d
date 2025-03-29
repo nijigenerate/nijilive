@@ -180,8 +180,7 @@ protected:
         
         texWidth = width + 1;
         texHeight = height + 1;
-        textureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
-//        textureOffset = (transform.matrix()*vec4((bounds.zw + bounds.xy) / 2, 0, 1)).xy;
+        textureOffset = (bounds.zw + bounds.xy) / 2 - transform.translation.xy;
         setIgnorePuppet(true);
 
         glGenFramebuffers(1, &cfBuffer);
@@ -227,7 +226,8 @@ protected:
             inPushViewport(textures[0].width, textures[0].height);
             Camera camera = inGetCamera();
             camera.scale = vec2(1, -1);
-            camera.position = (mat4.identity.scaling(transform.scale.x == 0 ? 0: 1/transform.scale.x, transform.scale.y == 0? 0: 1/transform.scale.y, 1) * mat4.identity.rotateZ(-transform.rotation.z) * -vec4(textureOffset, 0, 1)).xy;
+//            camera.position = (mat4.identity.scaling(transform.scale.x == 0 ? 0: 1/transform.scale.x, transform.scale.y == 0? 0: 1/transform.scale.y, 1) * mat4.identity.rotateZ(-transform.rotation.z) * -vec4(textureOffset, 0, 1)).xy;
+            camera.position = (mat4.identity.scaling(transform.scale.x == 0 ? 0: 1/transform.scale.x, transform.scale.y == 0? 0: 1/transform.scale.y, 1) * mat4.identity.rotateZ(-transform.rotation.z) * -vec4(0, 0, 0, 1)).xy;
             glViewport(0, 0, textures[0].width, textures[0].height);
 
             glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
@@ -285,17 +285,22 @@ protected:
         return result;
     }
 
-    vec4 getChildrenBounds() {
-        if (subParts.length > 0) {
-            foreach (p; subParts) p.updateBounds();
-            float minX = (subParts.map!(p=> p.bounds.x).array).minElement();
-            float minY = (subParts.map!(p=> p.bounds.y).array).minElement();
-            float maxX = (subParts.map!(p=> p.bounds.z).array).maxElement();
-            float maxY = (subParts.map!(p=> p.bounds.w).array).maxElement();
+    vec4 mergeBounds(T)(T bounds, vec4 origin = vec4.init) {
+        if (bounds.length > 0) {
+            float minX = (bounds.map!(p=> p.x).array).minElement();
+            float minY = (bounds.map!(p=> p.y).array).minElement();
+            float maxX = (bounds.map!(p=> p.z).array).maxElement();
+            float maxY = (bounds.map!(p=> p.w).array).maxElement();
             return vec4(minX, minY, maxX, maxY);
         } else {
-            return transform.translation.xyxy;
+            return origin;
         }
+    }
+
+    vec4 getChildrenBounds(bool forceUpdate = true)() {
+        if (forceUpdate)
+            foreach (p; subParts) p.updateBounds();
+        return mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
     }
 
     bool createSimpleMesh() {
@@ -340,10 +345,9 @@ protected:
             super.rebuffer(newData);
             shouldUpdateVertices = true;
             autoResizedSize = newBounds.zw - newBounds.xy;
-            textureOffset = vec2((newBounds.x + newBounds.z) / 2 - transform.translation.x, (newBounds.y + newBounds.w) / 2 - transform.translation.y);
+            textureOffset = (newBounds.xy + newBounds.zw) / 2 - transform.translation.xy;
         } else {
-//            auto newTextureOffset = (transform.matrix()*vec4((bounds.zw + bounds.xy) / 2, 0, 1)).xy;
-            auto newTextureOffset = vec2((bounds.x + bounds.z) / 2 - transform.translation.x, (bounds.y + bounds.w) / 2 - transform.translation.y);
+            auto newTextureOffset = (newBounds.xy + newBounds.zw) / 2 - transform.translation.xy;
             if (newTextureOffset.x != textureOffset.x || newTextureOffset.y != textureOffset.y) {
                 textureInvalidated = true;
                 data.vertices = [
@@ -363,8 +367,6 @@ protected:
                 // Currently, it produces nasty result when update vertices only once in every rendering loop. 
                 updateVertices();
                 textureOffset = newTextureOffset;
-//                vec2i toVec2i(vec2 pt) { return vec2i(cast(int)pt.x, cast(int)pt.y); }
-//                writefln("%s: %s=%s(=[%s, %s])-%s %s<->%s : %s", name, toVec2i(newTextureOffset), toVec2i((newBounds.xy + newBounds.zw)/2), toVec2i(newBounds.xy), toVec2i(newBounds.zw), toVec2i(transform.translation.xy), toVec2i(origSize), toVec2i(size), toVec2i(autoResizedSize));
             }
         }
         return resizing;
@@ -460,7 +462,8 @@ public:
             this.selfSort();
             mat4* origTransform = oneTimeTransform;
             mat4 tmpTransform = transform.matrix.inverse;
-            Camera camera = inGetCamera();
+            tmpTransform[0][3] -= textureOffset.x;
+            tmpTransform[1][3] -= textureOffset.y;
             setOneTimeTransform(&tmpTransform);
             foreach(Part child; subParts) {
                 child.drawOne();
