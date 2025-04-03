@@ -15,7 +15,7 @@ import nijilive.math;
 import std.exception;
 import std.array;
 import std.algorithm.mutation;
-import std.stdio;
+//import std.stdio;
 
 public import nijilive.core.param.binding;
 
@@ -479,7 +479,7 @@ public:
             auto swap = axisPoints[oldidx];
             axisPoints[axis] = axisPoints[axis].remove(oldidx);
             axisPoints[axis].insertInPlace(index, swap);
-            debug writeln("after move ", this.axisPointCount(0));
+//            debug writeln("after move ", this.axisPointCount(0));
         }
 
         // Tell all bindings to reinterpolate

@@ -18,7 +18,7 @@ import bindbc.opengl;
 import std.exception;
 import std.algorithm;
 import std.algorithm.sorting;
-import std.stdio;
+//import std.stdio;
 import std.array;
 import std.format;
 import std.range;

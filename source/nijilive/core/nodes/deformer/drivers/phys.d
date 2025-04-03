@@ -351,8 +351,8 @@ private:
 
             vec2 dampingForce = -damping * velocities[i];
             vec2 acceleration = (springForce + dampingForce + restorationForce + gravity) / 1.0; // 質量1と仮定
-        import std.stdio;
-        writefln("update: %s=%s, %s, %s, %s", acceleration, springForce, dampingForce, restorationForce, gravity);
+//        import std.stdio;
+//        writefln("update: %s=%s, %s, %s, %s", acceleration, springForce, dampingForce, restorationForce, gravity);
             velocities[i] += acceleration * timeStep;
             positions[i] += velocities[i] * timeStep;
         }

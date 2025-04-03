@@ -10,7 +10,7 @@ import std.bitmanip;
 import std.string;
 
 public import std.file;
-public import std.stdio;
+public import std.stdio: File, SEEK_CUR;
 
 /**
     Reads file value in big endian fashion

@@ -24,7 +24,7 @@ import nijilive.core.dbg;
 
 import bindbc.opengl;
 import nijilive.math;
-import std.stdio;
+//import std.stdio;
 
 version(Windows) {
     // Ask Windows nicely to use dedicated GPUs :)

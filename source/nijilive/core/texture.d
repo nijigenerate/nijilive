@@ -11,7 +11,6 @@ import std.exception;
 import std.format;
 import bindbc.opengl;
 import imagefmt;
-import std.stdio;
 import nijilive.core.nodes : inCreateUUID;
 
 /**

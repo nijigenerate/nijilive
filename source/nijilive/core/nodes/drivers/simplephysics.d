@@ -21,7 +21,7 @@ import nijilive.phys;
 import nijilive;
 import std.exception;
 import std.algorithm.sorting;
-import std.stdio;
+//import std.stdio;
 }
 
 /**

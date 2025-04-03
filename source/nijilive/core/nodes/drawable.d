@@ -22,7 +22,7 @@ import std.typecons;
 import std.algorithm.searching;
 import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
-import std.stdio;
+//import std.stdio;
 
 private GLuint drawableVAO;
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
@@ -237,7 +237,7 @@ protected:
 
     override
     SerdeException deserializeFromFghj(Fghj data) {
-        import std.stdio : writeln;
+//        import std.stdio : writeln;
         super.deserializeFromFghj(data);
         if (auto exc = data["mesh"].deserializeValue(this.data)) return exc;
 

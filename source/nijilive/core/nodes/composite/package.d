@@ -18,7 +18,7 @@ import nijilive.math;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
-import std.stdio;
+//import std.stdio;
 
 private {
     GLuint cVAO;

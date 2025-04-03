@@ -15,7 +15,7 @@ import nijilive.math;
 import std.exception;
 import std.array;
 import std.algorithm.mutation;
-import std.stdio;
+//import std.stdio;
 
 /**
     A target to bind to

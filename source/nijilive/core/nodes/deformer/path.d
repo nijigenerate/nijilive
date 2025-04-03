@@ -10,7 +10,7 @@ public import nijilive.core.nodes.deformer.curve;
 import nijilive.core;
 import inmath.linalg;
 
-import std.stdio;
+//import std.stdio;
 import std.math;
 import std.algorithm;
 import std.array;

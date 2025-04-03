@@ -11,7 +11,7 @@ import std.typecons: tuple, Tuple;
 import nijilive.core.nodes.utils;
 import std.exception;
 import std.string: format;
-import std.stdio;
+//import std.stdio;
 
 /**
     Nodes that are meant to render something in to the nijilive scene
