@@ -367,13 +367,11 @@ public:
             cVertices ~= cVertex;
 
             float t;
-            try {
-                t = meshCaches[target][i];
-            } catch (ArrayIndexError e) {
+            if (target !in meshCaches || i>= meshCaches[target].length ) {
                 meshCaches.remove(target);
                 cacheClosestPoints(target);
-                t = meshCaches[target][i];
             }
+            t = meshCaches[target][i];
             vec2 closestPointOriginal = prevCurve.point(t);
             debug(path_deform) closestPointsOriginal[target] ~= closestPointOriginal; // debug code
             vec2 tangentOriginal = prevCurve.derivative(t).normalized;
