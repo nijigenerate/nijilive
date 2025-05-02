@@ -1121,7 +1121,7 @@ public:
     void setEnabled(bool value) { 
         bool changed = enabled != value;
         enabled = value;
-        if (changed) notifyChange(this);
+        if (changed) notifyChange(this, NotifyReason.AttributeChanged);
     }
 
     void centralize() {

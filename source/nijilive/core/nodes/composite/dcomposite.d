@@ -57,7 +57,7 @@ public:
         DynamicComposite dcomposite = cast(DynamicComposite)node;
         Composite composite = cast(Composite)node;
         Part part = cast(Part)node;
-        if (part !is null && node != this) {
+        if (part !is null && node != this && node.enabled) {
             subParts ~= part;
             if (dcomposite is null) {
                 foreach(child; part.children) {
@@ -67,7 +67,7 @@ public:
                 dcomposite.scanParts();
             }
             
-        } else if ((dcomposite is null && composite is null) || node == this) {
+        } else if (((dcomposite is null && composite is null) || node == this) && node.enabled) {
 
             // Non-part nodes just need to be recursed through,
             // they don't draw anything.
@@ -597,6 +597,9 @@ public:
     override
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
         if (target != this) {
+            if (reason == NotifyReason.AttributeChanged) {
+                scanSubParts(children);
+            }
             textureInvalidated = true;
         }
         if (autoResizedMesh) {
