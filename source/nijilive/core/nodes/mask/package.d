@@ -53,21 +53,32 @@ private:
 
         // Bind the vertex array
         incDrawableBindVAO();
-
+        // Calculate matrix
+        mat4 matrix = transform.matrix();
+        if (overrideTransformMatrix !is null)
+            matrix = overrideTransformMatrix.matrix;
+        if (oneTimeTransform !is null)
+            matrix = (*oneTimeTransform) * matrix;
+        
         maskShader.use();
         maskShader.setUniform(offset, data.origin);
-        maskShader.setUniform(mvp, inGetCamera().matrix * transform.matrix());
+//        maskShader.setUniform(mvp, inGetCamera().matrix * transform.matrix());
+        maskShader.setUniform(mvp, inGetCamera().matrix * puppet.transform.matrix * matrix);
         
         // Enable points array
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
+        glEnableVertexAttribArray(1); // deforms
+        glBindBuffer(GL_ARRAY_BUFFER, dbo);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
 
         // Bind index buffer
         this.bindIndex();
 
         // Disable the vertex attribs after use
         glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
     }
 
 protected:
