@@ -86,6 +86,12 @@ public:
         if (!precalculated)
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
 
+        if (auto deformer = cast(PathDeformer)target) {
+            if (!deformer.physicsEnabled) {
+                return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            }
+        }
+
         mat4 centerMatrix = inverseMatrix * (*origTransform);
 
         // Transform children vertices in MeshGroup coordinates.
