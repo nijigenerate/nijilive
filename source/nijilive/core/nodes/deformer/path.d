@@ -372,9 +372,9 @@ public:
                 cacheClosestPoints(target);
             }
             t = meshCaches[target][i];
-            vec2 closestPointOriginal = prevCurve.point(t);
+            vec2 closestPointOriginal = (prevCurve? prevCurve: originalCurve).point(t);
             debug(path_deform) closestPointsOriginal[target] ~= closestPointOriginal; // debug code
-            vec2 tangentOriginal = prevCurve.derivative(t).normalized;
+            vec2 tangentOriginal = (prevCurve? prevCurve: originalCurve).derivative(t).normalized;
             vec2 normalOriginal = vec2(-tangentOriginal.y, tangentOriginal.x);
             float originalNormalDistance = dot(cVertex - closestPointOriginal, normalOriginal); 
             float tangentialDistance = dot(cVertex - closestPointOriginal, tangentOriginal);

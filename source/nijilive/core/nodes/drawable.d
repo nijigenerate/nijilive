@@ -405,7 +405,7 @@ public:
         /**
             Draws line of mesh
         */
-        void drawMeshLines() {
+        void drawMeshLines(vec4 color = vec4(.5, .5, .5, 1)) {
             if (vertices.length == 0 || data.indices.length == 0) return;
 
             auto trans = getDynamicMatrix();
@@ -431,7 +431,7 @@ public:
             }
 
             inDbgSetBuffer(points);
-            inDbgDrawLines(vec4(.5, .5, .5, 1), trans);
+            inDbgDrawLines(color, trans);
         }
 
         /**
