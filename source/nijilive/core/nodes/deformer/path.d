@@ -98,6 +98,8 @@ protected:
             serializer.putKey("physics");
             serializer.serializeValue(_driver);
         }
+        serializer.putKey("dynamic_deformation");
+        serializer.serializeValue(dynamic);
     }
 
     override
@@ -109,6 +111,10 @@ protected:
 
         if (!data["curve_type"].isEmpty)
             if (auto exc = data["curve_type"].deserializeValue(curveType)) return exc;
+
+        dynamic = false; // Should be set to false by default for compatibility.
+        if (!data["dynamic_deformation"].isEmpty)
+            if (auto exc = data["dynamic_deformation"].deserializeValue(dynamic)) return exc;
 
         auto elements = data["vertices"].byElement;
         vec2[] controlPoints;
@@ -148,7 +154,7 @@ public:
     Curve originalCurve;
     Curve prevCurve;
     Curve deformedCurve;
-
+    bool dynamic = false;
 
     vec2 prevRoot;
     bool prevRootSet;
@@ -283,10 +289,17 @@ public:
         bool isDrawable = drawable !is null;
         if (isDrawable) {
             cacheClosestPoints(node);
-            node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
+            if (dynamic) {
+                node.postProcessFilters  = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
+                node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
+            } else {
+                node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
+                node.postProcessFilters  = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
+            }
         } else {
-            meshCaches.remove(node); 
+            meshCaches.remove(node);
             node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
+            node.postProcessFilters  = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
         }
         return true;
     }
@@ -311,6 +324,7 @@ public:
 
     bool releaseChildNoRecurse(Node node) {
         node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
+        node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
         return true;
     }
 
@@ -416,6 +430,9 @@ public:
             physicsOnly = true;
             return;
         }
+        if (dynamic) {
+            return;
+        }
 
         void update(vec2[] deformation) {
             if (vertices.length >= 2) {
@@ -506,5 +523,12 @@ public:
             }
         }
         super.notifyChange(target, reason);
+    }
+
+    void switchDynamic(bool dynamic) {
+        if (dynamic != this.dynamic) {
+            this.dynamic = dynamic;
+            build();
+        }
     }
 }
