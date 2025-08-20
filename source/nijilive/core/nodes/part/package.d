@@ -40,6 +40,10 @@ package(nijilive) {
         GLint gMultColor;
         GLint gScreenColor;
         GLint gEmissionStrength;
+        // Debug tint (main)
+        GLint p_dbgEnabled;
+        GLint p_dbgColor;
+        GLint p_dbgStrength;
 
         
         /* GLSL Uniforms (Stage 1) */
@@ -48,6 +52,10 @@ package(nijilive) {
         GLint gs1opacity;
         GLint gs1MultColor;
         GLint gs1ScreenColor;
+        // Debug tint (stage1)
+        GLint s1_dbgEnabled;
+        GLint s1_dbgColor;
+        GLint s1_dbgStrength;
 
         
         /* GLSL Uniforms (Stage 2) */
@@ -119,6 +127,10 @@ package(nijilive) {
             gMultColor = partShader.getUniformLocation("multColor");
             gScreenColor = partShader.getUniformLocation("screenColor");
             gEmissionStrength = partShader.getUniformLocation("emissionStrength");
+            // Debug tint uniforms (main)
+            p_dbgEnabled = partShader.getUniformLocation("pathDebugEnabled");
+            p_dbgColor = partShader.getUniformLocation("pathDebugColor");
+            p_dbgStrength = partShader.getUniformLocation("pathDebugStrength");
 
             // Path uniforms (main)
             p_pathEnabled = partShader.getUniformLocation("pathEnabled");
@@ -137,6 +149,10 @@ package(nijilive) {
             gs1opacity = partShaderStage1.getUniformLocation("opacity");
             gs1MultColor = partShaderStage1.getUniformLocation("multColor");
             gs1ScreenColor = partShaderStage1.getUniformLocation("screenColor");
+            // Debug tint uniforms (stage1)
+            s1_dbgEnabled = partShaderStage1.getUniformLocation("pathDebugEnabled");
+            s1_dbgColor = partShaderStage1.getUniformLocation("pathDebugColor");
+            s1_dbgStrength = partShaderStage1.getUniformLocation("pathDebugStrength");
 
             // Path uniforms (stage1)
             s1_pathEnabled = partShaderStage1.getUniformLocation("pathEnabled");
@@ -296,9 +312,14 @@ private:
             int locTBuf      = (stage==2)? p_pathTBuf      : (stage==0? s1_pathTBuf: s2_pathTBuf);
             int locOrigBuf   = (stage==2)? p_pathOrigCPBuf : (stage==0? s1_pathOrigCPBuf: s2_pathOrigCPBuf);
             int locDefBuf    = (stage==2)? p_pathDefCPBuf  : (stage==0? s1_pathDefCPBuf: s2_pathDefCPBuf);
+            // Debug tint uniforms mapping for stage
+            int locDbgEnabled = (stage==2)? p_dbgEnabled : (stage==0? s1_dbgEnabled: -1);
+            int locDbgColor   = (stage==2)? p_dbgColor   : (stage==0? s1_dbgColor: -1);
+            int locDbgStr     = (stage==2)? p_dbgStrength: (stage==0? s1_dbgStrength: -1);
 
             if (!pathGpuEnabled || d is null) {
                 setInt(locEnabled, 0);
+                if (locDbgEnabled != -1) setInt(locDbgEnabled, 0);
                 return;
             }
 
@@ -372,6 +393,19 @@ private:
             setInt(locTBuf, 7);
             setInt(locOrigBuf, 8);
             setInt(locDefBuf, 9);
+
+            // Debug tint
+            if (locDbgEnabled != -1) {
+                if (d.debugTintEnabled) {
+                    setInt(locDbgEnabled, 1);
+                    switch(stage) {
+                        default: partShader.setUniform(locDbgColor, d.debugTintColor); partShader.setUniform(locDbgStr, d.debugTintStrength); break;
+                        case 0: partShaderStage1.setUniform(locDbgColor, d.debugTintColor); partShaderStage1.setUniform(locDbgStr, d.debugTintStrength); break;
+                    }
+                } else {
+                    setInt(locDbgEnabled, 0);
+                }
+            }
         }
     }
 

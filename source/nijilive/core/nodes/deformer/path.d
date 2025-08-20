@@ -163,6 +163,11 @@ public:
     Curve deformedCurve;
     bool dynamic = false;
 
+    // Debug tint for GPU path visualization
+    bool debugTintEnabled = false;
+    vec3 debugTintColor = vec3(1, 0, 0);
+    float debugTintStrength = 0.35f;
+
     vec2 prevRoot;
     bool prevRootSet;
     bool driverInitialized = false;

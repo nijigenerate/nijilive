@@ -33,6 +33,11 @@ uniform float opacity;
 uniform vec3 multColor;
 uniform vec3 screenColor;
 
+// Debug tint for GPU path deformation
+uniform int pathDebugEnabled;
+uniform vec3 pathDebugColor;
+uniform float pathDebugStrength;
+
 void main() {
     // Sample texture
     vec4 texColor = texture(albedo, texUVs);
@@ -42,4 +47,7 @@ void main() {
     
     // Multiply color math + opacity application.
     outAlbedo = vec4(screenOut.xyz, texColor.a) * vec4(multColor.xyz, 1) * opacity;
+    if (pathDebugEnabled == 1) {
+        outAlbedo.rgb = mix(outAlbedo.rgb, pathDebugColor, clamp(pathDebugStrength, 0.0, 1.0));
+    }
 }

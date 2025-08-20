@@ -20,6 +20,11 @@ uniform vec3 multColor;
 uniform vec3 screenColor;
 uniform float emissionStrength = 1;
 
+// Debug tint for GPU path deformation
+uniform int pathDebugEnabled;
+uniform vec3 pathDebugColor;
+uniform float pathDebugStrength;
+
 vec4 screen(vec3 tcol, float a) {
     return vec4(vec3(1.0) - ((vec3(1.0)-tcol) * (vec3(1.0)-(screenColor*a))), a);
 }
@@ -38,6 +43,9 @@ void main() {
     
     // Albedo
     outAlbedo = albedoOut * opacity;
+    if (pathDebugEnabled == 1) {
+        outAlbedo.rgb = mix(outAlbedo.rgb, pathDebugColor, clamp(pathDebugStrength, 0.0, 1.0));
+    }
 
     // Emissive
     outEmissive = emissionOut * outAlbedo.a;
