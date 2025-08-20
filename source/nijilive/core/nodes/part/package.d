@@ -84,6 +84,7 @@ package(nijilive) {
         GLint p_pathTBuf;
         GLint p_pathOrigCPBuf;
         GLint p_pathDefCPBuf;
+        GLint p_pathDynamic;
 
         // Stage 1 program (basic.vert + basic-stage1.frag)
         GLint s1_pathEnabled;
@@ -94,6 +95,7 @@ package(nijilive) {
         GLint s1_pathTBuf;
         GLint s1_pathOrigCPBuf;
         GLint s1_pathDefCPBuf;
+        GLint s1_pathDynamic;
 
         // Stage 2 program (basic.vert + basic-stage2.frag)
         GLint s2_pathEnabled;
@@ -104,6 +106,7 @@ package(nijilive) {
         GLint s2_pathTBuf;
         GLint s2_pathOrigCPBuf;
         GLint s2_pathDefCPBuf;
+        GLint s2_pathDynamic;
     }
 
     void inInitPart() {
@@ -141,6 +144,7 @@ package(nijilive) {
             p_pathTBuf = partShader.getUniformLocation("pathTBuf");
             p_pathOrigCPBuf = partShader.getUniformLocation("pathOrigCPBuf");
             p_pathDefCPBuf = partShader.getUniformLocation("pathDefCPBuf");
+            p_pathDynamic = partShader.getUniformLocation("pathDynamic");
             
             partShaderStage1.use();
             partShaderStage1.setUniform(partShader.getUniformLocation("albedo"), 0);
@@ -163,6 +167,7 @@ package(nijilive) {
             s1_pathTBuf = partShaderStage1.getUniformLocation("pathTBuf");
             s1_pathOrigCPBuf = partShaderStage1.getUniformLocation("pathOrigCPBuf");
             s1_pathDefCPBuf = partShaderStage1.getUniformLocation("pathDefCPBuf");
+            s1_pathDynamic = partShaderStage1.getUniformLocation("pathDynamic");
 
             partShaderStage2.use();
             partShaderStage2.setUniform(partShaderStage2.getUniformLocation("emissive"), 1);
@@ -183,6 +188,7 @@ package(nijilive) {
             s2_pathTBuf = partShaderStage2.getUniformLocation("pathTBuf");
             s2_pathOrigCPBuf = partShaderStage2.getUniformLocation("pathOrigCPBuf");
             s2_pathDefCPBuf = partShaderStage2.getUniformLocation("pathDefCPBuf");
+            s2_pathDynamic = partShaderStage2.getUniformLocation("pathDynamic");
 
             partMaskShader.use();
             partMaskShader.setUniform(partMaskShader.getUniformLocation("albedo"), 0);
@@ -312,6 +318,7 @@ private:
             int locTBuf      = (stage==2)? p_pathTBuf      : (stage==0? s1_pathTBuf: s2_pathTBuf);
             int locOrigBuf   = (stage==2)? p_pathOrigCPBuf : (stage==0? s1_pathOrigCPBuf: s2_pathOrigCPBuf);
             int locDefBuf    = (stage==2)? p_pathDefCPBuf  : (stage==0? s1_pathDefCPBuf: s2_pathDefCPBuf);
+            int locDynamic   = (stage==2)? p_pathDynamic   : (stage==0? s1_pathDynamic: s2_pathDynamic);
             // Debug tint uniforms mapping for stage
             int locDbgEnabled = (stage==2)? p_dbgEnabled : (stage==0? s1_dbgEnabled: -1);
             int locDbgColor   = (stage==2)? p_dbgColor   : (stage==0? s1_dbgColor: -1);
@@ -320,6 +327,7 @@ private:
             if (!pathGpuEnabled || d is null) {
                 setInt(locEnabled, 0);
                 if (locDbgEnabled != -1) setInt(locDbgEnabled, 0);
+                if (locDynamic != -1) setInt(locDynamic, 0);
                 return;
             }
 
@@ -389,6 +397,7 @@ private:
             setInt(locNumCP, ncp);
             setMat4(locCenter, center);
             setMat4(locCenterInv, centerInv);
+            if (locDynamic != -1) setInt(locDynamic, d.dynamic ? 1 : 0);
             // Sampler bindings
             setInt(locTBuf, 7);
             setInt(locOrigBuf, 8);

@@ -23,6 +23,7 @@ uniform mat4 pathCenterInv;            // inverse(pathCenter) precomputed on CPU
 uniform samplerBuffer pathTBuf;        // per-vertex t values
 uniform samplerBuffer pathOrigCPBuf;   // original/prev curve control points (RG32F)
 uniform samplerBuffer pathDefCPBuf;    // deformed curve control points (RG32F)
+uniform int pathDynamic;               // 0: apply before child deform, 1: after
 
 // Fetchers for control points
 vec2 fetchCPOrig(int i) {
@@ -127,11 +128,14 @@ vec2 splineDerivative(float t, bool defCurve) {
 }
 
 void main() {
-    vec2 local = vec2(verts.x - offset.x + deform.x, verts.y - offset.y + deform.y);
+    vec2 baseLocal = vec2(verts.x - offset.x, verts.y - offset.y);
+    vec2 local = baseLocal + deform;
 
     if (pathEnabled == 1) {
         float t = texelFetch(pathTBuf, gl_VertexID).x;
-        vec2 cVertex = (pathCenter * vec4(local, 0.0, 1.0)).xy;
+        // Choose source position depending on dynamic
+        vec2 sourceLocal = (pathDynamic == 1) ? local : baseLocal;
+        vec2 cVertex = (pathCenter * vec4(sourceLocal, 0.0, 1.0)).xy;
 
         vec2 C0 = (pathCurveType == 0) ? bezierPoint(t, false) : splinePoint(t, false);
         vec2 T0 = normalize((pathCurveType == 0) ? bezierDerivative(t, false) : splineDerivative(t, false));
@@ -144,7 +148,8 @@ void main() {
         vec2 N1 = vec2(-T1.y, T1.x);
         vec2 cNew = C1 + N1 * dN + T1 * dT;
         vec2 localNew = (pathCenterInv * vec4(cNew, 0.0, 1.0)).xy;
-        local = localNew;
+        // If dynamic==0 (pre child deform), add deform afterwards
+        local = (pathDynamic == 1) ? localNew : (localNew + deform);
     }
 
     gl_Position = mvp * vec4(local, 0.0, 1.0);
