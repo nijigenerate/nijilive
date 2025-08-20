@@ -19,6 +19,7 @@ import std.exception;
 import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
 import std.math : isNaN;
+import nijilive.core.nodes.deformer.path; // For GPU PathDeformer wiring
 
 public import nijilive.core.meshdata;
 
@@ -64,6 +65,37 @@ package(nijilive) {
         GLuint sVertexBuffer;
         GLuint sUVBuffer;
         GLuint sElementBuffer;
+
+        // Path Deformer (GPU) uniform locations for each program
+        // Main program (basic.vert + basic.frag)
+        GLint p_pathEnabled;
+        GLint p_pathCurveType;
+        GLint p_pathNumCP;
+        GLint p_pathCenter;
+        GLint p_pathCenterInv;
+        GLint p_pathTBuf;
+        GLint p_pathOrigCPBuf;
+        GLint p_pathDefCPBuf;
+
+        // Stage 1 program (basic.vert + basic-stage1.frag)
+        GLint s1_pathEnabled;
+        GLint s1_pathCurveType;
+        GLint s1_pathNumCP;
+        GLint s1_pathCenter;
+        GLint s1_pathCenterInv;
+        GLint s1_pathTBuf;
+        GLint s1_pathOrigCPBuf;
+        GLint s1_pathDefCPBuf;
+
+        // Stage 2 program (basic.vert + basic-stage2.frag)
+        GLint s2_pathEnabled;
+        GLint s2_pathCurveType;
+        GLint s2_pathNumCP;
+        GLint s2_pathCenter;
+        GLint s2_pathCenterInv;
+        GLint s2_pathTBuf;
+        GLint s2_pathOrigCPBuf;
+        GLint s2_pathDefCPBuf;
     }
 
     void inInitPart() {
@@ -87,6 +119,16 @@ package(nijilive) {
             gMultColor = partShader.getUniformLocation("multColor");
             gScreenColor = partShader.getUniformLocation("screenColor");
             gEmissionStrength = partShader.getUniformLocation("emissionStrength");
+
+            // Path uniforms (main)
+            p_pathEnabled = partShader.getUniformLocation("pathEnabled");
+            p_pathCurveType = partShader.getUniformLocation("pathCurveType");
+            p_pathNumCP = partShader.getUniformLocation("pathNumCP");
+            p_pathCenter = partShader.getUniformLocation("pathCenter");
+            p_pathCenterInv = partShader.getUniformLocation("pathCenterInv");
+            p_pathTBuf = partShader.getUniformLocation("pathTBuf");
+            p_pathOrigCPBuf = partShader.getUniformLocation("pathOrigCPBuf");
+            p_pathDefCPBuf = partShader.getUniformLocation("pathDefCPBuf");
             
             partShaderStage1.use();
             partShaderStage1.setUniform(partShader.getUniformLocation("albedo"), 0);
@@ -95,6 +137,16 @@ package(nijilive) {
             gs1opacity = partShaderStage1.getUniformLocation("opacity");
             gs1MultColor = partShaderStage1.getUniformLocation("multColor");
             gs1ScreenColor = partShaderStage1.getUniformLocation("screenColor");
+
+            // Path uniforms (stage1)
+            s1_pathEnabled = partShaderStage1.getUniformLocation("pathEnabled");
+            s1_pathCurveType = partShaderStage1.getUniformLocation("pathCurveType");
+            s1_pathNumCP = partShaderStage1.getUniformLocation("pathNumCP");
+            s1_pathCenter = partShaderStage1.getUniformLocation("pathCenter");
+            s1_pathCenterInv = partShaderStage1.getUniformLocation("pathCenterInv");
+            s1_pathTBuf = partShaderStage1.getUniformLocation("pathTBuf");
+            s1_pathOrigCPBuf = partShaderStage1.getUniformLocation("pathOrigCPBuf");
+            s1_pathDefCPBuf = partShaderStage1.getUniformLocation("pathDefCPBuf");
 
             partShaderStage2.use();
             partShaderStage2.setUniform(partShaderStage2.getUniformLocation("emissive"), 1);
@@ -105,6 +157,16 @@ package(nijilive) {
             gs2MultColor = partShaderStage2.getUniformLocation("multColor");
             gs2ScreenColor = partShaderStage2.getUniformLocation("screenColor");
             gs2EmissionStrength = partShaderStage2.getUniformLocation("emissionStrength");
+
+            // Path uniforms (stage2)
+            s2_pathEnabled = partShaderStage2.getUniformLocation("pathEnabled");
+            s2_pathCurveType = partShaderStage2.getUniformLocation("pathCurveType");
+            s2_pathNumCP = partShaderStage2.getUniformLocation("pathNumCP");
+            s2_pathCenter = partShaderStage2.getUniformLocation("pathCenter");
+            s2_pathCenterInv = partShaderStage2.getUniformLocation("pathCenterInv");
+            s2_pathTBuf = partShaderStage2.getUniformLocation("pathTBuf");
+            s2_pathOrigCPBuf = partShaderStage2.getUniformLocation("pathOrigCPBuf");
+            s2_pathDefCPBuf = partShaderStage2.getUniformLocation("pathDefCPBuf");
 
             partMaskShader.use();
             partMaskShader.setUniform(partMaskShader.getUniformLocation("albedo"), 0);
@@ -188,10 +250,128 @@ class Part : Drawable {
 private:    
     GLuint uvbo;
 
+    // GPU Path Deformer resources per Part
+    GLuint pathTbo = 0;
+    GLuint pathTtex = 0;
+    GLuint pathOrigCPbo = 0;
+    GLuint pathOrigCPtex = 0;
+    GLuint pathDefCPbo = 0;
+    GLuint pathDefCPtex = 0;
+    bool pathGpuEnabled = false;
+    PathDeformer pathGpuDeformer;
+
     void updateUVs() {
         version(InDoesRender) {
             glBindBuffer(GL_ARRAY_BUFFER, uvbo);
             glBufferData(GL_ARRAY_BUFFER, data.uvs.length*vec2.sizeof, data.uvs.ptr, GL_STATIC_DRAW);
+        }
+    }
+
+    // Upload and bind GPU path uniforms/textures for current shader stage
+    void bindGPUPathForStage(int stage, mat4 matrix) {
+        version(InDoesRender) {
+            auto d = pathGpuDeformer;
+            // Helper to set uniforms for a given stage
+            auto setInt = (int loc, int v) {
+                if (loc != -1) switch(stage) {
+                    default: partShader.setUniform(loc, v); break;
+                    case 0: partShaderStage1.setUniform(loc, v); break;
+                    case 1: partShaderStage2.setUniform(loc, v); break;
+                }
+            };
+            auto setMat4 = (int loc, mat4 m) {
+                if (loc != -1) switch(stage) {
+                    default: partShader.setUniform(loc, m); break;
+                    case 0: partShaderStage1.setUniform(loc, m); break;
+                    case 1: partShaderStage2.setUniform(loc, m); break;
+                }
+            };
+
+            // Stage-uniform location mapping
+            int locEnabled   = (stage==2)? p_pathEnabled   : (stage==0? s1_pathEnabled: s2_pathEnabled);
+            int locCurveType = (stage==2)? p_pathCurveType : (stage==0? s1_pathCurveType: s2_pathCurveType);
+            int locNumCP     = (stage==2)? p_pathNumCP     : (stage==0? s1_pathNumCP: s2_pathNumCP);
+            int locCenter    = (stage==2)? p_pathCenter    : (stage==0? s1_pathCenter: s2_pathCenter);
+            int locCenterInv = (stage==2)? p_pathCenterInv : (stage==0? s1_pathCenterInv: s2_pathCenterInv);
+            int locTBuf      = (stage==2)? p_pathTBuf      : (stage==0? s1_pathTBuf: s2_pathTBuf);
+            int locOrigBuf   = (stage==2)? p_pathOrigCPBuf : (stage==0? s1_pathOrigCPBuf: s2_pathOrigCPBuf);
+            int locDefBuf    = (stage==2)? p_pathDefCPBuf  : (stage==0? s1_pathDefCPBuf: s2_pathDefCPBuf);
+
+            if (!pathGpuEnabled || d is null) {
+                setInt(locEnabled, 0);
+                return;
+            }
+
+            // Ensure caches exist
+            if (this !in d.meshCaches || d.meshCaches[this].length != this.vertices.length) {
+                d.ensureCacheFor(this);
+            }
+
+            // Upload t array
+            float[] tvals = d.meshCaches[this];
+            if (pathTbo == 0) glGenBuffers(1, &pathTbo);
+            if (pathTtex == 0) glGenTextures(1, &pathTtex);
+            glBindBuffer(GL_TEXTURE_BUFFER, pathTbo);
+            glBufferData(GL_TEXTURE_BUFFER, cast(GLsizeiptr)(tvals.length*float.sizeof), tvals.ptr, GL_DYNAMIC_DRAW);
+            glActiveTexture(GL_TEXTURE0 + 7);
+            glBindTexture(GL_TEXTURE_BUFFER, pathTtex);
+            glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, pathTbo);
+
+            // Control points arrays (orig/prev and def)
+            vec2[] origCP;
+            if (d.prevCurve) {
+                origCP = d.prevCurve.controlPoints.dup;
+            } else if (d.originalCurve) {
+                origCP = d.originalCurve.controlPoints.dup;
+            }
+            vec2[] defCP;
+            if (d.deformedCurve) defCP = d.deformedCurve.controlPoints.dup;
+
+            // Fallback lengths
+            int ncp = cast(int)(origCP.length);
+            if (defCP.length != origCP.length) {
+                auto a = cast(int)origCP.length;
+                auto b = cast(int)defCP.length;
+                ncp = (a < b) ? a : b;
+            }
+            if (ncp <= 0) {
+                setInt(locEnabled, 0);
+                return;
+            }
+
+            if (pathOrigCPbo == 0) glGenBuffers(1, &pathOrigCPbo);
+            if (pathOrigCPtex == 0) glGenTextures(1, &pathOrigCPtex);
+            glBindBuffer(GL_TEXTURE_BUFFER, pathOrigCPbo);
+            if (ncp > 0) glBufferData(GL_TEXTURE_BUFFER, cast(GLsizeiptr)(ncp*vec2.sizeof), origCP.ptr, GL_DYNAMIC_DRAW);
+            glActiveTexture(GL_TEXTURE0 + 8);
+            glBindTexture(GL_TEXTURE_BUFFER, pathOrigCPtex);
+            glTexBuffer(GL_TEXTURE_BUFFER, GL_RG32F, pathOrigCPbo);
+
+            if (pathDefCPbo == 0) glGenBuffers(1, &pathDefCPbo);
+            if (pathDefCPtex == 0) glGenTextures(1, &pathDefCPtex);
+            glBindBuffer(GL_TEXTURE_BUFFER, pathDefCPbo);
+            if (ncp > 0) glBufferData(GL_TEXTURE_BUFFER, cast(GLsizeiptr)(ncp*vec2.sizeof), defCP.ptr, GL_DYNAMIC_DRAW);
+            glActiveTexture(GL_TEXTURE0 + 9);
+            glBindTexture(GL_TEXTURE_BUFFER, pathDefCPtex);
+            glTexBuffer(GL_TEXTURE_BUFFER, GL_RG32F, pathDefCPbo);
+
+            // Curve type to int (0: Bezier, 1: Spline)
+            int ctype = (d.curveType == CurveType.Bezier)? 0: 1;
+
+            // Center matrices
+            mat4 center = d.transform.matrix.inverse * matrix;
+            mat4 centerInv = center.inverse;
+
+            // Set uniforms
+            setInt(locEnabled, 1);
+            setInt(locCurveType, ctype);
+            setInt(locNumCP, ncp);
+            setMat4(locCenter, center);
+            setMat4(locCenterInv, centerInv);
+            // Sampler bindings
+            setInt(locTBuf, 7);
+            setInt(locOrigBuf, 8);
+            setInt(locDefBuf, 9);
         }
     }
 
@@ -223,6 +403,8 @@ private:
                 partShaderStage1.setUniform(gs1MultColor, clampedTint);
                 partShaderStage1.setUniform(gs1ScreenColor, clampedScreen);
                 inSetBlendMode(blendingMode, false);
+                // Bind GPU path uniforms/textures for Stage 1 (stage=0)
+                bindGPUPathForStage(0, matrix);
                 break;
             case 1:
 
@@ -242,6 +424,8 @@ private:
                 partShaderStage1.setUniform(gs2MultColor, clampedTint);
                 partShaderStage1.setUniform(gs2ScreenColor, clampedScreen);
                 inSetBlendMode(blendingMode, true);
+                // Bind GPU path uniforms/textures for Stage 2 (stage=1)
+                bindGPUPathForStage(1, matrix);
                 break;
             case 2:
 
@@ -253,6 +437,8 @@ private:
                 partShader.setUniform(mvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
                 partShader.setUniform(gopacity, clamp(offsetOpacity * opacity, 0, 1));
                 partShader.setUniform(gEmissionStrength, emissionStrength*offsetEmissionStrength);
+                // Bind GPU path uniforms/textures for Main (stage=2)
+                bindGPUPathForStage(2, matrix);
 
                 partShader.setUniform(partShader.getUniformLocation("albedo"), 0);
                 partShader.setUniform(partShader.getUniformLocation("emissive"), 1);
@@ -933,6 +1119,19 @@ public:
             emissionStrength = part.emissionStrength;
             tint = part.tint;
             screenTint = part.screenTint;
+        }
+    }
+
+    // Enable/disable GPU PathDeformer on this Part
+    void enablePathGPU(PathDeformer d) {
+        version(InDoesRender) {
+            pathGpuDeformer = d;
+            pathGpuEnabled = true;
+        }
+    }
+    void disablePathGPU(PathDeformer d) {
+        version(InDoesRender) {
+            if (pathGpuDeformer is d) pathGpuEnabled = false;
         }
     }
 }

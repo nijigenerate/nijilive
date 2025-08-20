@@ -5,6 +5,7 @@ import nijilive.math;
 import nijilive.core.nodes;
 import nijilive.core.nodes.utils;
 import nijilive.core.nodes.defstack;
+import nijilive.core.nodes.meshgroup; // for MeshGroup type detection
 public import nijilive.core.nodes.deformer.drivers.phys;
 public import nijilive.core.nodes.deformer.curve;
 import nijilive.core;
@@ -72,6 +73,12 @@ protected:
 
     void deform(vec2[] deformedControlPoints) {
         deformedCurve = createCurve(deformedControlPoints);
+    }
+
+public:
+    // Ensure meshCaches has closest-point parameter t for the given node
+    void ensureCacheFor(Node node) {
+        cacheClosestPoints(node);
     }
 
     override
@@ -288,13 +295,26 @@ public:
         auto drawable = cast(Drawable)node;
         bool isDrawable = drawable !is null;
         if (isDrawable) {
-            cacheClosestPoints(node);
-            if (dynamic) {
-                node.postProcessFilters  = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
-                node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
+            // CPU変形対象: 子孫がPathDeformer or MeshGroup の場合のみ
+            if ((cast(PathDeformer)node) !is null || (cast(MeshGroup)node) !is null) {
+                cacheClosestPoints(node);
+                if (dynamic) {
+                    node.postProcessFilters  = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
+                    node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
+                } else {
+                    node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
+                    node.postProcessFilters  = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
+                }
+                // GPUは無効化
+                if (auto p = cast(Part)node) p.disablePathGPU(this);
             } else {
-                node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
-                node.postProcessFilters  = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
+                // GPU変形対象（Part 等のDeformable）
+                cacheClosestPoints(node);
+                node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
+                node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
+                if (auto p = cast(Part)node) {
+                    p.enablePathGPU(this);
+                }
             }
         } else {
             meshCaches.remove(node);
@@ -325,6 +345,7 @@ public:
     bool releaseChildNoRecurse(Node node) {
         node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
         node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
+        if (auto p = cast(Part)node) p.disablePathGPU(this);
         return true;
     }
 
