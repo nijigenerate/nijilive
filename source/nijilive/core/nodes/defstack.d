@@ -171,12 +171,12 @@ struct Deformation {
 
     void serialize(S)(ref S serializer) {
         import nijilive.math.serialization : serialize;
-        auto state = serializer.arrayBegin();
+        auto state = serializer.listBegin();
             foreach(offset; vertexOffsets) {
                 serializer.elemBegin;
                 offset.serialize(serializer);
             }
-        serializer.arrayEnd(state);
+        serializer.listEnd(state);
     }
 
     SerdeException deserializeFromFghj(Fghj data) {

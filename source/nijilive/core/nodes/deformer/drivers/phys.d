@@ -20,10 +20,10 @@ interface PhysicsDriver : ISerializable {
     void serializeSelfImpl(ref InochiSerializer serializer); 
     SerdeException deserializeFromFghj(Fghj data);
     void serialize(S)(ref S serializer) {
-        auto state = serializer.objectBegin();
+        auto state = serializer.structBegin();
 
         serializeSelfImpl(serializer);
-        serializer.objectEnd(state);        
+        serializer.structEnd(state);        
     }
     void copyFrom(PhysicsDriver src);
 }

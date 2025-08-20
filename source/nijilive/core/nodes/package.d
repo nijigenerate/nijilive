@@ -176,7 +176,7 @@ protected:
         
         if (recursive && children.length > 0) {
             serializer.putKey("children");
-            auto childArray = serializer.arrayBegin();
+            auto childArray = serializer.listBegin();
             foreach(child; children) {
 
                 // Skip Temporary nodes
@@ -186,7 +186,7 @@ protected:
                 serializer.elemBegin;
                 serializer.serializeValue(child);
             }
-            serializer.arrayEnd(childArray);
+            serializer.listEnd(childArray);
         }
     }
 
@@ -862,9 +862,9 @@ public:
         Allows serializing a node (with pretty serializer)
     */
     void serialize(S)(ref S serializer) {
-        auto state = serializer.objectBegin();
+        auto state = serializer.structBegin();
             this.serializeSelf(serializer);
-        serializer.objectEnd(state);
+        serializer.structEnd(state);
     }
 
     /**

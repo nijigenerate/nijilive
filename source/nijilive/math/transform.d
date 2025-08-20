@@ -112,7 +112,7 @@ public:
     }
 
     void serialize(S)(ref S serializer) {
-        auto state = serializer.objectBegin();
+        auto state = serializer.structBegin();
             serializer.putKey("trans");
             translation.serialize(serializer);
 
@@ -122,7 +122,7 @@ public:
             serializer.putKey("scale");
             scale.serialize(serializer);
 
-        serializer.objectEnd(state);
+        serializer.structEnd(state);
     }
 
     SerdeException deserializeFromFghj(Fghj data) {

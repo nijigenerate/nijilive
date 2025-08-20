@@ -132,12 +132,12 @@ protected:
         serializer.putKey("merge_mode");
         serializer.serializeValue(mergeMode);
         serializer.putKey("bindings");
-        auto arrstate = serializer.arrayBegin();
+        auto arrstate = serializer.listBegin();
             foreach(binding; bindings) {
                 serializer.elemBegin();
                 binding.serializeSelf(serializer);
             }
-        serializer.arrayEnd(arrstate);
+        serializer.listEnd(arrstate);
     }
 
 public:
@@ -293,9 +293,9 @@ public:
         Serializes a parameter
     */
     void serialize(ref InochiSerializer serializer) {
-        auto state = serializer.objectBegin;
+        auto state = serializer.structBegin;
         serializeSelf(serializer);
-        serializer.objectEnd(state);
+        serializer.structEnd(state);
     }
 
     /**

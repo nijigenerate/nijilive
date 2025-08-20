@@ -225,12 +225,12 @@ protected:
 
         if (welded.length > 0) {
             serializer.putKey("weldedLinks");
-            auto state = serializer.arrayBegin();
+            auto state = serializer.listBegin();
                 foreach(link; welded) {
                     serializer.elemBegin;
                     serializer.serializeValue(link);
                 }
-            serializer.arrayEnd(state);
+            serializer.listEnd(state);
         }
 
     }

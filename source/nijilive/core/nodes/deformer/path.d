@@ -84,7 +84,7 @@ protected:
         serializer.putKey("curve_type");
         serializer.serializeValue(curveType);
         serializer.putKey("vertices");
-        auto state = serializer.arrayBegin();
+        auto state = serializer.listBegin();
         if (originalCurve) {
             foreach(vertex; originalCurve.controlPoints) {
                 serializer.elemBegin;
@@ -93,7 +93,7 @@ protected:
                 serializer.serializeValue(vertex.y);
             }
         }
-        serializer.arrayEnd(state);
+        serializer.listEnd(state);
         if (_driver !is null) {
             serializer.putKey("physics");
             serializer.serializeValue(_driver);

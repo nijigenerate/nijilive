@@ -281,12 +281,12 @@ protected:
 
         if (masks.length > 0) {
             serializer.putKey("masks");
-            auto state = serializer.arrayBegin();
+            auto state = serializer.listBegin();
                 foreach(m; masks) {
                     serializer.elemBegin;
                     serializer.serializeValue(m);
                 }
-            serializer.arrayEnd(state);
+            serializer.listEnd(state);
 
         }
     }
