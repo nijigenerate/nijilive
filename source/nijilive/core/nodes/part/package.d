@@ -20,6 +20,7 @@ import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
 import std.math : isNaN;
 import nijilive.core.nodes.deformer.path; // For GPU PathDeformer wiring
+import nijilive.core.nodes.meshgroup;     // For GPU MeshGroup wiring
 
 public import nijilive.core.meshdata;
 
@@ -44,6 +45,10 @@ package(nijilive) {
         GLint p_dbgEnabled;
         GLint p_dbgColor;
         GLint p_dbgStrength;
+        // Debug tint for MeshGroup (main)
+        GLint p_gdbgEnabled;
+        GLint p_gdbgColor;
+        GLint p_gdbgStrength;
 
         
         /* GLSL Uniforms (Stage 1) */
@@ -56,6 +61,10 @@ package(nijilive) {
         GLint s1_dbgEnabled;
         GLint s1_dbgColor;
         GLint s1_dbgStrength;
+        // Debug tint for MeshGroup (stage1)
+        GLint s1_gdbgEnabled;
+        GLint s1_gdbgColor;
+        GLint s1_gdbgStrength;
 
         
         /* GLSL Uniforms (Stage 2) */
@@ -107,6 +116,35 @@ package(nijilive) {
         GLint s2_pathOrigCPBuf;
         GLint s2_pathDefCPBuf;
         GLint s2_pathDynamic;
+
+        // MeshGroup GPU (barycentric) uniform locations
+        // Main
+        GLint p_groupEnabled;
+        GLint p_groupDynamic;
+        GLint p_groupCenter;
+        GLint p_groupCenterInv;
+        GLint p_groupVertsBuf;
+        GLint p_groupTriIdxBuf;
+        GLint p_childTriIdBuf;
+        GLint p_childBaryBuf;
+        // Stage1
+        GLint s1_groupEnabled;
+        GLint s1_groupDynamic;
+        GLint s1_groupCenter;
+        GLint s1_groupCenterInv;
+        GLint s1_groupVertsBuf;
+        GLint s1_groupTriIdxBuf;
+        GLint s1_childTriIdBuf;
+        GLint s1_childBaryBuf;
+        // Stage2
+        GLint s2_groupEnabled;
+        GLint s2_groupDynamic;
+        GLint s2_groupCenter;
+        GLint s2_groupCenterInv;
+        GLint s2_groupVertsBuf;
+        GLint s2_groupTriIdxBuf;
+        GLint s2_childTriIdBuf;
+        GLint s2_childBaryBuf;
     }
 
     void inInitPart() {
@@ -134,6 +172,10 @@ package(nijilive) {
             p_dbgEnabled = partShader.getUniformLocation("pathDebugEnabled");
             p_dbgColor = partShader.getUniformLocation("pathDebugColor");
             p_dbgStrength = partShader.getUniformLocation("pathDebugStrength");
+            // Group debug tint (main)
+            p_gdbgEnabled = partShader.getUniformLocation("groupDebugEnabled");
+            p_gdbgColor = partShader.getUniformLocation("groupDebugColor");
+            p_gdbgStrength = partShader.getUniformLocation("groupDebugStrength");
 
             // Path uniforms (main)
             p_pathEnabled = partShader.getUniformLocation("pathEnabled");
@@ -145,6 +187,15 @@ package(nijilive) {
             p_pathOrigCPBuf = partShader.getUniformLocation("pathOrigCPBuf");
             p_pathDefCPBuf = partShader.getUniformLocation("pathDefCPBuf");
             p_pathDynamic = partShader.getUniformLocation("pathDynamic");
+            // MeshGroup uniforms (main)
+            p_groupEnabled = partShader.getUniformLocation("groupEnabled");
+            p_groupDynamic = partShader.getUniformLocation("groupDynamic");
+            p_groupCenter = partShader.getUniformLocation("groupCenter");
+            p_groupCenterInv = partShader.getUniformLocation("groupCenterInv");
+            p_groupVertsBuf = partShader.getUniformLocation("groupVertsBuf");
+            p_groupTriIdxBuf = partShader.getUniformLocation("groupTriIndexBuf");
+            p_childTriIdBuf = partShader.getUniformLocation("childTriIdBuf");
+            p_childBaryBuf = partShader.getUniformLocation("childBaryBuf");
             
             partShaderStage1.use();
             partShaderStage1.setUniform(partShader.getUniformLocation("albedo"), 0);
@@ -157,6 +208,10 @@ package(nijilive) {
             s1_dbgEnabled = partShaderStage1.getUniformLocation("pathDebugEnabled");
             s1_dbgColor = partShaderStage1.getUniformLocation("pathDebugColor");
             s1_dbgStrength = partShaderStage1.getUniformLocation("pathDebugStrength");
+            // Group debug tint (stage1)
+            s1_gdbgEnabled = partShaderStage1.getUniformLocation("groupDebugEnabled");
+            s1_gdbgColor = partShaderStage1.getUniformLocation("groupDebugColor");
+            s1_gdbgStrength = partShaderStage1.getUniformLocation("groupDebugStrength");
 
             // Path uniforms (stage1)
             s1_pathEnabled = partShaderStage1.getUniformLocation("pathEnabled");
@@ -168,6 +223,15 @@ package(nijilive) {
             s1_pathOrigCPBuf = partShaderStage1.getUniformLocation("pathOrigCPBuf");
             s1_pathDefCPBuf = partShaderStage1.getUniformLocation("pathDefCPBuf");
             s1_pathDynamic = partShaderStage1.getUniformLocation("pathDynamic");
+            // MeshGroup uniforms (stage1)
+            s1_groupEnabled = partShaderStage1.getUniformLocation("groupEnabled");
+            s1_groupDynamic = partShaderStage1.getUniformLocation("groupDynamic");
+            s1_groupCenter = partShaderStage1.getUniformLocation("groupCenter");
+            s1_groupCenterInv = partShaderStage1.getUniformLocation("groupCenterInv");
+            s1_groupVertsBuf = partShaderStage1.getUniformLocation("groupVertsBuf");
+            s1_groupTriIdxBuf = partShaderStage1.getUniformLocation("groupTriIndexBuf");
+            s1_childTriIdBuf = partShaderStage1.getUniformLocation("childTriIdBuf");
+            s1_childBaryBuf = partShaderStage1.getUniformLocation("childBaryBuf");
 
             partShaderStage2.use();
             partShaderStage2.setUniform(partShaderStage2.getUniformLocation("emissive"), 1);
@@ -189,6 +253,15 @@ package(nijilive) {
             s2_pathOrigCPBuf = partShaderStage2.getUniformLocation("pathOrigCPBuf");
             s2_pathDefCPBuf = partShaderStage2.getUniformLocation("pathDefCPBuf");
             s2_pathDynamic = partShaderStage2.getUniformLocation("pathDynamic");
+            // MeshGroup uniforms (stage2)
+            s2_groupEnabled = partShaderStage2.getUniformLocation("groupEnabled");
+            s2_groupDynamic = partShaderStage2.getUniformLocation("groupDynamic");
+            s2_groupCenter = partShaderStage2.getUniformLocation("groupCenter");
+            s2_groupCenterInv = partShaderStage2.getUniformLocation("groupCenterInv");
+            s2_groupVertsBuf = partShaderStage2.getUniformLocation("groupVertsBuf");
+            s2_groupTriIdxBuf = partShaderStage2.getUniformLocation("groupTriIndexBuf");
+            s2_childTriIdBuf = partShaderStage2.getUniformLocation("childTriIdBuf");
+            s2_childBaryBuf = partShaderStage2.getUniformLocation("childBaryBuf");
 
             partMaskShader.use();
             partMaskShader.setUniform(partMaskShader.getUniformLocation("albedo"), 0);
@@ -281,6 +354,14 @@ private:
     GLuint pathDefCPtex = 0;
     bool pathGpuEnabled = false;
     PathDeformer pathGpuDeformer;
+
+    // GPU MeshGroup per-Part resources
+    GLuint groupChildTriIdBo = 0;
+    GLuint groupChildTriIdTex = 0;
+    GLuint groupChildBaryBo = 0;
+    GLuint groupChildBaryTex = 0;
+    bool groupGpuEnabled = false;
+    MeshGroup groupGpu;
 
     void updateUVs() {
         version(InDoesRender) {
@@ -418,6 +499,105 @@ private:
         }
     }
 
+    // Upload and bind GPU MeshGroup (barycentric) for current shader stage
+    void bindGPUGroupForStage(int stage, mat4 matrix) {
+        version(InDoesRender) {
+            auto g = groupGpu;
+            auto setInt = (int loc, int v) {
+                if (loc != -1) switch(stage) {
+                    default: partShader.setUniform(loc, v); break;
+                    case 0: partShaderStage1.setUniform(loc, v); break;
+                    case 1: partShaderStage2.setUniform(loc, v); break;
+                }
+            };
+            auto setMat4 = (int loc, mat4 m) {
+                if (loc != -1) switch(stage) {
+                    default: partShader.setUniform(loc, m); break;
+                    case 0: partShaderStage1.setUniform(loc, m); break;
+                    case 1: partShaderStage2.setUniform(loc, m); break;
+                }
+            };
+
+            int locEnabled   = (stage==2)? p_groupEnabled   : (stage==0? s1_groupEnabled: s2_groupEnabled);
+            int locDynamic   = (stage==2)? p_groupDynamic   : (stage==0? s1_groupDynamic: s2_groupDynamic);
+            int locCenter    = (stage==2)? p_groupCenter    : (stage==0? s1_groupCenter: s2_groupCenter);
+            int locCenterInv = (stage==2)? p_groupCenterInv : (stage==0? s1_groupCenterInv: s2_groupCenterInv);
+            int locVertsBuf  = (stage==2)? p_groupVertsBuf  : (stage==0? s1_groupVertsBuf: s2_groupVertsBuf);
+            int locTriIdxBuf = (stage==2)? p_groupTriIdxBuf : (stage==0? s1_groupTriIdxBuf: s2_groupTriIdxBuf);
+            int locCTriIdBuf = (stage==2)? p_childTriIdBuf  : (stage==0? s1_childTriIdBuf: s2_childTriIdBuf);
+            int locCBaryBuf  = (stage==2)? p_childBaryBuf   : (stage==0? s1_childBaryBuf: s2_childBaryBuf);
+
+            if (!groupGpuEnabled || g is null) {
+                setInt(locEnabled, 0);
+                return;
+            }
+
+            // Ensure mapping exists
+            auto cmap = g.getChildMap(this);
+
+            // Upload child mapping buffers
+            if (groupChildTriIdBo == 0) glGenBuffers(1, &groupChildTriIdBo);
+            if (groupChildTriIdTex == 0) glGenTextures(1, &groupChildTriIdTex);
+            glBindBuffer(GL_TEXTURE_BUFFER, groupChildTriIdBo);
+            glBufferData(GL_TEXTURE_BUFFER, cast(GLsizeiptr)(cmap.triId.length*int.sizeof), cmap.triId.ptr, GL_DYNAMIC_DRAW);
+            glActiveTexture(GL_TEXTURE0 + 10);
+            glBindTexture(GL_TEXTURE_BUFFER, groupChildTriIdTex);
+            glTexBuffer(GL_TEXTURE_BUFFER, GL_R32I, groupChildTriIdBo);
+
+            if (groupChildBaryBo == 0) glGenBuffers(1, &groupChildBaryBo);
+            if (groupChildBaryTex == 0) glGenTextures(1, &groupChildBaryTex);
+            glBindBuffer(GL_TEXTURE_BUFFER, groupChildBaryBo);
+            glBufferData(GL_TEXTURE_BUFFER, cast(GLsizeiptr)(cmap.bary.length*vec2.sizeof), cmap.bary.ptr, GL_DYNAMIC_DRAW);
+            glActiveTexture(GL_TEXTURE0 + 11);
+            glBindTexture(GL_TEXTURE_BUFFER, groupChildBaryTex);
+            glTexBuffer(GL_TEXTURE_BUFFER, GL_RG32F, groupChildBaryBo);
+
+            // Center matrices
+            mat4 center = g.transform.matrix.inverse * matrix;
+            mat4 centerInv = center.inverse;
+
+            setInt(locEnabled, 1);
+            setInt(locDynamic, g.dynamic ? 1 : 0);
+            setMat4(locCenter, center);
+            setMat4(locCenterInv, centerInv);
+
+            // Bind MeshGroup shared buffers
+            glActiveTexture(GL_TEXTURE0 + 12);
+            glBindTexture(GL_TEXTURE_BUFFER, g.getVertsTex());
+            glActiveTexture(GL_TEXTURE0 + 13);
+            glBindTexture(GL_TEXTURE_BUFFER, g.getTriIdxTex());
+
+            // Set sampler uniforms
+            setInt(locCTriIdBuf, 10);
+            setInt(locCBaryBuf, 11);
+            setInt(locVertsBuf, 12);
+            setInt(locTriIdxBuf, 13);
+
+            // Enable only if resources look valid
+            bool resourcesReady = (cmap.triId.length == this.vertices.length) && (cmap.bary.length == this.vertices.length);
+            // Check MeshGroup shared textures are created
+            resourcesReady = resourcesReady && (g.getVertsTex() != 0) && (g.getTriIdxTex() != 0);
+            setInt(locEnabled, resourcesReady? 1: 0);
+            if (!resourcesReady) return;
+
+            // Debug tint (show group GPU effect)
+            int locGDbgE = (stage==2)? p_gdbgEnabled : (stage==0? s1_gdbgEnabled: -1);
+            int locGDbgC = (stage==2)? p_gdbgColor   : (stage==0? s1_gdbgColor: -1);
+            int locGDbgS = (stage==2)? p_gdbgStrength: (stage==0? s1_gdbgStrength: -1);
+            if (locGDbgE != -1) {
+                if (g.debugTintEnabled) {
+                    setInt(locGDbgE, 1);
+                    switch(stage) {
+                        default: partShader.setUniform(locGDbgC, g.debugTintColor); partShader.setUniform(locGDbgS, g.debugTintStrength); break;
+                        case 0: partShaderStage1.setUniform(locGDbgC, g.debugTintColor); partShaderStage1.setUniform(locGDbgS, g.debugTintStrength); break;
+                    }
+                } else {
+                    setInt(locGDbgE, 0);
+                }
+            }
+        }
+    }
+
     void setupShaderStage(int stage, mat4 matrix) {
                 
         vec3 clampedTint = tint;
@@ -448,6 +628,8 @@ private:
                 inSetBlendMode(blendingMode, false);
                 // Bind GPU path uniforms/textures for Stage 1 (stage=0)
                 bindGPUPathForStage(0, matrix);
+                // Bind GPU MeshGroup uniforms/textures for Stage 1 (stage=0)
+                bindGPUGroupForStage(0, matrix);
                 break;
             case 1:
 
@@ -469,6 +651,8 @@ private:
                 inSetBlendMode(blendingMode, true);
                 // Bind GPU path uniforms/textures for Stage 2 (stage=1)
                 bindGPUPathForStage(1, matrix);
+                // Bind GPU MeshGroup uniforms/textures for Stage 2 (stage=1)
+                bindGPUGroupForStage(1, matrix);
                 break;
             case 2:
 
@@ -482,6 +666,8 @@ private:
                 partShader.setUniform(gEmissionStrength, emissionStrength*offsetEmissionStrength);
                 // Bind GPU path uniforms/textures for Main (stage=2)
                 bindGPUPathForStage(2, matrix);
+                // Bind GPU MeshGroup uniforms/textures for Main (stage=2)
+                bindGPUGroupForStage(2, matrix);
 
                 partShader.setUniform(partShader.getUniformLocation("albedo"), 0);
                 partShader.setUniform(partShader.getUniformLocation("emissive"), 1);
@@ -1175,6 +1361,19 @@ public:
     void disablePathGPU(PathDeformer d) {
         version(InDoesRender) {
             if (pathGpuDeformer is d) pathGpuEnabled = false;
+        }
+    }
+
+    // Enable/disable GPU MeshGroup on this Part
+    void enableGroupGPU(MeshGroup g) {
+        version(InDoesRender) {
+            groupGpu = g;
+            groupGpuEnabled = true;
+        }
+    }
+    void disableGroupGPU(MeshGroup g) {
+        version(InDoesRender) {
+            if (groupGpu is g) groupGpuEnabled = false;
         }
     }
 }

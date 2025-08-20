@@ -21,9 +21,11 @@ import nijilive.core;
 import std.typecons: tuple, Tuple;
 //import std.stdio;
 import nijilive.core.nodes.utils;
+import nijilive.core.nodes.part; // for Part type
 import std.algorithm.searching;
 import std.algorithm;
 import std.string;
+import bindbc.opengl;
 
 package(nijilive) {
     void inInitMeshGroup() {
@@ -56,6 +58,23 @@ protected:
     mat4 forwardMatrix;
     mat4 inverseMatrix;
     bool translateChildren = true;
+    // GPU resources and caches
+    version(InDoesRender) {
+        GLuint groupVertsTbo = 0;
+        GLuint groupVertsTex = 0;
+        GLuint groupTriIdxTbo = 0;
+        GLuint groupTriIdxTex = 0;
+    }
+    // Per-child cached barycentric mapping
+    struct ChildMap { int[] triId; vec2[] bary; }
+    ChildMap[Part] childMaps;
+public:
+    // Debug
+    bool debugTintEnabled = true;
+    vec3 debugTintColor = vec3(0, 0, 1);
+    float debugTintStrength = 0.3f;
+    // Feature gate: keep GPU mapping opt-in to avoid regressions
+    bool gpuExperimental = false;
 
     override
     string typeId() { return "MeshGroup"; }
@@ -144,6 +163,16 @@ public:
             }
             forwardMatrix = transform.matrix;
             inverseMatrix = globalTransform.matrix.inverse;
+
+            // Upload transformed vertices to TBO
+            version(InDoesRender) {
+                if (groupVertsTbo == 0) glGenBuffers(1, &groupVertsTbo);
+                if (groupVertsTex == 0) glGenTextures(1, &groupVertsTex);
+                glBindBuffer(GL_TEXTURE_BUFFER, groupVertsTbo);
+                glBufferData(GL_TEXTURE_BUFFER, cast(GLsizeiptr)(transformedVertices.length*vec2.sizeof), transformedVertices.ptr, GL_DYNAMIC_DRAW);
+                glBindTexture(GL_TEXTURE_BUFFER, groupVertsTex);
+                glTexBuffer(GL_TEXTURE_BUFFER, GL_RG32F, groupVertsTbo);
+            }
         }
 
         Node.update();
@@ -248,6 +277,21 @@ public:
         foreach (child; children) {
             setupChild(child);
         }
+        // Upload static triangle indices
+        version(InDoesRender) {
+            if (data.indices.length > 0) {
+                if (groupTriIdxTbo == 0) glGenBuffers(1, &groupTriIdxTbo);
+                if (groupTriIdxTex == 0) glGenTextures(1, &groupTriIdxTex);
+                glBindBuffer(GL_TEXTURE_BUFFER, groupTriIdxTbo);
+                // Expand to 32-bit signed ints for GLSL isamplerBuffer
+                auto count = cast(int)data.indices.length;
+                int[] idx32 = new int[count];
+                foreach(i; 0..count) idx32[i] = data.indices[i];
+                glBufferData(GL_TEXTURE_BUFFER, cast(GLsizeiptr)(idx32.length*int.sizeof), idx32.ptr, GL_STATIC_DRAW);
+                glBindTexture(GL_TEXTURE_BUFFER, groupTriIdxTex);
+                glTexBuffer(GL_TEXTURE_BUFFER, GL_R32I, groupTriIdxTbo);
+            }
+        }
     }
 
     override
@@ -291,7 +335,29 @@ public:
     bool setupChildNoRecurse(bool prepend = false)(Node node) {
         auto drawable = cast(Deformable)node;
         bool isDeformable = drawable !is null;
-        if (translateChildren || isDeformable) {
+        if (!(translateChildren || isDeformable)) {
+            node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(0, &filterChildren));
+            node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &filterChildren));
+            return false;
+        }
+        if (auto p = cast(Part)node) {
+            if (gpuExperimental) {
+                // GPU path for Part
+                node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(0, &filterChildren));
+                node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &filterChildren));
+                p.enableGroupGPU(this);
+                ensureChildMapping(p);
+            } else {
+                // Keep CPU filters as before
+                if (isDeformable && dynamic) {
+                    node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(0, &filterChildren));
+                    node.postProcessFilters = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(0, &filterChildren));
+                } else {
+                    node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(0, &filterChildren));
+                    node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &filterChildren));
+                }
+            }
+        } else {
             if (isDeformable && dynamic) {
                 node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(0, &filterChildren));
                 node.postProcessFilters = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(0, &filterChildren));
@@ -299,9 +365,6 @@ public:
                 node.preProcessFilters  = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(0, &filterChildren));
                 node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &filterChildren));
             }
-        } else {
-            node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(0, &filterChildren));
-            node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &filterChildren));
         }
         return false;
      }
@@ -331,6 +394,10 @@ public:
     bool releaseChildNoRecurse(Node node) {
         node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(0, &this.filterChildren));
         node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(0, &this.filterChildren));
+        if (auto p = cast(Part)node) {
+            p.disableGroupGPU(this);
+            childMaps.remove(p);
+        }
         return false;
     }
 
@@ -423,6 +490,7 @@ public:
         precalculated = false;
         bitMask.length = 0;
         triangles.length = 0;
+        childMaps.clear();
     }
 
     override
@@ -475,6 +543,64 @@ public:
             translateChildren = true;
             clearCache();
         }
+    }
+
+    // Compute per-child per-vertex triangle mapping and barycentric coords
+    void ensureChildMapping(Part p) {
+        if (!precalculated) precalculate();
+        if (p in childMaps) {
+            if (childMaps[p].triId.length == p.vertices.length) return;
+        }
+        auto centerMatrix = inverseMatrix * p.transform.matrix;
+        ChildMap cmap;
+        cmap.triId.length = p.vertices.length;
+        cmap.bary.length = p.vertices.length;
+        auto r = rect(bounds.x, bounds.y, (ceil(bounds.z) - floor(bounds.x) + 1), (ceil(bounds.w) - floor(bounds.y) + 1));
+        foreach (i, v; p.vertices) {
+            vec2 cVertex = (centerMatrix * vec4(v, 0, 1)).xy;
+            int tri = -1;
+            if (bounds.x <= cVertex.x && cVertex.x < bounds.z && bounds.y <= cVertex.y && cVertex.y < bounds.w) {
+                int bx = cast(int)(cVertex.x - bounds.x);
+                int by = cast(int)(cVertex.y - bounds.y);
+                if (0 <= bx && bx < cast(int)r.width && 0 <= by && by < cast(int)r.height) {
+                    ushort bid = bitMask[by * cast(int)r.width + bx];
+                    tri = cast(int)bid - 1;
+                }
+            }
+            // Fallback: precise triangle hit-test if bitmask failed
+            if (tri < 0) {
+                foreach (size_t ti; 0..data.indices.length/3) {
+                    vec2 p0t = data.vertices[data.indices[ti*3+0]];
+                    vec2 p1t = data.vertices[data.indices[ti*3+1]];
+                    vec2 p2t = data.vertices[data.indices[ti*3+2]];
+                    if (isPointInTriangle(cVertex, [p0t, p1t, p2t])) { tri = cast(int)ti; break; }
+                }
+            }
+            cmap.triId[i] = tri;
+            if (tri >= 0) {
+                vec2 p0 = data.vertices[data.indices[tri*3+0]];
+                vec2 p1 = data.vertices[data.indices[tri*3+1]];
+                vec2 p2 = data.vertices[data.indices[tri*3+2]];
+                float denom = (p1.y - p2.y)*(p0.x - p2.x) + (p2.x - p1.x)*(p0.y - p2.y);
+                float b0 = denom != 0? ((p1.y - p2.y)*(cVertex.x - p2.x) + (p2.x - p1.x)*(cVertex.y - p2.y)) / denom : 0.0f;
+                float b1 = denom != 0? ((p2.y - p0.y)*(cVertex.x - p2.x) + (p0.x - p2.x)*(cVertex.y - p2.y)) / denom : 0.0f;
+                cmap.bary[i] = vec2(b0, b1);
+            } else {
+                cmap.bary[i] = vec2(0, 0);
+            }
+        }
+        childMaps[p] = cmap;
+    }
+
+    version(InDoesRender) {
+        GLuint getVertsTex() { return groupVertsTex; }
+        GLuint getTriIdxTex() { return groupTriIdxTex; }
+    }
+
+    // Accessor for Part-side binding
+    ref ChildMap getChildMap(Part p) {
+        ensureChildMapping(p);
+        return childMaps[p];
     }
 
     override

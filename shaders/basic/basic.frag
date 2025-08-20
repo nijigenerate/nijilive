@@ -24,6 +24,10 @@ uniform float emissionStrength = 1;
 uniform int pathDebugEnabled;
 uniform vec3 pathDebugColor;
 uniform float pathDebugStrength;
+// Debug tint for GPU MeshGroup deformation
+uniform int groupDebugEnabled;
+uniform vec3 groupDebugColor;
+uniform float groupDebugStrength;
 
 vec4 screen(vec3 tcol, float a) {
     return vec4(vec3(1.0) - ((vec3(1.0)-tcol) * (vec3(1.0)-(screenColor*a))), a);
@@ -45,6 +49,9 @@ void main() {
     outAlbedo = albedoOut * opacity;
     if (pathDebugEnabled == 1) {
         outAlbedo.rgb = mix(outAlbedo.rgb, pathDebugColor, clamp(pathDebugStrength, 0.0, 1.0));
+    }
+    if (groupDebugEnabled == 1) {
+        outAlbedo.rgb = mix(outAlbedo.rgb, groupDebugColor, clamp(groupDebugStrength, 0.0, 1.0));
     }
 
     // Emissive

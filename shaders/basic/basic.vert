@@ -25,6 +25,16 @@ uniform samplerBuffer pathOrigCPBuf;   // original/prev curve control points (RG
 uniform samplerBuffer pathDefCPBuf;    // deformed curve control points (RG32F)
 uniform int pathDynamic;               // 0: apply before child deform, 1: after
 
+// GPU MeshGroup (barycentric) inputs
+uniform int groupEnabled;              // 0: off, 1: on
+uniform int groupDynamic;              // 0: pre child deform, 1: post
+uniform mat4 groupCenter;
+uniform mat4 groupCenterInv;
+uniform samplerBuffer groupVertsBuf;   // MeshGroup transformed vertices (vec2)
+uniform isamplerBuffer groupTriIndexBuf;// MeshGroup triangle indices (int, packed 3 per tri)
+uniform isamplerBuffer childTriIdBuf;   // per-child-vertex triId (int)
+uniform samplerBuffer childBaryBuf;    // per-child-vertex barycentric (vec2: b0,b1)
+
 // Fetchers for control points
 vec2 fetchCPOrig(int i) {
     vec2 v = texelFetch(pathOrigCPBuf, i).xy;
@@ -127,30 +137,55 @@ vec2 splineDerivative(float t, bool defCurve) {
     return 0.5*(B + 2.0*C*lt + 3.0*D*lt*lt);
 }
 
+vec2 applyPathMap(vec2 srcLocal, float t) {
+    vec2 cVertex = (pathCenter * vec4(srcLocal, 0.0, 1.0)).xy;
+    vec2 C0 = (pathCurveType == 0) ? bezierPoint(t, false) : splinePoint(t, false);
+    vec2 T0 = normalize((pathCurveType == 0) ? bezierDerivative(t, false) : splineDerivative(t, false));
+    vec2 N0 = vec2(-T0.y, T0.x);
+    float dN = dot(cVertex - C0, N0);
+    float dT = dot(cVertex - C0, T0);
+    vec2 C1 = (pathCurveType == 0) ? bezierPoint(t, true) : splinePoint(t, true);
+    vec2 T1 = normalize((pathCurveType == 0) ? bezierDerivative(t, true) : splineDerivative(t, true));
+    vec2 N1 = vec2(-T1.y, T1.x);
+    vec2 cNew = C1 + N1 * dN + T1 * dT;
+    return (pathCenterInv * vec4(cNew, 0.0, 1.0)).xy;
+}
+
+vec2 applyGroupMap(vec2 srcLocal, int triId, vec2 bary) {
+    float b0 = bary.x;
+    float b1 = bary.y;
+    float b2 = 1.0 - b0 - b1;
+    vec2 cVertex2 = (groupCenter * vec4(srcLocal, 0.0, 1.0)).xy;
+    int i0 = texelFetch(groupTriIndexBuf, triId*3 + 0).x;
+    int i1 = texelFetch(groupTriIndexBuf, triId*3 + 1).x;
+    int i2 = texelFetch(groupTriIndexBuf, triId*3 + 2).x;
+    vec2 p0p = texelFetch(groupVertsBuf, i0).xy;
+    vec2 p1p = texelFetch(groupVertsBuf, i1).xy;
+    vec2 p2p = texelFetch(groupVertsBuf, i2).xy;
+    vec2 newC2 = p0p * b0 + p1p * b1 + p2p * b2;
+    return (groupCenterInv * vec4(newC2, 0.0, 1.0)).xy;
+}
+
 void main() {
     vec2 baseLocal = vec2(verts.x - offset.x, verts.y - offset.y);
-    vec2 local = baseLocal + deform;
+    float t = (pathEnabled == 1) ? texelFetch(pathTBuf, gl_VertexID).x : 0.0;
+    int triId = (groupEnabled == 1) ? texelFetch(childTriIdBuf, gl_VertexID).x : -1;
+    vec2 bary = (groupEnabled == 1) ? texelFetch(childBaryBuf, gl_VertexID).xy : vec2(0.0);
 
-    if (pathEnabled == 1) {
-        float t = texelFetch(pathTBuf, gl_VertexID).x;
-        // Choose source position depending on dynamic
-        vec2 sourceLocal = (pathDynamic == 1) ? local : baseLocal;
-        vec2 cVertex = (pathCenter * vec4(sourceLocal, 0.0, 1.0)).xy;
+    vec2 localPre = baseLocal;
+    // Pre-child-deform mappings
+    if (groupEnabled == 1 && groupDynamic == 0 && triId >= 0)
+        localPre = applyGroupMap(localPre, triId, bary);
+    if (pathEnabled == 1 && pathDynamic == 0)
+        localPre = applyPathMap(localPre, t);
 
-        vec2 C0 = (pathCurveType == 0) ? bezierPoint(t, false) : splinePoint(t, false);
-        vec2 T0 = normalize((pathCurveType == 0) ? bezierDerivative(t, false) : splineDerivative(t, false));
-        vec2 N0 = vec2(-T0.y, T0.x);
-        float dN = dot(cVertex - C0, N0);
-        float dT = dot(cVertex - C0, T0);
+    vec2 local = localPre + deform;
 
-        vec2 C1 = (pathCurveType == 0) ? bezierPoint(t, true) : splinePoint(t, true);
-        vec2 T1 = normalize((pathCurveType == 0) ? bezierDerivative(t, true) : splineDerivative(t, true));
-        vec2 N1 = vec2(-T1.y, T1.x);
-        vec2 cNew = C1 + N1 * dN + T1 * dT;
-        vec2 localNew = (pathCenterInv * vec4(cNew, 0.0, 1.0)).xy;
-        // If dynamic==0 (pre child deform), add deform afterwards
-        local = (pathDynamic == 1) ? localNew : (localNew + deform);
-    }
+    // Post-child-deform mappings
+    if (groupEnabled == 1 && groupDynamic == 1 && triId >= 0)
+        local = applyGroupMap(local, triId, bary);
+    if (pathEnabled == 1 && pathDynamic == 1)
+        local = applyPathMap(local, t);
 
     gl_Position = mvp * vec4(local, 0.0, 1.0);
     texUVs = uvs;

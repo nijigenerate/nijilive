@@ -37,6 +37,10 @@ uniform vec3 screenColor;
 uniform int pathDebugEnabled;
 uniform vec3 pathDebugColor;
 uniform float pathDebugStrength;
+// Debug tint for GPU MeshGroup deformation
+uniform int groupDebugEnabled;
+uniform vec3 groupDebugColor;
+uniform float groupDebugStrength;
 
 void main() {
     // Sample texture
@@ -49,5 +53,8 @@ void main() {
     outAlbedo = vec4(screenOut.xyz, texColor.a) * vec4(multColor.xyz, 1) * opacity;
     if (pathDebugEnabled == 1) {
         outAlbedo.rgb = mix(outAlbedo.rgb, pathDebugColor, clamp(pathDebugStrength, 0.0, 1.0));
+    }
+    if (groupDebugEnabled == 1) {
+        outAlbedo.rgb = mix(outAlbedo.rgb, groupDebugColor, clamp(groupDebugStrength, 0.0, 1.0));
     }
 }
