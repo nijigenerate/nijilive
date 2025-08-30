@@ -194,7 +194,9 @@ protected:
 
                 // Serialize permanent nodes using same flags
                 serializer.elemBegin;
-                child.serializePartial(serializer, flags, true);
+                auto stChild = serializer.structBegin();
+                child.serializeSelfImpl(serializer, true, flags);
+                serializer.structEnd(stChild);
             }
             serializer.listEnd(childArray);
         }
