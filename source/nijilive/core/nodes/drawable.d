@@ -125,7 +125,8 @@ protected:
         WeldingLink link = welded[linkIndex];
         if (postProcessed < 2)
             return Tuple!(vec2[], mat4*, bool)(null, null, changed);
-        if (weldingApplied[link.target] || link.target.weldingApplied[this])
+        if (link.target in weldingApplied && weldingApplied[link.target] || 
+            this in link.target.weldingApplied && link.target.weldingApplied[this])
             return Tuple!(vec2[], mat4*, bool)(null, null, changed);
 //        import std.stdio;
 //        writefln("welding: %s(%b) --> %s(%b)", name, postProcessed, target.name, target.postProcessed);
@@ -218,12 +219,15 @@ protected:
         Allows serializing self data (with pretty serializer)
     */
     override
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true) {
-        super.serializeSelfImpl(serializer, recursive);
-        serializer.putKey("mesh");
-        serializer.serializeValue(data);
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
+        super.serializeSelfImpl(serializer, recursive, flags);
+        if (flags & SerializeNodeFlags.Geometry) {
+            serializer.putKey("mesh");
+            serializer.serializeValue(data);
+        }
 
-        if (welded.length > 0) {
+        // welded links refer to other drawable nodes → Links category
+        if ((flags & SerializeNodeFlags.Links) && welded.length > 0) {
             serializer.putKey("weldedLinks");
             auto state = serializer.listBegin();
                 foreach(link; welded) {

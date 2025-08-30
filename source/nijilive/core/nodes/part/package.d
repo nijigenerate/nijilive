@@ -406,10 +406,10 @@ protected:
         Allows serializing self data (with pretty serializer)
     */
     override
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
-        super.serializeSelfImpl(serializer, recursive);
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
+        super.serializeSelfImpl(serializer, recursive, flags);
         version (InDoesRender) {
-            if (inIsINPMode()) {
+            if ((flags & SerializeNodeFlags.Links) && inIsINPMode()) {
                 serializer.putKey("textures");
                 auto state = serializer.listBegin();
                     foreach(ref texture; textures) {
@@ -431,19 +431,21 @@ protected:
             }
         }
 
-        serializer.putKey("blend_mode");
-        serializer.serializeValue(blendingMode);
-        
-        serializer.putKey("tint");
-        tint.serialize(serializer);
+        if (flags & SerializeNodeFlags.State) {
+            serializer.putKey("blend_mode");
+            serializer.serializeValue(blendingMode);
+            
+            serializer.putKey("tint");
+            tint.serialize(serializer);
 
-        serializer.putKey("screenTint");
-        screenTint.serialize(serializer);
+            serializer.putKey("screenTint");
+            screenTint.serialize(serializer);
 
-        serializer.putKey("emissionStrength");
-        serializer.serializeValue(emissionStrength);
+            serializer.putKey("emissionStrength");
+            serializer.serializeValue(emissionStrength);
+        }
 
-        if (masks.length > 0) {
+        if ((flags & SerializeNodeFlags.Links) && masks.length > 0) {
             serializer.putKey("masks");
             auto state = serializer.listBegin();
                 foreach(m; masks) {
@@ -453,11 +455,13 @@ protected:
             serializer.listEnd(state);
         }
 
-        serializer.putKey("mask_threshold");
-        serializer.putValue(maskAlphaThreshold);
+        if (flags & SerializeNodeFlags.State) {
+            serializer.putKey("mask_threshold");
+            serializer.putValue(maskAlphaThreshold);
 
-        serializer.putKey("opacity");
-        serializer.putValue(opacity);
+            serializer.putKey("opacity");
+            serializer.putValue(opacity);
+        }
     }
 
     override

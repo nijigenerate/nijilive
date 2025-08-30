@@ -1,0 +1,140 @@
+    Starting Performing "debug" build using /home/seagetch/dlang/ldc-1.41.0/bin/ldc2 for x86_64.
+             Build directory /home/seagetch/.dub/cache/nijilive/0.9.0+commit.7.g78c19b6/build/full-debug-AnHxgHcW2p_5Xeo3iBq0gQ is not writable. Falling back to direct build in the system's temp folder.
+    Building nijilive 0.9.0+commit.7.g78c19b6 [full]
+   Pre-build Running commands
+             Building package gitver in /home/seagetch/src/github/Inochi2D/gitver/
+    Starting Performing "debug" build using /home/seagetch/dlang/ldc-1.41.0/bin/ldc2 for x86_64.
+  Up-to-date semver 0.3.4: target for configuration [library] is up to date.
+  Up-to-date gitver ~master: target for configuration [application] is up to date.
+    Finished To force a rebuild of up-to-date targets, run again with --force
+     Running ../../github/Inochi2D/gitver/out/gitver --prefix IN --file source/nijilive/ver.d --mod nijilive.ver --appname nijilive
+../../../.dub/packages/mir-core/1.7.1/mir-core/source/mir/exception.d(48,103): Deprecation: `auto` and `ref` storage classes should be adjacent
+auto ref enforce(string fmt, string file = __FILE__, int line = __LINE__, Expr)(scope auto return ref Expr arg) @trusted
+                                                                                                      ^
+source/nijilive/core/animation/animation.d(69,20): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.structBegin` is deprecated - Use structBegin instead
+        auto obj = serializer.structBegin();
+                   ^
+../../../.dub/packages/mir-core/1.7.1/mir-core/source/mir/qualifier.d(79,40): Deprecation: `auto` and `ref` storage classes should be adjacent
+auto ref lightScope(T)(auto return ref T v)
+                                       ^
+../../../.dub/packages/mir-algorithm/3.22.1/mir-algorithm/source/mir/bignum/integer.d(268,16): Deprecation: `void` initializing a type with unsafe bit patterns will become `@system` in a future release
+        BigInt ret = void;
+               ^
+source/nijilive/core/animation/animation.d(86,26): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listBegin` is deprecated - Use listBegin instead
+            auto state = serializer.listBegin;
+                         ^
+source/nijilive/core/animation/animation.d(93,13): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listEnd` is deprecated - Use listEnd instead
+            serializer.listEnd(state);
+            ^
+source/nijilive/core/animation/animation.d(94,9): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.structEnd` is deprecated - Use structEnd instead
+        serializer.structEnd(obj);
+        ^
+source/nijilive/core/animation/animation.d(144,20): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.structBegin` is deprecated - Use structBegin instead
+        auto obj = serializer.structBegin();
+                   ^
+source/nijilive/core/animation/animation.d(160,9): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.structEnd` is deprecated - Use structEnd instead
+        serializer.structEnd(obj);
+        ^
+source/nijilive/core/automation/phys.d(27,22): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.structBegin` is deprecated - Use structBegin instead
+        auto state = serializer.structBegin;
+                     ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1776,24):        instantiated from here: `serialize!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+        value.serialize(serializer);
+                       ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1516,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(elem);
+                                 ^
+source/nijilive/core/automation/phys.d(120,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(nodes);
+                                 ^
+source/nijilive/math/serialization.d(10,18): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listBegin` is deprecated - Use listBegin instead
+    auto state = serializer.listBegin();
+                 ^
+source/nijilive/core/automation/phys.d(31,31):        instantiated from here: `serialize!(Vector!(float, 2), JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+            position.serialize(serializer);
+                              ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1776,24):        instantiated from here: `serialize!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+        value.serialize(serializer);
+                       ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1516,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(elem);
+                                 ^
+source/nijilive/core/automation/phys.d(120,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(nodes);
+                                 ^
+source/nijilive/math/serialization.d(15,5): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listEnd` is deprecated - Use listEnd instead
+    serializer.listEnd(state);
+    ^
+source/nijilive/core/automation/phys.d(31,31):        instantiated from here: `serialize!(Vector!(float, 2), JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+            position.serialize(serializer);
+                              ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1776,24):        instantiated from here: `serialize!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+        value.serialize(serializer);
+                       ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1516,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(elem);
+                                 ^
+source/nijilive/core/automation/phys.d(120,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(nodes);
+                                 ^
+source/nijilive/core/automation/phys.d(34,9): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.structEnd` is deprecated - Use structEnd instead
+        serializer.structEnd(state);
+        ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1776,24):        instantiated from here: `serialize!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+        value.serialize(serializer);
+                       ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1516,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(elem);
+                                 ^
+source/nijilive/core/automation/phys.d(120,34):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), VerletNode)`
+        serializer.serializeValue(nodes);
+                                 ^
+source/nijilive/math/serialization.d(10,18): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listBegin` is deprecated - Use listBegin instead
+    auto state = serializer.listBegin();
+                 ^
+source/nijilive/core/nodes/composite/package.d(268,23):        instantiated from here: `serialize!(Vector!(float, 3), JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+        tint.serialize(serializer);
+                      ^
+source/nijilive/math/serialization.d(15,5): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listEnd` is deprecated - Use listEnd instead
+    serializer.listEnd(state);
+    ^
+source/nijilive/core/nodes/composite/package.d(268,23):        instantiated from here: `serialize!(Vector!(float, 3), JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+        tint.serialize(serializer);
+                      ^
+source/nijilive/core/nodes/composite/package.d(284,26): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listBegin` is deprecated - Use listBegin instead
+            auto state = serializer.listBegin();
+                         ^
+source/nijilive/core/nodes/composite/package.d(289,13): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listEnd` is deprecated - Use listEnd instead
+            serializer.listEnd(state);
+            ^
+source/nijilive/core/nodes/deformer/path.d(94,22): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listBegin` is deprecated - Use listBegin instead
+        auto state = serializer.listBegin();
+                     ^
+source/nijilive/core/nodes/deformer/path.d(103,9): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.listEnd` is deprecated - Use listEnd instead
+        serializer.listEnd(state);
+        ^
+source/nijilive/core/nodes/deformer/drivers/phys.d(23,22): Deprecation: alias `fghj.serialization.JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe).JsonSerializer.structBegin` is deprecated - Use structBegin instead
+        auto state = serializer.structBegin();
+                     ^
+../../../.dub/packages/fghj/1.0.2/fghj/source/fghj/serialization.d(1776,24):        instantiated from here: `serialize!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe))`
+        value.serialize(serializer);
+                       ^
+source/nijilive/core/nodes/deformer/path.d(106,38):        instantiated from here: `serializeValue!(JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe), PhysicsDriver)`
+            serializer.serializeValue(_driver);
+                                     ^
+source/nijilive/core/nodes/meshgroup/package.d(195,17): Error: undefined identifier `glGenTransformFeedbacks`
+                glGenTransformFeedbacks(1, &tfObj);
+                ^
+source/nijilive/core/nodes/meshgroup/package.d(196,17): Error: undefined identifier `glBindTransformFeedback`, did you mean variable `glEndTransformFeedback`?
+                glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, tfObj);
+                ^
+source/nijilive/core/nodes/meshgroup/package.d(203,17): Error: undefined identifier `glBindTransformFeedback`, did you mean variable `glEndTransformFeedback`?
+                glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
+                ^
+source/nijilive/core/nodes/meshgroup/package.d(204,17): Error: undefined identifier `glDeleteTransformFeedbacks`
+                glDeleteTransformFeedbacks(1, &tfObj);
+                ^
+source/nijilive/core/shader.d(209,38): Error: cannot modify `const` expression `cvars[i]`
+        foreach(i, v; varyings) cvars[i] = v.toStringz;
+                                     ^
+Error /home/seagetch/dlang/ldc-1.41.0/bin/ldc2 failed with exit code 1.
