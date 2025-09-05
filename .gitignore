@@ -27,6 +27,7 @@ basicrender.a
 basicrender.lib
 basicrender-test-*
 !logo.png
-build.logobuild.err
+build.logo
+build.err
 
 source/nijilive/ver.d
