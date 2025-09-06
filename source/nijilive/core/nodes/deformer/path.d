@@ -75,26 +75,29 @@ protected:
     }
 
     override
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
-        super.serializeSelfImpl(serializer, recursive);
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
+        super.serializeSelfImpl(serializer, recursive, flags);
         if (physicsOnly) {
             serializer.putKey("physics_only");
             serializer.serializeValue(physicsOnly);
         }
         serializer.putKey("curve_type");
         serializer.serializeValue(curveType);
-        serializer.putKey("vertices");
-        auto state = serializer.listBegin();
-        if (originalCurve) {
-            foreach(vertex; originalCurve.controlPoints) {
-                serializer.elemBegin;
-                serializer.serializeValue(vertex.x);
-                serializer.elemBegin;
-                serializer.serializeValue(vertex.y);
+        if (flags & SerializeNodeFlags.Geometry) {
+            serializer.putKey("vertices");
+            auto state = serializer.listBegin();
+            if (originalCurve) {
+                foreach(vertex; originalCurve.controlPoints) {
+                    serializer.elemBegin;
+                    serializer.serializeValue(vertex.x);
+                    serializer.elemBegin;
+                    serializer.serializeValue(vertex.y);
+                }
             }
+            serializer.listEnd(state);
         }
-        serializer.listEnd(state);
-        if (_driver !is null) {
+        // physics driver is a link to another resource → Links category
+        if ((flags & SerializeNodeFlags.Links) && _driver !is null) {
             serializer.putKey("physics");
             serializer.serializeValue(_driver);
         }

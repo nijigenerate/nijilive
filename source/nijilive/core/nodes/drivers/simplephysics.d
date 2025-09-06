@@ -238,8 +238,8 @@ protected:
         Allows serializing self data (with pretty serializer)
     */
     override
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true) {
-        super.serializeSelfImpl(serializer, recursive);
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
+        super.serializeSelfImpl(serializer, recursive, flags);
         serializer.putKey("param");
         serializer.serializeValue(paramRef);
         serializer.putKey("model_type");

@@ -264,14 +264,15 @@ public:
     }
 
     override
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
-        super.serializeSelfImpl(serializer, recursive);
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
+        super.serializeSelfImpl(serializer, recursive, flags);
+        if (flags & SerializeNodeFlags.State) {
+            serializer.putKey("dynamic_deformation");
+            serializer.serializeValue(dynamic);
 
-        serializer.putKey("dynamic_deformation");
-        serializer.serializeValue(dynamic);
-
-        serializer.putKey("translate_children");
-        serializer.serializeValue(translateChildren);
+            serializer.putKey("translate_children");
+            serializer.serializeValue(translateChildren);
+        }
     }
 
     override

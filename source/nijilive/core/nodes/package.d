@@ -30,6 +30,17 @@ import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
 import std.string;
 
+// Flags to control which Node properties get serialized
+enum SerializeNodeFlags : uint {
+    None        = 0,
+    Basics      = 1 << 0, // uuid, name, typeId
+    State       = 1 << 1, // enabled, zsort, transform, lockToRoot, pinToMesh
+    Children    = 1 << 2, // children list
+    Geometry    = 1 << 3, // heavy geometry-related payloads (e.g., meshes/vertices)
+    Links       = 1 << 4, // links to other resources (masks, welded, textures)
+    All         = Basics | State | Children | Geometry | Links,
+}
+
 //public import nijilive.core.nodes.shapes; // This isn't mainline yet!
 
 import std.exception;
@@ -148,33 +159,32 @@ protected:
         if (parent !is null) parent.resetMask();
     }
 
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true) {
+    // Extended serializer with flags to control which fields are emitted (defaults to all)
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
         
-        serializer.putKey("uuid");
-        serializer.putValue(uuid);
+        if (flags & SerializeNodeFlags.Basics) {
+            serializer.putKey("uuid");
+            serializer.putValue(uuid);
+            serializer.putKey("name");
+            serializer.putValue(name);
+            serializer.putKey("type");
+            serializer.putValue(typeId);
+        }
         
-        serializer.putKey("name");
-        serializer.putValue(name);
+        if (flags & SerializeNodeFlags.State) {
+            serializer.putKey("enabled");
+            serializer.putValue(enabled);
+            serializer.putKey("zsort");
+            serializer.putValue(zsort_);
+            serializer.putKey("transform");
+            serializer.serializeValue(this.localTransform);
+            serializer.putKey("lockToRoot");
+            serializer.serializeValue(this.lockToRoot_);
+            serializer.putKey("pinToMesh");
+            serializer.serializeValue(this.pinToMesh_);
+        }
         
-        serializer.putKey("type");
-        serializer.putValue(typeId);
-        
-        serializer.putKey("enabled");
-        serializer.putValue(enabled);
-        
-        serializer.putKey("zsort");
-        serializer.putValue(zsort_);
-        
-        serializer.putKey("transform");
-        serializer.serializeValue(this.localTransform);
-        
-        serializer.putKey("lockToRoot");
-        serializer.serializeValue(this.lockToRoot_);
-        
-        serializer.putKey("pinToMesh");
-        serializer.serializeValue(this.pinToMesh_);
-        
-        if (recursive && children.length > 0) {
+        if ((flags & SerializeNodeFlags.Children) && children.length > 0) {
             serializer.putKey("children");
             auto childArray = serializer.listBegin();
             foreach(child; children) {
@@ -182,9 +192,11 @@ protected:
                 // Skip Temporary nodes
                 if (cast(TmpNode)child) continue;
 
-                // Serialize permanent nodes
+                // Serialize permanent nodes using same flags
                 serializer.elemBegin;
-                serializer.serializeValue(child);
+                auto stChild = serializer.structBegin();
+                child.serializeSelfImpl(serializer, true, flags);
+                serializer.structEnd(stChild);
             }
             serializer.listEnd(childArray);
         }
@@ -914,7 +926,12 @@ public:
     }
 
     void serializePartial(ref InochiSerializer serializer, bool recursive = true) {
-        serializeSelfImpl(serializer, recursive);
+        serializeSelfImpl(serializer, recursive, SerializeNodeFlags.All);
+    }
+
+    // Overload that accepts flags to customize serialization
+    void serializePartial(ref InochiSerializer serializer, SerializeNodeFlags flags, bool recursive = true) {
+        serializeSelfImpl(serializer, recursive, flags);
     }
 
     /**

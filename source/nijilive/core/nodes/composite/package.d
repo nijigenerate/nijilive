@@ -258,28 +258,30 @@ protected:
     }
 
     override
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true) {
-        super.serializeSelfImpl(serializer, recursive);
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
+        super.serializeSelfImpl(serializer, recursive, flags);
 
-        serializer.putKey("blend_mode");
-        serializer.serializeValue(blendingMode);
+        if (flags & SerializeNodeFlags.State) {
+            serializer.putKey("blend_mode");
+            serializer.serializeValue(blendingMode);
 
-        serializer.putKey("tint");
-        tint.serialize(serializer);
+            serializer.putKey("tint");
+            tint.serialize(serializer);
 
-        serializer.putKey("screenTint");
-        screenTint.serialize(serializer);
+            serializer.putKey("screenTint");
+            screenTint.serialize(serializer);
 
-        serializer.putKey("mask_threshold");
-        serializer.putValue(threshold);
+            serializer.putKey("mask_threshold");
+            serializer.putValue(threshold);
 
-        serializer.putKey("opacity");
-        serializer.putValue(opacity);
+            serializer.putKey("opacity");
+            serializer.putValue(opacity);
 
-        serializer.putKey("propagate_meshgroup");
-        serializer.serializeValue(propagateMeshGroup);
+            serializer.putKey("propagate_meshgroup");
+            serializer.serializeValue(propagateMeshGroup);
+        }
 
-        if (masks.length > 0) {
+        if ((flags & SerializeNodeFlags.Links) && masks.length > 0) {
             serializer.putKey("masks");
             auto state = serializer.listBegin();
                 foreach(m; masks) {

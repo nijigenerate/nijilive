@@ -264,12 +264,15 @@ protected:
         Allows serializing self data (with pretty serializer)
     */
     override
-    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true) {
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
         Texture[3] tmpTextures = textures;
         textures = [null, null, null];
-        super.serializeSelfImpl(serializer, recursive);
-        serializer.putKey("auto_resized");
-        serializer.serializeValue(autoResizedMesh);
+        super.serializeSelfImpl(serializer, recursive, flags);
+        // DynamicComposite-specific state
+        if (flags & SerializeNodeFlags.State) {
+            serializer.putKey("auto_resized");
+            serializer.serializeValue(autoResizedMesh);
+        }
         textures = tmpTextures;
     }
 
