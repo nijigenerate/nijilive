@@ -138,6 +138,7 @@ public:
     }
 
     void drawSelf(bool isMask = false)() {
+        if (children.length == 0) return;
         super.drawSelf!isMask();
     }
 
