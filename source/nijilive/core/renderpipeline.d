@@ -28,6 +28,8 @@ struct DifferenceEvaluationResult {
     double blue;
     double alpha;
     uint sampleCount;
+    double[16*16] tileTotals;
+    double[16*16] tileCounts;
 
     @property double total() const {
         return red + green + blue;
@@ -61,6 +63,8 @@ private struct DifferenceEvaluator {
 
     int resourceWidth;
     int resourceHeight;
+    int finalWidth;
+    int finalHeight;
 
     GLint uCollectViewport;
     GLint uCollectRect;
@@ -127,6 +131,8 @@ private struct DifferenceEvaluator {
 
         resourceWidth = width;
         resourceHeight = height;
+        finalWidth = width;
+        finalHeight = height;
 
         collectTexture = createTexture(width, height);
         collectFbo = createFramebuffer(collectTexture);
@@ -134,7 +140,7 @@ private struct DifferenceEvaluator {
         int currentWidth = width;
         int currentHeight = height;
 
-        while (currentWidth > 1 || currentHeight > 1) {
+        while (currentWidth > 16 || currentHeight > 16) {
             currentWidth = (currentWidth + 1) / 2;
             currentHeight = (currentHeight + 1) / 2;
 
@@ -185,6 +191,7 @@ private struct DifferenceEvaluator {
         collectTexture = 0;
         lastTexture = 0;
         resourceWidth = resourceHeight = 0;
+        finalWidth = finalHeight = 0;
     }
 
     void destroyPrograms() {
@@ -300,6 +307,8 @@ private struct DifferenceEvaluator {
         }
 
         lastTexture = currentTexture;
+        finalWidth = currentWidth;
+        finalHeight = currentHeight;
         resultReady = true;
 
         glBindVertexArray(0);
@@ -321,16 +330,59 @@ private struct DifferenceEvaluator {
             return false;
         }
 
+        int width = finalWidth > 0 ? finalWidth : 1;
+        int height = finalHeight > 0 ? finalHeight : 1;
+        size_t pixelCount = cast(size_t)width * cast(size_t)height;
+
+        float[] data = new float[pixelCount * 4];
         glBindTexture(GL_TEXTURE_2D, lastTexture);
-        float[4] data;
         glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, data.ptr);
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        result.red   = data[0];
-        result.green = data[1];
-        result.blue  = data[2];
-        result.alpha = data[3];
-        result.sampleCount = pendingSampleCount;
+        double totalRed = 0;
+        double totalGreen = 0;
+        double totalBlue = 0;
+        double totalAlpha = 0;
+
+        double[16*16] tileTotals;
+        double[16*16] tileCounts;
+
+        foreach (int y; 0 .. height) {
+            foreach (int x; 0 .. width) {
+                size_t idx = (cast(size_t)y * width + x) * 4;
+                double r = data[idx + 0];
+                double g = data[idx + 1];
+                double b = data[idx + 2];
+                double a = data[idx + 3];
+
+                totalRed += r;
+                totalGreen += g;
+                totalBlue += b;
+                double weight = a > 0 ? a : 1.0;
+                totalAlpha += weight;
+
+                int tileX = cast(int)(cast(double)x * 16.0 / cast(double)width);
+                if (tileX > 15) tileX = 15;
+                int tileY = cast(int)(cast(double)y * 16.0 / cast(double)height);
+                if (tileY > 15) tileY = 15;
+                size_t tileIndex = cast(size_t)tileY * 16 + tileX;
+                tileTotals[tileIndex] += r + g + b;
+                tileCounts[tileIndex] += weight;
+            }
+        }
+
+        if (totalAlpha <= 0) {
+            totalAlpha = cast(double)pendingSampleCount;
+            foreach (ref count; tileCounts) if (count == 0) count = 1.0;
+        }
+
+        result.red = totalRed;
+        result.green = totalGreen;
+        result.blue = totalBlue;
+        result.alpha = totalAlpha;
+        result.sampleCount = cast(uint)totalAlpha;
+        result.tileTotals = tileTotals;
+        result.tileCounts = tileCounts;
 
         resultReady = false;
         return true;
