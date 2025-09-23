@@ -9,18 +9,11 @@ uniform ivec4 uRect;
 uniform bool uUseRect;
 
 void main() {
-    ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), uViewportSize - ivec2(1));
-
-    bool inside = !uUseRect || (
-        pixel.x >= uRect.x && pixel.y >= uRect.y &&
-        pixel.x < uRect.x + uRect.z &&
-        pixel.y < uRect.y + uRect.w
-    );
-
-    if (!inside) {
-        fragColor = vec4(0.0);
-        return;
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    if (uUseRect) {
+        pixel += uRect.xy;
     }
+    pixel = clamp(pixel, ivec2(0), uViewportSize - ivec2(1));
 
     vec3 sample = clamp(texelFetch(uSource, pixel, 0).rgb, 0.0, 1.0);
     fragColor = vec4(sample, 1.0);

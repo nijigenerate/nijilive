@@ -19,16 +19,10 @@ public import nijilive.core.meshdata;
 public import nijilive.core.param;
 public import nijilive.core.automation;
 public import nijilive.core.animation;
-public import nijilive.core.renderpipeline : DifferenceEvaluationRegion, DifferenceEvaluationResult;
+public import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 public import nijilive.integration;
 import nijilive.core.dbg;
-import nijilive.core.renderpipeline :
-    rpSetDifferenceEvaluationEnabled,
-    rpDifferenceEvaluationEnabled,
-    rpSetDifferenceEvaluationRegion,
-    rpGetDifferenceEvaluationRegion,
-    rpEvaluateDifference,
-    rpFetchDifferenceResult;
+import nijilive.core.diff_collect;
 
 import bindbc.opengl;
 import nijilive.math;

@@ -8,11 +8,14 @@
     collect pass followed by repeated 2× reductions so it works with the
     existing OpenGL 3.2 baseline.
 */
-module nijilive.core.renderpipeline;
+module nijilive.core.diff_collect;
 
 import bindbc.opengl;
-import std.algorithm : clamp;
+import std.algorithm : clamp, max, min;
 import std.exception : enforce;
+import std.format : format;
+import std.math : floor, isFinite;
+import std.stdio : stderr, writefln;
 import std.string : toStringz;
 
 struct DifferenceEvaluationRegion {
@@ -22,14 +25,17 @@ struct DifferenceEvaluationRegion {
     int height;
 }
 
+enum TileColumns = 16;
+enum TileCount = TileColumns * TileColumns;
+
 struct DifferenceEvaluationResult {
     double red;
     double green;
     double blue;
     double alpha;
     uint sampleCount;
-    double[16*16] tileTotals;
-    double[16*16] tileCounts;
+    double[TileCount] tileTotals;
+    double[TileCount] tileCounts;
 
     @property double total() const {
         return red + green + blue;
@@ -223,7 +229,6 @@ private struct DifferenceEvaluator {
         }
 
         ensurePrograms();
-        ensureResources(viewportWidth, viewportHeight);
 
         DifferenceEvaluationRegion clampedRegion = region;
         if (useRegion) {
@@ -235,6 +240,7 @@ private struct DifferenceEvaluator {
 
         int targetWidth = useRegion ? clampedRegion.width : viewportWidth;
         int targetHeight = useRegion ? clampedRegion.height : viewportHeight;
+        ensureResources(targetWidth, targetHeight);
         if (targetWidth <= 0 || targetHeight <= 0) {
             resultReady = false;
             pendingSampleCount = 0;
@@ -259,7 +265,7 @@ private struct DifferenceEvaluator {
 
         glBindFramebuffer(GL_FRAMEBUFFER, collectFbo);
         glDrawBuffers(1, [GL_COLOR_ATTACHMENT0].ptr);
-        glViewport(0, 0, viewportWidth, viewportHeight);
+        glViewport(0, 0, targetWidth, targetHeight);
         glClearColor(0, 0, 0, 0);
         glClear(GL_COLOR_BUFFER_BIT);
 
@@ -268,8 +274,8 @@ private struct DifferenceEvaluator {
         if (uCollectRect != -1) glUniform4i(uCollectRect,
             clampedRegion.x,
             clampedRegion.y,
-            useRegion ? clampedRegion.width : viewportWidth,
-            useRegion ? clampedRegion.height : viewportHeight
+            targetWidth,
+            targetHeight
         );
         if (uCollectUseRect != -1) glUniform1i(uCollectUseRect, useRegion ? 1 : 0);
         if (uCollectSource != -1) glUniform1i(uCollectSource, 0);
@@ -281,10 +287,14 @@ private struct DifferenceEvaluator {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
         GLuint currentTexture = collectTexture;
-        int currentWidth = viewportWidth;
-        int currentHeight = viewportHeight;
+        int currentWidth = targetWidth;
+        int currentHeight = targetHeight;
 
         foreach (ref level; reductionLevels) {
+            if (level.width < TileColumns || level.height < TileColumns) {
+                break;
+            }
+
             glBindFramebuffer(GL_FRAMEBUFFER, level.fbo);
             glDrawBuffers(1, [GL_COLOR_ATTACHMENT0].ptr);
             glViewport(0, 0, level.width, level.height);
@@ -344,10 +354,40 @@ private struct DifferenceEvaluator {
         double totalBlue = 0;
         double totalAlpha = 0;
 
-        double[16*16] tileTotals;
-        double[16*16] tileCounts;
+        double[TileCount] tileTotals = 0;
+        double[TileCount] tileCounts = 0;
+
+        double regionWidth = resourceWidth > 0 ? cast(double)resourceWidth : cast(double)width;
+        double regionHeight = resourceHeight > 0 ? cast(double)resourceHeight : cast(double)height;
+        if (regionWidth <= 0 || regionHeight <= 0) {
+            result = DifferenceEvaluationResult.init;
+            return false;
+        }
+
+        double tileWidth = regionWidth / TileColumns;
+        double tileHeight = regionHeight / TileColumns;
+        if (tileWidth <= 0 || tileHeight <= 0) {
+            result = DifferenceEvaluationResult.init;
+            return false;
+        }
+
+        double pixelWidth = regionWidth / cast(double)width;
+        double pixelHeight = regionHeight / cast(double)height;
+        if (pixelWidth <= 0 || pixelHeight <= 0) {
+            result = DifferenceEvaluationResult.init;
+            return false;
+        }
+        double pixelArea = pixelWidth * pixelHeight;
+        if (pixelArea <= 0) {
+            result = DifferenceEvaluationResult.init;
+            return false;
+        }
+        const double epsilon = 1e-9;
 
         foreach (int y; 0 .. height) {
+            double srcTop = y * pixelHeight;
+            double srcBottom = (y + 1) * pixelHeight;
+
             foreach (int x; 0 .. width) {
                 size_t idx = (cast(size_t)y * width + x) * 4;
                 double r = data[idx + 0];
@@ -361,13 +401,44 @@ private struct DifferenceEvaluator {
                 double weight = a > 0 ? a : 1.0;
                 totalAlpha += weight;
 
-                int tileX = cast(int)(cast(double)x * 16.0 / cast(double)width);
-                if (tileX > 15) tileX = 15;
-                int tileY = cast(int)(cast(double)y * 16.0 / cast(double)height);
-                if (tileY > 15) tileY = 15;
-                size_t tileIndex = cast(size_t)tileY * 16 + tileX;
-                tileTotals[tileIndex] += r + g + b;
-                tileCounts[tileIndex] += weight;
+                double srcLeft = x * pixelWidth;
+                double srcRight = (x + 1) * pixelWidth;
+
+                int tileXStart = cast(int)floor(srcLeft / tileWidth);
+                int tileXEnd = cast(int)floor((srcRight - epsilon) / tileWidth);
+                int tileYStart = cast(int)floor(srcTop / tileHeight);
+                int tileYEnd = cast(int)floor((srcBottom - epsilon) / tileHeight);
+
+                tileXStart = clamp(tileXStart, 0, TileColumns - 1);
+                tileXEnd = clamp(tileXEnd, 0, TileColumns - 1);
+                tileYStart = clamp(tileYStart, 0, TileColumns - 1);
+                tileYEnd = clamp(tileYEnd, 0, TileColumns - 1);
+
+                double sampleTotal = r + g + b;
+                import std.stdio;
+                foreach (int tileY; tileYStart .. tileYEnd + 1) {
+                    double tileTop = tileY * tileHeight;
+                    double tileBottom = tileTop + tileHeight;
+                    double overlapY = min(srcBottom, tileBottom) - max(srcTop, tileTop);
+                    if (overlapY <= 0) continue;
+
+                    foreach (int tileX; tileXStart .. tileXEnd + 1) {
+                        double tileLeft = tileX * tileWidth;
+                        double tileRight = tileLeft + tileWidth;
+                        double overlapX = min(srcRight, tileRight) - max(srcLeft, tileLeft);
+                        if (overlapX <= 0) continue;
+
+                        double overlapArea = overlapX * overlapY;
+                        if (overlapArea <= 0) continue;
+
+                        double fraction = overlapArea / pixelArea;
+                        if (fraction <= 0) continue;
+
+                        size_t tileIndex = cast(size_t)tileY * TileColumns + tileX;
+                        tileTotals[tileIndex] += sampleTotal * fraction;
+                        tileCounts[tileIndex] += weight * fraction;
+                    }
+                }
             }
         }
 
@@ -392,6 +463,13 @@ private struct DifferenceEvaluator {
         destroyResources();
         destroyPrograms();
     }
+}
+
+private string formatTileValue(double value) {
+    if (!isFinite(value)) {
+        return "    nan";
+    }
+    return format(" %8.5f", value);
 }
 
 private DifferenceEvaluator gDifferenceEvaluator;
