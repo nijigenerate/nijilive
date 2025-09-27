@@ -26,6 +26,7 @@ import nijilive.core.diff_collect;
 
 import bindbc.opengl;
 import nijilive.math;
+import std.algorithm.mutation : swap;
 //import std.stdio;
 
 version(Windows) {
@@ -539,6 +540,34 @@ package GLuint inGetBlendFramebuffer() {
     return blendFBO;
 }
 
+package GLuint inGetMainEmissive() {
+    return fEmissive;
+}
+
+package GLuint inGetMainBump() {
+    return fBump;
+}
+
+package GLuint inGetCompositeEmissive() {
+    return cfEmissive;
+}
+
+package GLuint inGetCompositeBump() {
+    return cfBump;
+}
+
+package GLuint inGetBlendAlbedo() {
+    return blendAlbedo;
+}
+
+package GLuint inGetBlendEmissive() {
+    return blendEmissive;
+}
+
+package GLuint inGetBlendBump() {
+    return blendBump;
+}
+
 /**
     Gets the nijilive main albedo render image
 
@@ -560,21 +589,26 @@ Shader inGetBlendShader(BlendMode mode) {
 /**
     Blends the composite buffer (BG) and main buffer (FG) into the blend buffer.
 */
-void inBlendToBlendBuffer(Shader shader) {
-    glBindFramebuffer(GL_FRAMEBUFFER, blendFBO);
+package void inBlendToBuffer(
+    Shader shader,
+    GLuint dstFramebuffer,
+    GLuint bgAlbedo, GLuint bgEmissive, GLuint bgBump,
+    GLuint fgAlbedo, GLuint fgEmissive, GLuint fgBump
+) {
+    glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
 
     shader.use();
     
-    // Bind background textures (from composite buffer) to units 0, 1, 2
-    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, cfAlbedo);
-    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, cfEmissive);
-    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, cfBump);
+    // Bind background textures to units 0, 1, 2
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, bgAlbedo);
+    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, bgEmissive);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, bgBump);
 
-    // Bind foreground textures (from main buffer) to units 3, 4, 5
-    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, fAlbedo);
-    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, fEmissive);
-    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, fBump);
+    // Bind foreground textures to units 3, 4, 5
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, fgAlbedo);
+    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, fgEmissive);
+    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, fgBump);
 
     shader.setUniform(shader.getUniformLocation("bg_albedo"), 0);
     shader.setUniform(shader.getUniformLocation("bg_emissive"), 1);
@@ -608,6 +642,15 @@ void inBlendToBlendBuffer(Shader shader) {
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+void inBlendToBlendBuffer(Shader shader) {
+    inBlendToBuffer(
+        shader,
+        blendFBO,
+        cfAlbedo, cfEmissive, cfBump,
+        fAlbedo, fEmissive, fBump
+    );
+}
+
 /**
     Blits the blend buffer to the composite buffer.
 */
@@ -624,6 +667,30 @@ void inBlitBlendToComposite() {
 
 GLuint inGetCompositeVAO() {
     return nijilive.core.nodes.composite.inGetCompositeVAO();
+}
+
+package void inSwapMainCompositeBuffers() {
+    swap(fAlbedo, cfAlbedo);
+    swap(fEmissive, cfEmissive);
+    swap(fBump, cfBump);
+    swap(fStencil, cfStencil);
+
+    GLint previous_fbo;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previous_fbo);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fAlbedo, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, fEmissive, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, fBump, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, fStencil, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, cfAlbedo, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, cfEmissive, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, cfBump, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, cfStencil, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, previous_fbo);
 }
 
 void inPushViewport(int width, int height) {
