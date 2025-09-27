@@ -14,6 +14,7 @@ public import nijilive.core.shader;
 public import nijilive.core.texture;
 public import nijilive.core.resource;
 public import nijilive.core.nodes;
+public import nijilive.core.nodes.common : BlendMode;
 public import nijilive.core.puppet;
 public import nijilive.core.meshdata;
 public import nijilive.core.param;
@@ -26,6 +27,8 @@ import nijilive.core.diff_collect;
 
 import bindbc.opengl;
 import nijilive.math;
+import nijilive.core.nodes.common : BlendMode;
+import std.algorithm.mutation : swap;
 //import std.stdio;
 
 version(Windows) {
@@ -88,6 +91,12 @@ private {
     GLuint cfBump;
     GLuint cfStencil;
 
+    GLuint blendFBO;
+    GLuint blendAlbedo;
+    GLuint blendEmissive;
+    GLuint blendBump;
+    GLuint blendStencil;
+
     vec4 inClearColor;
 
     PostProcessingShader basicSceneShader;
@@ -98,6 +107,8 @@ private {
     Camera[] inCamera;
 
     bool isCompositing;
+
+    Shader[BlendMode] blendShaders;
 
     void renderScene(vec4 area, PostProcessingShader shaderToUse, GLuint albedo, GLuint emissive, GLuint bump) {
         glViewport(0, 0, cast(int)area.z, cast(int)area.w);
@@ -217,6 +228,7 @@ package(nijilive) {
             // Generate the framebuffer we'll be using to render the model and composites
             glGenFramebuffers(1, &fBuffer);
             glGenFramebuffers(1, &cfBuffer);
+            glGenFramebuffers(1, &blendFBO);
             
             // Generate the color and stencil-depth textures needed
             // Note: we're not using the depth buffer but OpenGL 3.4 does not support stencil-only buffers
@@ -229,6 +241,11 @@ package(nijilive) {
             glGenTextures(1, &cfEmissive);
             glGenTextures(1, &cfBump);
             glGenTextures(1, &cfStencil);
+
+            glGenTextures(1, &blendAlbedo);
+            glGenTextures(1, &blendEmissive);
+            glGenTextures(1, &blendBump);
+            glGenTextures(1, &blendStencil);
 
             // Attach textures to framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, fBuffer);
@@ -243,8 +260,34 @@ package(nijilive) {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, cfBump, 0);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, cfStencil, 0);
 
+            glBindFramebuffer(GL_FRAMEBUFFER, blendFBO);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blendAlbedo, 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, blendEmissive, 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, blendBump, 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, blendStencil, 0);
+
             // go back to default fb
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            version(OSX) {
+                auto advancedBlendShader = new Shader(import("basic/basic.vert"), import("basic/advanced_blend.frag"));
+                BlendMode[] advancedModes = [
+                    BlendMode.Multiply,
+                    BlendMode.Screen,
+                    BlendMode.Overlay,
+                    BlendMode.Darken,
+                    BlendMode.Lighten,
+                    BlendMode.ColorDodge,
+                    BlendMode.ColorBurn,
+                    BlendMode.HardLight,
+                    BlendMode.SoftLight,
+                    BlendMode.Difference,
+                    BlendMode.Exclusion
+                ];
+                foreach(mode; advancedModes) {
+                    blendShaders[mode] = advancedBlendShader;
+                }
+            }
         }
     }
 }
@@ -507,6 +550,173 @@ GLuint inGetCompositeImage() {
     return cfAlbedo;
 }
 
+package GLuint inGetCompositeFramebuffer() {
+    return cfBuffer;
+}
+
+package GLuint inGetBlendFramebuffer() {
+    return blendFBO;
+}
+
+package GLuint inGetMainEmissive() {
+    return fEmissive;
+}
+
+package GLuint inGetMainBump() {
+    return fBump;
+}
+
+package GLuint inGetCompositeEmissive() {
+    return cfEmissive;
+}
+
+package GLuint inGetCompositeBump() {
+    return cfBump;
+}
+
+package GLuint inGetBlendAlbedo() {
+    return blendAlbedo;
+}
+
+package GLuint inGetBlendEmissive() {
+    return blendEmissive;
+}
+
+package GLuint inGetBlendBump() {
+    return blendBump;
+}
+
+/**
+    Gets the nijilive main albedo render image
+
+    DO NOT MODIFY THIS IMAGE!
+*/
+GLuint inGetMainAlbedo() {
+    return fAlbedo;
+}
+
+/**
+    Gets the blend shader for the specified mode
+*/
+Shader inGetBlendShader(BlendMode mode) {
+    auto shader = mode in blendShaders;
+    if (shader) return *shader;
+    return null;
+}
+
+/**
+    Blends the composite buffer (BG) and main buffer (FG) into the blend buffer.
+*/
+package void inBlendToBuffer(
+    Shader shader,
+    BlendMode mode,
+    GLuint dstFramebuffer,
+    GLuint bgAlbedo, GLuint bgEmissive, GLuint bgBump,
+    GLuint fgAlbedo, GLuint fgEmissive, GLuint fgBump
+) {
+    glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
+    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+
+    shader.use();
+    GLint modeUniform = shader.getUniformLocation("blend_mode");
+    if (modeUniform != -1) {
+        shader.setUniform(modeUniform, cast(int)mode);
+    }
+    
+    // Bind background textures to units 0, 1, 2
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, bgAlbedo);
+    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, bgEmissive);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, bgBump);
+
+    // Bind foreground textures to units 3, 4, 5
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, fgAlbedo);
+    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, fgEmissive);
+    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, fgBump);
+
+    shader.setUniform(shader.getUniformLocation("bg_albedo"), 0);
+    shader.setUniform(shader.getUniformLocation("bg_emissive"), 1);
+    shader.setUniform(shader.getUniformLocation("bg_bump"), 2);
+
+    shader.setUniform(shader.getUniformLocation("fg_albedo"), 3);
+    shader.setUniform(shader.getUniformLocation("fg_emissive"), 4);
+    shader.setUniform(shader.getUniformLocation("fg_bump"), 5);
+
+    // Ensure the quad is rendered in clip space with predictable coordinates.
+    GLint mvpUniform = shader.getUniformLocation("mvp");
+    if (mvpUniform != -1) {
+        shader.setUniform(mvpUniform, mat4.identity);
+    }
+
+    GLint offsetUniform = shader.getUniformLocation("offset");
+    if (offsetUniform != -1) {
+        shader.setUniform(offsetUniform, vec2(0f, 0f));
+    }
+
+    // Draw a full screen quad
+    glBindVertexArray(inGetCompositeVAO());
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Restore texture units
+    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void inBlendToBlendBuffer(Shader shader) {
+    inBlendToBuffer(
+        shader,
+        BlendMode.Difference,
+        blendFBO,
+        cfAlbedo, cfEmissive, cfBump,
+        fAlbedo, fEmissive, fBump
+    );
+}
+
+/**
+    Blits the blend buffer to the composite buffer.
+*/
+void inBlitBlendToComposite() {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, blendFBO);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cfBuffer);
+    glBlitFramebuffer(
+        0, 0, inViewportWidth[$-1], inViewportHeight[$-1], // src rect
+        0, 0, inViewportWidth[$-1], inViewportHeight[$-1], // dst rect
+        GL_COLOR_BUFFER_BIT, // blit mask
+        GL_NEAREST // blit filter
+    );
+}
+
+GLuint inGetCompositeVAO() {
+    return nijilive.core.nodes.composite.inGetCompositeVAO();
+}
+
+package void inSwapMainCompositeBuffers() {
+    swap(fAlbedo, cfAlbedo);
+    swap(fEmissive, cfEmissive);
+    swap(fBump, cfBump);
+    swap(fStencil, cfStencil);
+
+    GLint previous_fbo;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previous_fbo);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fAlbedo, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, fEmissive, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, fBump, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, fStencil, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, cfAlbedo, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, cfEmissive, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, cfBump, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, cfStencil, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, previous_fbo);
+}
+
 void inPushViewport(int width, int height) {
     inViewportWidth ~= width;
     inViewportHeight ~= height;
@@ -583,6 +793,31 @@ void inSetViewport(int width, int height) nothrow {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, cfEmissive, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, cfBump, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, cfStencil, 0);
+
+        // Blend framebuffer
+        glBindTexture(GL_TEXTURE_2D, blendAlbedo);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, null);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        
+        glBindTexture(GL_TEXTURE_2D, blendEmissive);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_FLOAT, null);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        
+        glBindTexture(GL_TEXTURE_2D, blendBump);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, null);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        
+        glBindTexture(GL_TEXTURE_2D, blendStencil);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, null);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, blendFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blendAlbedo, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, blendEmissive, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, blendBump, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, blendStencil, 0);
         
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 

@@ -370,8 +370,75 @@ protected:
                     renderStage!false(blendingMode);
                 }
             } else {
-                setupShaderStage(2, matrix);
-                renderStage!false(blendingMode);
+                 version(OSX) {
+                     auto blendShader = inGetBlendShader(blendingMode);
+                     if (blendShader) {
+                         GLint previous_draw_fbo;
+                         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
+                         GLint previous_read_fbo;
+                         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read_fbo);
+                         GLfloat[4] previous_clear_color;
+                         glGetFloatv(GL_COLOR_CLEAR_VALUE, previous_clear_color.ptr);
+
+                         bool drawingMainBuffer = previous_draw_fbo == inGetFramebuffer();
+                         bool drawingCompositeBuffer = previous_draw_fbo == inGetCompositeFramebuffer();
+
+                         if (!drawingMainBuffer && !drawingCompositeBuffer) {
+                             setupShaderStage(2, matrix);
+                             renderStage!false(blendingMode);
+                             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
+                             glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
+                             glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
+                             return;
+                         }
+
+                         int viewportWidth, viewportHeight;
+                         inGetViewport(viewportWidth, viewportHeight);
+                         GLint[4] previousViewport;
+                         glGetIntegerv(GL_VIEWPORT, previousViewport.ptr);
+
+                         // 1. Draw foreground into the blend framebuffer
+                         GLuint blendFramebuffer = inGetBlendFramebuffer();
+                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
+                         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+                         glViewport(0, 0, viewportWidth, viewportHeight);
+                         glClearColor(0f, 0f, 0f, 0f);
+                         glClear(GL_COLOR_BUFFER_BIT);
+                         setupShaderStage(2, matrix);
+                         renderStage!false(blendingMode);
+
+                         // 2. Run difference blend into the opposite buffer to avoid read/write hazards
+                         GLuint bgAlbedo = drawingMainBuffer ? inGetMainAlbedo() : inGetCompositeImage();
+                         GLuint bgEmissive = drawingMainBuffer ? inGetMainEmissive() : inGetCompositeEmissive();
+                         GLuint bgBump = drawingMainBuffer ? inGetMainBump() : inGetCompositeBump();
+
+                         GLuint fgAlbedo = inGetBlendAlbedo();
+                         GLuint fgEmissive = inGetBlendEmissive();
+                         GLuint fgBump = inGetBlendBump();
+
+                         GLuint destinationFBO = drawingMainBuffer ? inGetCompositeFramebuffer() : inGetFramebuffer();
+                         inBlendToBuffer(
+                             blendShader,
+                             blendingMode,
+                             destinationFBO,
+                             bgAlbedo, bgEmissive, bgBump,
+                             fgAlbedo, fgEmissive, fgBump
+                         );
+
+                         // 3. Swap the main/composite attachments so the caller sees the blended result
+                         inSwapMainCompositeBuffers();
+
+                         // 4. Restore framebuffer bindings and state
+                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawingMainBuffer ? inGetFramebuffer() : inGetCompositeFramebuffer());
+                         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+                         glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
+                         glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
+                         glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
+                         return;
+                     }
+                 }
+                 setupShaderStage(2, matrix);
+                 renderStage!false(blendingMode);
             }
         }
 
