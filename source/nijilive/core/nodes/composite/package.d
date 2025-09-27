@@ -86,6 +86,15 @@ package(nijilive) {
             glBindVertexArray(cVAO);
             glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
             glBufferData(GL_ARRAY_BUFFER, float.sizeof*vertexData.length, vertexData.ptr, GL_STATIC_DRAW);
+
+            // Pre-configure attribute layout so the VAO can be reused across passes
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
+            glEnableVertexAttribArray(1);
+            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
+
+            glBindVertexArray(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
     }
 

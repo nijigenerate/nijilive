@@ -535,6 +535,10 @@ package GLuint inGetCompositeFramebuffer() {
     return cfBuffer;
 }
 
+package GLuint inGetBlendFramebuffer() {
+    return blendFBO;
+}
+
 /**
     Gets the nijilive main albedo render image
 
@@ -579,6 +583,17 @@ void inBlendToBlendBuffer(Shader shader) {
     shader.setUniform(shader.getUniformLocation("fg_albedo"), 3);
     shader.setUniform(shader.getUniformLocation("fg_emissive"), 4);
     shader.setUniform(shader.getUniformLocation("fg_bump"), 5);
+
+    // Ensure the quad is rendered in clip space with predictable coordinates.
+    GLint mvpUniform = shader.getUniformLocation("mvp");
+    if (mvpUniform != -1) {
+        shader.setUniform(mvpUniform, mat4.identity);
+    }
+
+    GLint offsetUniform = shader.getUniformLocation("offset");
+    if (offsetUniform != -1) {
+        shader.setUniform(offsetUniform, vec2(0f, 0f));
+    }
 
     // Draw a full screen quad
     glBindVertexArray(inGetCompositeVAO());

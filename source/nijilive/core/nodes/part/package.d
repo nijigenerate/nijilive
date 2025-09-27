@@ -375,20 +375,58 @@ protected:
                      if (blendShader) {
                          GLint previous_draw_fbo;
                          glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
+                         GLint previous_read_fbo;
+                         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read_fbo);
+                         GLfloat[4] previous_clear_color;
+                         glGetFloatv(GL_COLOR_CLEAR_VALUE, previous_clear_color.ptr);
+
+                         bool drawingMainBuffer = previous_draw_fbo == inGetFramebuffer();
+                         bool drawingCompositeBuffer = previous_draw_fbo == inGetCompositeFramebuffer();
+
+                         GLuint blendFramebuffer = inGetBlendFramebuffer();
+
+                         int viewportWidth, viewportHeight;
+                         inGetViewport(viewportWidth, viewportHeight);
+
+                         if (drawingMainBuffer) {
+                             // Preserve the current main buffer contents so the blend shader can sample them.
+                             glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_draw_fbo);
+                             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, inGetCompositeFramebuffer());
+                             glBlitFramebuffer(
+                                 0, 0, viewportWidth, viewportHeight,
+                                 0, 0, viewportWidth, viewportHeight,
+                                 GL_COLOR_BUFFER_BIT,
+                                 GL_NEAREST
+                             );
+                         }
  
                          // 1. Draw FG to fBuffer
                          glBindFramebuffer(GL_DRAW_FRAMEBUFFER, inGetFramebuffer());
+                         glClearColor(0f, 0f, 0f, 0f);
                          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
                          setupShaderStage(2, matrix);
                          renderStage!false(blendingMode);
                          // 2. Blend cfBuffer(BG) + fBuffer(FG) -> blendBuffer
                          inBlendToBlendBuffer(blendShader);
- 
-                         // 3. Copy result from blendBuffer back to cfBuffer
-                         inBlitBlendToComposite();
- 
-                         // 4. Restore draw buffer and exit
+
+                         // 3. Copy result to the original render target
+                         if (drawingCompositeBuffer) {
+                             inBlitBlendToComposite();
+                         } else {
+                             glBindFramebuffer(GL_READ_FRAMEBUFFER, blendFramebuffer);
+                             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
+                             glBlitFramebuffer(
+                                 0, 0, viewportWidth, viewportHeight,
+                                 0, 0, viewportWidth, viewportHeight,
+                                 GL_COLOR_BUFFER_BIT,
+                                 GL_NEAREST
+                             );
+                         }
+
+                         // 4. Restore framebuffer bindings and state
                          glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
+                         glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
+                         glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
                          return;
                      }
                  }

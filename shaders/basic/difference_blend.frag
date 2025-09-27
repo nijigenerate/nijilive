@@ -20,21 +20,20 @@ uniform sampler2D fg_albedo;
 uniform sampler2D fg_emissive;
 uniform sampler2D fg_bump;
 
-uniform vec2 viewport_size;
-
 void main() {
     // 1. Get Foreground Color + Tints (from basic.frag logic)
     vec4 fg_albedo_color = texture(fg_albedo, texUVs);
     // Note: Tints are applied in the part shader before drawing to fBuffer
     // So fg_albedo already contains the tinted part color.
 
-    // 2. Get Background Color from the current fragment's position
-    vec2 bg_uv = gl_FragCoord.xy / viewport_size;
+    // 2. Sample the background using the same UVs as the foreground quad
+    vec2 bg_uv = texUVs;
     vec4 bg_albedo_color = texture(bg_albedo, bg_uv);
 
     // 3. Blend Albedo
     outAlbedo = abs(fg_albedo_color - bg_albedo_color);
-    outAlbedo.a = fg_albedo_color.a;
+    float combinedAlpha = clamp(fg_albedo_color.a + bg_albedo_color.a, 0.0, 1.0);
+    outAlbedo.a = combinedAlpha;
 
     // 4. Pass through Emissive and Bumpmap from the foreground part
     outEmissive = texture(fg_emissive, texUVs);
