@@ -14,6 +14,7 @@ public import nijilive.core.shader;
 public import nijilive.core.texture;
 public import nijilive.core.resource;
 public import nijilive.core.nodes;
+public import nijilive.core.nodes.common : BlendMode;
 public import nijilive.core.puppet;
 public import nijilive.core.meshdata;
 public import nijilive.core.param;
@@ -26,6 +27,7 @@ import nijilive.core.diff_collect;
 
 import bindbc.opengl;
 import nijilive.math;
+import nijilive.core.nodes.common : BlendMode;
 import std.algorithm.mutation : swap;
 //import std.stdio;
 
@@ -268,7 +270,23 @@ package(nijilive) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
             version(OSX) {
-                blendShaders[BlendMode.Difference] = new Shader(import("basic/basic.vert"), import("basic/difference_blend.frag"));
+                auto advancedBlendShader = new Shader(import("basic/basic.vert"), import("basic/advanced_blend.frag"));
+                BlendMode[] advancedModes = [
+                    BlendMode.Multiply,
+                    BlendMode.Screen,
+                    BlendMode.Overlay,
+                    BlendMode.Darken,
+                    BlendMode.Lighten,
+                    BlendMode.ColorDodge,
+                    BlendMode.ColorBurn,
+                    BlendMode.HardLight,
+                    BlendMode.SoftLight,
+                    BlendMode.Difference,
+                    BlendMode.Exclusion
+                ];
+                foreach(mode; advancedModes) {
+                    blendShaders[mode] = advancedBlendShader;
+                }
             }
         }
     }
@@ -591,6 +609,7 @@ Shader inGetBlendShader(BlendMode mode) {
 */
 package void inBlendToBuffer(
     Shader shader,
+    BlendMode mode,
     GLuint dstFramebuffer,
     GLuint bgAlbedo, GLuint bgEmissive, GLuint bgBump,
     GLuint fgAlbedo, GLuint fgEmissive, GLuint fgBump
@@ -599,6 +618,10 @@ package void inBlendToBuffer(
     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
 
     shader.use();
+    GLint modeUniform = shader.getUniformLocation("blend_mode");
+    if (modeUniform != -1) {
+        shader.setUniform(modeUniform, cast(int)mode);
+    }
     
     // Bind background textures to units 0, 1, 2
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, bgAlbedo);
@@ -645,6 +668,7 @@ package void inBlendToBuffer(
 void inBlendToBlendBuffer(Shader shader) {
     inBlendToBuffer(
         shader,
+        BlendMode.Difference,
         blendFBO,
         cfAlbedo, cfEmissive, cfBump,
         fAlbedo, fEmissive, fBump

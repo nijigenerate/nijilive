@@ -419,6 +419,7 @@ protected:
                          GLuint destinationFBO = drawingMainBuffer ? inGetCompositeFramebuffer() : inGetFramebuffer();
                          inBlendToBuffer(
                              blendShader,
+                             blendingMode,
                              destinationFBO,
                              bgAlbedo, bgEmissive, bgBump,
                              fgAlbedo, fgEmissive, fgBump
