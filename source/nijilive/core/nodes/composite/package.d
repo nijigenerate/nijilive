@@ -88,6 +88,10 @@ package(nijilive) {
             glBufferData(GL_ARRAY_BUFFER, float.sizeof*vertexData.length, vertexData.ptr, GL_STATIC_DRAW);
         }
     }
+
+    GLuint inGetCompositeVAO() {
+        return cVAO;
+    }
 }
 
 /**

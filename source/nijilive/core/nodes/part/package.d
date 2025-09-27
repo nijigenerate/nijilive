@@ -370,8 +370,30 @@ protected:
                     renderStage!false(blendingMode);
                 }
             } else {
-                setupShaderStage(2, matrix);
-                renderStage!false(blendingMode);
+                 version(OSX) {
+                     auto blendShader = inGetBlendShader(blendingMode);
+                     if (blendShader) {
+                         GLint previous_draw_fbo;
+                         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
+ 
+                         // 1. Draw FG to fBuffer
+                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, inGetFramebuffer());
+                         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                         setupShaderStage(2, matrix);
+                         renderStage!false(blendingMode);
+                         // 2. Blend cfBuffer(BG) + fBuffer(FG) -> blendBuffer
+                         inBlendToBlendBuffer(blendShader);
+ 
+                         // 3. Copy result from blendBuffer back to cfBuffer
+                         inBlitBlendToComposite();
+ 
+                         // 4. Restore draw buffer and exit
+                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
+                         return;
+                     }
+                 }
+                 setupShaderStage(2, matrix);
+                 renderStage!false(blendingMode);
             }
         }
 
