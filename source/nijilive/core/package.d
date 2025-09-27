@@ -19,8 +19,10 @@ public import nijilive.core.meshdata;
 public import nijilive.core.param;
 public import nijilive.core.automation;
 public import nijilive.core.animation;
+public import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 public import nijilive.integration;
 import nijilive.core.dbg;
+import nijilive.core.diff_collect;
 
 import bindbc.opengl;
 import nijilive.math;
@@ -627,6 +629,30 @@ void inDumpViewport(ref ubyte[] dumpTo) {
         
         ri++;
     }
+}
+
+void inSetDifferenceAggregationEnabled(bool enabled) {
+    rpSetDifferenceEvaluationEnabled(enabled);
+}
+
+bool inIsDifferenceAggregationEnabled() {
+    return rpDifferenceEvaluationEnabled();
+}
+
+void inSetDifferenceAggregationRegion(int x, int y, int width, int height) {
+    rpSetDifferenceEvaluationRegion(DifferenceEvaluationRegion(x, y, width, height));
+}
+
+DifferenceEvaluationRegion inGetDifferenceAggregationRegion() {
+    return rpGetDifferenceEvaluationRegion();
+}
+
+bool inEvaluateDifferenceAggregation(GLuint texture, int viewportWidth, int viewportHeight) {
+    return rpEvaluateDifference(texture, viewportWidth, viewportHeight);
+}
+
+bool inFetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
+    return rpFetchDifferenceResult(result);
 }
 
 /**
