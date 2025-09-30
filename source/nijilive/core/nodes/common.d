@@ -17,6 +17,26 @@ import std.string;
 private {
     bool inAdvancedBlending;
     bool inAdvancedBlendingCoherent;
+    version(OSX)
+        enum bool inDefaultTripleBufferFallback = true;
+    else
+        enum bool inDefaultTripleBufferFallback = false;
+    bool inForceTripleBufferFallback = inDefaultTripleBufferFallback;
+    bool inAdvancedBlendingAvailable;
+    bool inAdvancedBlendingCoherentAvailable;
+
+    void inApplyBlendingCapabilities() {
+        bool desiredAdvanced = inAdvancedBlendingAvailable && !inForceTripleBufferFallback;
+        bool desiredCoherent = inAdvancedBlendingCoherentAvailable && !inForceTripleBufferFallback;
+
+        if (desiredCoherent != inAdvancedBlendingCoherent) {
+            if (desiredCoherent) glEnable(GL_BLEND_ADVANCED_COHERENT_KHR);
+            else glDisable(GL_BLEND_ADVANCED_COHERENT_KHR);
+        }
+
+        inAdvancedBlending = desiredAdvanced;
+        inAdvancedBlendingCoherent = desiredCoherent;
+    }
 
     void inSetBlendModeLegacy(BlendMode blendingMode) {
         switch(blendingMode) {
@@ -84,7 +104,8 @@ private {
 /**
     Whether a multi-stage rendering pass should be used for blending
 */
-bool inUseMultistageBlending(BlendMode blendingMode) {
+bool nlUseMultistageBlending(BlendMode blendingMode) {
+    if (inForceTripleBufferFallback) return false;
     switch(blendingMode) {
         case BlendMode.Normal,
              BlendMode.LinearDodge,
@@ -95,15 +116,25 @@ bool inUseMultistageBlending(BlendMode blendingMode) {
              BlendMode.ClipToLower,
              BlendMode.SliceFromLower:
                  return false;
-        default: return hasKHRBlendEquationAdvanced;
+        default: return inAdvancedBlending;
     }
 }
 
-void inInitBlending() {
-    
-    if (hasKHRBlendEquationAdvanced) inAdvancedBlending = true;
-    if (hasKHRBlendEquationAdvancedCoherent) inAdvancedBlendingCoherent = true;
-    if (inAdvancedBlendingCoherent) glEnable(GL_BLEND_ADVANCED_COHERENT_KHR);
+void nlInitBlending() {
+    inForceTripleBufferFallback = inDefaultTripleBufferFallback;
+    inAdvancedBlendingAvailable = hasKHRBlendEquationAdvanced;
+    inAdvancedBlendingCoherentAvailable = hasKHRBlendEquationAdvancedCoherent;
+    inApplyBlendingCapabilities();
+}
+
+void nlSetTripleBufferFallback(bool enable) {
+    if (inForceTripleBufferFallback == enable) return;
+    inForceTripleBufferFallback = enable;
+    inApplyBlendingCapabilities();
+}
+
+bool nlIsTripleBufferFallbackEnabled() {
+    return inForceTripleBufferFallback;
 }
 
 /*
@@ -214,7 +245,7 @@ enum BlendMode {
     SliceFromLower
 }
 
-bool inIsAdvancedBlendMode(BlendMode mode) {
+bool nlIsAdvancedBlendMode(BlendMode mode) {
     if (!inAdvancedBlending) return false;
     switch(mode) {
         case BlendMode.Multiply:
@@ -236,7 +267,7 @@ bool inIsAdvancedBlendMode(BlendMode mode) {
     }
 }
 
-void inSetBlendMode(BlendMode blendingMode, bool legacyOnly=false) {
+void nlSetBlendMode(BlendMode blendingMode, bool legacyOnly=false) {
     if (!inAdvancedBlending || legacyOnly) inSetBlendModeLegacy(blendingMode);
     else switch(blendingMode) {
         case BlendMode.Multiply: glBlendEquation(GL_MULTIPLY_KHR); break;
@@ -256,8 +287,8 @@ void inSetBlendMode(BlendMode blendingMode, bool legacyOnly=false) {
     }
 }
 
-void inBlendModeBarrier(BlendMode mode) {
-    if (inAdvancedBlending && !inAdvancedBlendingCoherent && inIsAdvancedBlendMode(mode)) 
+void nlBlendModeBarrier(BlendMode mode) {
+    if (inAdvancedBlending && !inAdvancedBlendingCoherent && nlIsAdvancedBlendMode(mode)) 
         glBlendBarrierKHR();
 }
 

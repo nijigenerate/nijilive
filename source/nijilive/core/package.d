@@ -198,7 +198,7 @@ package(nijilive) {
         inSetViewport(640, 480);
         
         // Initialize dynamic meshes
-        inInitBlending();
+        nlInitBlending();
         inInitNodes();
         inInitDrawable();
         inInitPart();

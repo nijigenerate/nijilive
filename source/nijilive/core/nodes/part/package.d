@@ -222,7 +222,7 @@ private:
                 partShaderStage1.setUniform(partShaderStage1.getUniformLocation("albedo"), 0);
                 partShaderStage1.setUniform(gs1MultColor, clampedTint);
                 partShaderStage1.setUniform(gs1ScreenColor, clampedScreen);
-                inSetBlendMode(blendingMode, false);
+                nlSetBlendMode(blendingMode, false);
                 break;
             case 1:
 
@@ -241,7 +241,7 @@ private:
                 // These can be reused from stage 2
                 partShaderStage1.setUniform(gs2MultColor, clampedTint);
                 partShaderStage1.setUniform(gs2ScreenColor, clampedScreen);
-                inSetBlendMode(blendingMode, true);
+                nlSetBlendMode(blendingMode, true);
                 break;
             case 2:
 
@@ -269,7 +269,7 @@ private:
                 if (!offsetScreenTint.y.isNaN) clampedColor.y = clamp(screenTint.y+offsetScreenTint.y, 0, 1);
                 if (!offsetScreenTint.z.isNaN) clampedColor.z = clamp(screenTint.z+offsetScreenTint.z, 0, 1);
                 partShader.setUniform(gScreenColor, clampedColor);
-                inSetBlendMode(blendingMode, true);
+                nlSetBlendMode(blendingMode, true);
                 break;
             default: return;
         }
@@ -303,7 +303,7 @@ private:
 
         static if (advanced) {
             // Blending barrier
-            inBlendModeBarrier(mode);
+            nlBlendModeBarrier(mode);
         }
     }
 
@@ -357,7 +357,7 @@ protected:
 
             bool hasEmissionOrBumpmap = (textures[1] || textures[2]);
 
-            if (inUseMultistageBlending(blendingMode)) {
+            if (nlUseMultistageBlending(blendingMode)) {
 
                 // TODO: Detect if this Part is NOT in a composite,
                 // If so, we can relatively safely assume that we may skip stage 1.
@@ -370,7 +370,7 @@ protected:
                     renderStage!false(blendingMode);
                 }
             } else {
-                 version(OSX) {
+                 if (nlIsTripleBufferFallbackEnabled()) {
                      auto blendShader = inGetBlendShader(blendingMode);
                      if (blendShader) {
                          GLint previous_draw_fbo;

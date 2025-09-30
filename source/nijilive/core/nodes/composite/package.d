@@ -175,7 +175,7 @@ private:
         if (!offsetScreenTint.y.isNaN) clampedColor.y = clamp(screenTint.y+offsetScreenTint.y, 0, 1);
         if (!offsetScreenTint.z.isNaN) clampedColor.z = clamp(screenTint.z+offsetScreenTint.z, 0, 1);
         cShader.setUniform(gScreenColor, clampedColor);
-        inSetBlendMode(blendingMode, true);
+        nlSetBlendMode(blendingMode, true);
 
         // Enable points array
         glEnableVertexAttribArray(0);
