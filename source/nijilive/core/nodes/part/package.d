@@ -222,7 +222,7 @@ private:
                 partShaderStage1.setUniform(partShaderStage1.getUniformLocation("albedo"), 0);
                 partShaderStage1.setUniform(gs1MultColor, clampedTint);
                 partShaderStage1.setUniform(gs1ScreenColor, clampedScreen);
-                nlSetBlendMode(blendingMode, false);
+                inSetBlendMode(blendingMode, false);
                 break;
             case 1:
 
@@ -241,7 +241,7 @@ private:
                 // These can be reused from stage 2
                 partShaderStage1.setUniform(gs2MultColor, clampedTint);
                 partShaderStage1.setUniform(gs2ScreenColor, clampedScreen);
-                nlSetBlendMode(blendingMode, true);
+                inSetBlendMode(blendingMode, true);
                 break;
             case 2:
 
@@ -269,7 +269,7 @@ private:
                 if (!offsetScreenTint.y.isNaN) clampedColor.y = clamp(screenTint.y+offsetScreenTint.y, 0, 1);
                 if (!offsetScreenTint.z.isNaN) clampedColor.z = clamp(screenTint.z+offsetScreenTint.z, 0, 1);
                 partShader.setUniform(gScreenColor, clampedColor);
-                nlSetBlendMode(blendingMode, true);
+                inSetBlendMode(blendingMode, true);
                 break;
             default: return;
         }
@@ -303,7 +303,7 @@ private:
 
         static if (advanced) {
             // Blending barrier
-            nlBlendModeBarrier(mode);
+            inBlendModeBarrier(mode);
         }
     }
 
@@ -357,7 +357,7 @@ protected:
 
             bool hasEmissionOrBumpmap = (textures[1] || textures[2]);
 
-            if (nlUseMultistageBlending(blendingMode)) {
+            if (inUseMultistageBlending(blendingMode)) {
 
                 // TODO: Detect if this Part is NOT in a composite,
                 // If so, we can relatively safely assume that we may skip stage 1.
