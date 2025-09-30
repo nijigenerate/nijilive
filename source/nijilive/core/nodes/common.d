@@ -17,6 +17,26 @@ import std.string;
 private {
     bool inAdvancedBlending;
     bool inAdvancedBlendingCoherent;
+    version(OSX)
+        enum bool inDefaultTripleBufferFallback = true;
+    else
+        enum bool inDefaultTripleBufferFallback = false;
+    bool inForceTripleBufferFallback = inDefaultTripleBufferFallback;
+    bool inAdvancedBlendingAvailable;
+    bool inAdvancedBlendingCoherentAvailable;
+
+    void inApplyBlendingCapabilities() {
+        bool desiredAdvanced = inAdvancedBlendingAvailable && !inForceTripleBufferFallback;
+        bool desiredCoherent = inAdvancedBlendingCoherentAvailable && !inForceTripleBufferFallback;
+
+        if (desiredCoherent != inAdvancedBlendingCoherent) {
+            if (desiredCoherent) glEnable(GL_BLEND_ADVANCED_COHERENT_KHR);
+            else glDisable(GL_BLEND_ADVANCED_COHERENT_KHR);
+        }
+
+        inAdvancedBlending = desiredAdvanced;
+        inAdvancedBlendingCoherent = desiredCoherent;
+    }
 
     void inSetBlendModeLegacy(BlendMode blendingMode) {
         switch(blendingMode) {
@@ -85,6 +105,7 @@ private {
     Whether a multi-stage rendering pass should be used for blending
 */
 bool inUseMultistageBlending(BlendMode blendingMode) {
+    if (inForceTripleBufferFallback) return false;
     switch(blendingMode) {
         case BlendMode.Normal,
              BlendMode.LinearDodge,
@@ -95,15 +116,29 @@ bool inUseMultistageBlending(BlendMode blendingMode) {
              BlendMode.ClipToLower,
              BlendMode.SliceFromLower:
                  return false;
-        default: return hasKHRBlendEquationAdvanced;
+        default: return inAdvancedBlending;
     }
 }
 
+void nlApplyBlendingCapabilities() {
+    inApplyBlendingCapabilities();
+}
+
 void inInitBlending() {
-    
-    if (hasKHRBlendEquationAdvanced) inAdvancedBlending = true;
-    if (hasKHRBlendEquationAdvancedCoherent) inAdvancedBlendingCoherent = true;
-    if (inAdvancedBlendingCoherent) glEnable(GL_BLEND_ADVANCED_COHERENT_KHR);
+    inForceTripleBufferFallback = inDefaultTripleBufferFallback;
+    inAdvancedBlendingAvailable = hasKHRBlendEquationAdvanced;
+    inAdvancedBlendingCoherentAvailable = hasKHRBlendEquationAdvancedCoherent;
+    inApplyBlendingCapabilities();
+}
+
+void nlSetTripleBufferFallback(bool enable) {
+    if (inForceTripleBufferFallback == enable) return;
+    inForceTripleBufferFallback = enable;
+    inApplyBlendingCapabilities();
+}
+
+bool nlIsTripleBufferFallbackEnabled() {
+    return inForceTripleBufferFallback;
 }
 
 /*

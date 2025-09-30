@@ -269,7 +269,7 @@ package(nijilive) {
             // go back to default fb
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-            version(OSX) {
+            if (blendShaders.length == 0) {
                 auto advancedBlendShader = new Shader(import("basic/basic.vert"), import("basic/advanced_blend.frag"));
                 BlendMode[] advancedModes = [
                     BlendMode.Multiply,

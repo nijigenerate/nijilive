@@ -370,7 +370,7 @@ protected:
                     renderStage!false(blendingMode);
                 }
             } else {
-                 version(OSX) {
+                 if (nlIsTripleBufferFallbackEnabled()) {
                      auto blendShader = inGetBlendShader(blendingMode);
                      if (blendShader) {
                          GLint previous_draw_fbo;
