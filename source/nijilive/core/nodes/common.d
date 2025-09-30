@@ -120,6 +120,10 @@ bool inUseMultistageBlending(BlendMode blendingMode) {
     }
 }
 
+void nlApplyBlendingCapabilities() {
+    inApplyBlendingCapabilities();
+}
+
 void inInitBlending() {
     inForceTripleBufferFallback = inDefaultTripleBufferFallback;
     inAdvancedBlendingAvailable = hasKHRBlendEquationAdvanced;
