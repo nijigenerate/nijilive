@@ -8,9 +8,8 @@ import nijilive.core.param;
 import nijilive.core;
 import nijilive.fmt.serialize;
 import nijilive.math;
-import std.algorithm;
-import std.array;
-import std.exception : enforce;
+import std.algorithm : map, sort;
+import std.math : approxEqual;
 import std.typecons : tuple, Tuple;
 
 enum GridFormation {
@@ -52,7 +51,7 @@ public:
         super(parent);
         axisX = DefaultAxis.dup;
         axisY = DefaultAxis.dup;
-        rebuildVertices();
+        setGridAxes(axisX, axisY);
     }
 
     @property
@@ -76,25 +75,9 @@ public:
 
     override
     void rebuffer(vec2[] gridPoints) {
-        if (gridPoints.length == 0) {
-            axisX = DefaultAxis.dup;
-            axisY = DefaultAxis.dup;
-        } else {
-            auto xs = gridPoints.map!(p => p.x).array;
-            auto ys = gridPoints.map!(p => p.y).array;
-            xs.sort;
-            ys.sort;
-            auto uniqX = xs.uniq.array;
-            auto uniqY = ys.uniq.array;
-            enforce(uniqX.length >= 2 && uniqY.length >= 2,
-                "GridDeformer requires at least a 2x2 grid.");
-            enforce(uniqX.length * uniqY.length == gridPoints.length,
-                "Provided points do not form a rectangular grid.");
-            axisX = uniqX;
-            axisY = uniqY;
+        if (gridPoints.length == 0 || !adoptFromVertices(gridPoints, false)) {
+            adoptGridFromAxes(DefaultAxis, DefaultAxis);
         }
-
-        rebuildVertices();
         clearCache();
     }
 
@@ -221,6 +204,35 @@ public:
     }
 
     override
+    void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
+        super.copyFrom(src, clone, deepCopy);
+
+        bool initialized = false;
+
+        if (auto grid = cast(GridDeformer)src) {
+            adoptGridFromAxes(grid.axisX, grid.axisY);
+            formation = grid.formation;
+            dynamic = grid.dynamic;
+            deformation = grid.deformation.dup;
+            initialized = true;
+        } else if (auto drawable = cast(Drawable)src) {
+            if (adoptFromVertices(drawable.vertices, true)) {
+                initialized = true;
+            }
+        } else if (auto deformable = cast(Deformable)src) {
+            if (adoptFromVertices(deformable.vertices, true)) {
+                initialized = true;
+            }
+        }
+
+        if (!initialized) {
+            adoptGridFromAxes(DefaultAxis, DefaultAxis);
+        }
+
+        clearCache();
+    }
+
+    override
     bool coverOthers() { return true; }
 
     override
@@ -282,19 +294,21 @@ public:
             if (auto exc = data["dynamic"].deserializeValue(dynamic)) return exc;
         }
 
-        rebuildVertices();
+        setGridAxes(axisX, axisY);
         clearCache();
 
         return null;
     }
 
 private:
+    enum float AxisTolerance = 1e-4f;
+
     size_t cols() const { return axisX.length; }
     size_t rows() const { return axisY.length; }
     bool hasValidGrid() const { return cols() >= 2 && rows() >= 2; }
 
     size_t gridIndex(size_t x, size_t y) const {
-        return x * rows() + y;
+        return y * cols() + x;
     }
 
     vec2 gridPointOriginal(size_t x, size_t y) const {
@@ -306,19 +320,139 @@ private:
         return vertexBuffer[idx] + deformation[idx];
     }
 
-    void rebuildVertices() {
-        if (axisX.length < 2) axisX = DefaultAxis.dup;
-        if (axisY.length < 2) axisY = DefaultAxis.dup;
-        enforce(hasValidGrid(), "Grid axes must contain at least two values each.");
-        vertexBuffer.length = cols() * rows();
-        deformation.length = vertexBuffer.length;
-        foreach (x; 0 .. cols()) {
-            foreach (y; 0 .. rows()) {
-                auto idx = gridIndex(x, y);
-                vertexBuffer[idx] = vec2(axisX[x], axisY[y]);
-                deformation[idx] = vec2(0, 0);
+    static float[] normalizeAxis(const(float)[] values) {
+        auto sorted = values.dup;
+        if (sorted.length == 0) {
+            return sorted;
+        }
+        sort(sorted);
+        size_t write = 1;
+        foreach (i; 1 .. sorted.length) {
+            if (!approxEqual(sorted[write - 1], sorted[i], AxisTolerance, AxisTolerance)) {
+                sorted[write] = sorted[i];
+                ++write;
             }
         }
+        sorted.length = write;
+        return sorted;
+    }
+
+    int axisIndexOfValue(const(float)[] axis, float value) const {
+        foreach (i, v; axis) {
+            if (approxEqual(v, value, AxisTolerance, AxisTolerance)) {
+                return cast(int)i;
+            }
+        }
+        return -1;
+    }
+
+    void rebuildVertices() {
+        rebuildBuffers();
+    }
+
+    void rebuildBuffers() {
+        if (axisX.length < 2) axisX = DefaultAxis.dup;
+        if (axisY.length < 2) axisY = DefaultAxis.dup;
+        vertexBuffer.length = cols() * rows();
+        deformation.length = vertexBuffer.length;
+        foreach (ref d; deformation) {
+            d = vec2(0, 0);
+        }
+        foreach (y; 0 .. rows()) {
+            foreach (x; 0 .. cols()) {
+                auto idx = gridIndex(x, y);
+                vertexBuffer[idx] = vec2(axisX[x], axisY[y]);
+            }
+        }
+    }
+
+    void setGridAxes(const(float)[] xs, const(float)[] ys) {
+        axisX = normalizeAxis(xs);
+        axisY = normalizeAxis(ys);
+        rebuildBuffers();
+    }
+
+    void adoptGridFromAxes(const(float)[] xs, const(float)[] ys) {
+        setGridAxes(xs, ys);
+    }
+
+    bool deriveAxes(const(vec2)[] points, out float[] xs, out float[] ys) const {
+        if (points.length < 4) return false;
+
+        float[] xCandidates;
+        xCandidates.length = points.length;
+        float[] yCandidates;
+        yCandidates.length = points.length;
+        foreach (i, point; points) {
+            xCandidates[i] = point.x;
+            yCandidates[i] = point.y;
+        }
+
+        xs = normalizeAxis(xCandidates);
+        ys = normalizeAxis(yCandidates);
+
+        if (xs.length < 2 || ys.length < 2) return false;
+        if (xs.length * ys.length != points.length) return false;
+
+        bool[] seen;
+        seen.length = xs.length * ys.length;
+        foreach (point; points) {
+            int xi = axisIndexOfValue(xs, point.x);
+            int yi = axisIndexOfValue(ys, point.y);
+            if (xi < 0 || yi < 0) return false;
+            size_t idx = cast(size_t)yi * xs.length + cast(size_t)xi;
+            seen[idx] = true;
+        }
+        foreach (flag; seen) {
+            if (!flag) return false;
+        }
+        return true;
+    }
+
+    bool adoptFromVertices(const(vec2)[] points, bool preserveShape) {
+        float[] xs;
+        float[] ys;
+        if (!deriveAxes(points, xs, ys)) {
+            return false;
+        }
+
+        setGridAxes(xs, ys);
+
+        if (preserveShape) {
+            if (!fillDeformationFromPositions(points)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool fillDeformationFromPositions(const(vec2)[] positions) {
+        if (positions.length != deformation.length) {
+            deformation[] = vec2(0, 0);
+            return false;
+        }
+
+        bool[] seen;
+        seen.length = deformation.length;
+        deformation[] = vec2(0, 0);
+
+        foreach (pos; positions) {
+            int xi = axisIndexOfValue(axisX, pos.x);
+            int yi = axisIndexOfValue(axisY, pos.y);
+            if (xi < 0 || yi < 0) return false;
+            auto idx = gridIndex(cast(size_t)xi, cast(size_t)yi);
+            deformation[idx] = pos - vertexBuffer[idx];
+            seen[idx] = true;
+        }
+
+        foreach (flag; seen) {
+            if (!flag) {
+                deformation[] = vec2(0, 0);
+                return false;
+            }
+        }
+        return true;
     }
 
     GridCellCache computeCache(vec2 localPoint) const {
