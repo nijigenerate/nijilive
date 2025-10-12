@@ -7,7 +7,7 @@ import nijilive.core.nodes.utils;
 import nijilive.core.nodes.defstack;
 public import nijilive.core.nodes.deformer.drivers.phys;
 public import nijilive.core.nodes.deformer.curve;
-import nijilive.core;
+import nijilive.core.nodes.deformer.base;
 import inmath.linalg;
 
 //import std.stdio;
@@ -39,7 +39,7 @@ package(nijilive) {
 
 
 @TypeId("PathDeformer")
-class PathDeformer : Deformable, NodeFilter {
+class PathDeformer : Deformable, NodeFilter, Deformer {
     mixin NodeFilterMixin;
 protected:
     mat4 inverseMatrix;
@@ -364,6 +364,7 @@ public:
         vec2[][Node] closestPointsDeformed; // debug code
         vec2[][Node] closestPointsOriginal; // debug code
     }
+    override
     Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         if (!originalCurve || vertices.length < 2) {
             return Tuple!(vec2[], mat4*, bool)(null, null, false);

@@ -206,6 +206,7 @@ package(nijilive) {
         inInitComposite();
         inInitMeshGroup();
         inInitDComposite();
+        inInitGridDeformer();
         inInitPathDeformer();
         version(InDoesRender) inInitDebug();
 

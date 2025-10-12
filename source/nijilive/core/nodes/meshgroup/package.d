@@ -10,6 +10,7 @@
 */
 module nijilive.core.nodes.meshgroup;
 import nijilive.core.nodes.drawable;
+import nijilive.core.nodes.deformer.base;
 import nijilive.core.nodes.deformer.path;
 import nijilive.integration;
 import nijilive.fmt.serialize;
@@ -86,8 +87,12 @@ public:
         if (!precalculated)
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
 
-        if (auto deformer = cast(PathDeformer)target) {
-            if (!deformer.physicsEnabled) {
+        if (auto deformer = cast(Deformer)target) {
+            if (auto pathDeformer = cast(PathDeformer)deformer) {
+                if (!pathDeformer.physicsEnabled) {
+                    return Tuple!(vec2[], mat4*, bool)(null, null, false);
+                }
+            } else {
                 return Tuple!(vec2[], mat4*, bool)(null, null, false);
             }
         }

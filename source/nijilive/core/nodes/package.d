@@ -24,6 +24,7 @@ public import nijilive.core.nodes.meshgroup;
 public import nijilive.core.nodes.drivers; 
 public import nijilive.core.nodes.composite.dcomposite;
 public import nijilive.core.nodes.deformer.path;
+public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
 import std.typecons: tuple, Tuple;
