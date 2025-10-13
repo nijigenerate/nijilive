@@ -332,7 +332,7 @@ private:
     bool hasValidGrid() const { return cols() >= 2 && rows() >= 2; }
 
     size_t gridIndex(size_t x, size_t y) const {
-        return x * rows() + y;
+        return y * cols() + x;
     }
 
     vec2 gridPointOriginal(size_t x, size_t y) const {
@@ -349,8 +349,8 @@ private:
         if (axisY.length < 2) axisY = DefaultAxis.dup;
         vertexBuffer.length = cols() * rows();
         deformation.length = vertexBuffer.length;
-        foreach (x; 0 .. cols()) {
-            foreach (y; 0 .. rows()) {
+        foreach (y; 0 .. rows()) {
+            foreach (x; 0 .. cols()) {
                 auto idx = gridIndex(x, y);
                 vertexBuffer[idx] = vec2(axisX[x], axisY[y]);
                 deformation[idx] = vec2(0, 0);
@@ -442,7 +442,7 @@ private:
     }
 
     bool fillDeformationFromPositions(const(vec2)[] positions) {
-        return assignDeformation(positions, positions);
+        return assignDeformation(vertexBuffer, positions);
     }
 
     enum float AxisTolerance = 1e-4f;
