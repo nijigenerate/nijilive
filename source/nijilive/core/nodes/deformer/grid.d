@@ -11,7 +11,7 @@ import nijilive.math;
 import std.algorithm;
 import std.array;
 import std.exception : enforce;
-import std.math : isClose;
+import std.math : isClose, fabs;
 import std.typecons : tuple, Tuple;
 
 enum GridFormation {
@@ -510,10 +510,17 @@ private:
     }
 
     int axisIndexOfValue(const(float)[] axis, float value) const {
+        int best = -1;
+        float bestDiff = float.max;
         foreach (i, v; axis) {
-            if (isClose(v, value, AxisTolerance, AxisTolerance)) {
-                return cast(int)i;
+            float diff = fabs(v - value);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                best = cast(int)i;
             }
+        }
+        if (best >= 0 && bestDiff <= AxisTolerance * 10) {
+            return best;
         }
         return -1;
     }
