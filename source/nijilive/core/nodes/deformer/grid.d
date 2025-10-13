@@ -442,34 +442,7 @@ private:
     }
 
     bool fillDeformationFromPositions(const(vec2)[] positions) {
-        if (positions.length != deformation.length) {
-            deformation[] = vec2(0, 0);
-            return false;
-        }
-
-        bool[] seen;
-        seen.length = deformation.length;
-        deformation[] = vec2(0, 0);
-
-        foreach (pos; positions) {
-            int xi = axisIndexOfValue(axisX, pos.x);
-            int yi = axisIndexOfValue(axisY, pos.y);
-            if (xi < 0 || yi < 0) {
-                deformation[] = vec2(0, 0);
-                return false;
-            }
-            auto idx = gridIndex(cast(size_t)xi, cast(size_t)yi);
-            deformation[idx] = pos - vertexBuffer[idx];
-            seen[idx] = true;
-        }
-
-        foreach (flag; seen) {
-            if (!flag) {
-                deformation[] = vec2(0, 0);
-                return false;
-            }
-        }
-        return true;
+        return assignDeformation(positions, positions);
     }
 
     enum float AxisTolerance = 1e-4f;
@@ -485,7 +458,38 @@ private:
             actual[i] = basePos + offsets[i];
         }
 
-        return fillDeformationFromPositions(actual);
+        return assignDeformation(baseVertices, actual);
+    }
+
+    bool assignDeformation(const(vec2)[] baseVertices, const(vec2)[] actualVertices) {
+        if (baseVertices.length != deformation.length || actualVertices.length != baseVertices.length) {
+            deformation[] = vec2(0, 0);
+            return false;
+        }
+
+        bool[] seen;
+        seen.length = deformation.length;
+        deformation[] = vec2(0, 0);
+
+        foreach (i, basePos; baseVertices) {
+            int xi = axisIndexOfValue(axisX, basePos.x);
+            int yi = axisIndexOfValue(axisY, basePos.y);
+            if (xi < 0 || yi < 0) {
+                deformation[] = vec2(0, 0);
+                return false;
+            }
+            auto idx = gridIndex(cast(size_t)xi, cast(size_t)yi);
+            deformation[idx] = actualVertices[i] - vertexBuffer[idx];
+            seen[idx] = true;
+        }
+
+        foreach (flag; seen) {
+            if (!flag) {
+                deformation[] = vec2(0, 0);
+                return false;
+            }
+        }
+        return true;
     }
 
     static float[] normalizeAxis(const(float)[] values) {
