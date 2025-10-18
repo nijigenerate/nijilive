@@ -1178,7 +1178,7 @@ public:
     }
 
     void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
-        name = src.name ~ "'";
+        name = src.name ~ (clone ? "": "'");
         enabled = src.enabled;
         zsort_ = src.zsort_;
         lockToRoot_ = src.lockToRoot_;

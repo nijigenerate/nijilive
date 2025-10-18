@@ -9,6 +9,7 @@ import nijilive.math;
 import nijilive.math.triangle;
 import std.typecons: tuple, Tuple;
 import nijilive.core.nodes.utils;
+import nijilive.core.param;
 import std.exception;
 import std.string: format;
 //import std.stdio;
@@ -112,6 +113,51 @@ public:
             deformation.length = vertices.length;
             foreach (i; 0..deformation.length) {
                 deformation[i] = vec2(0, 0);
+            }
+        }
+    }
+
+protected:
+    void remapDeformationBindings(const size_t[] remap, const(vec2)[] replacement, size_t newLength) {
+        import std.stdio : writefln;
+        import std.algorithm: map;
+        import std.array;
+        writefln("Remapping bindings for %s (remap length=%s, newLength=%s, replacement=%s)", name, remap.length, newLength, replacement.length);
+        writefln("Puppet.parameters = %s", puppet.parameters.map!(a=> a.name).array);
+        foreach (param; puppet.parameters) {
+            if (param is null) continue;
+            writefln("  Inspect parameter %s", param.name);
+            foreach (binding; param.bindings) {
+                if (binding.getTarget.target !is this) continue;
+                auto deformBinding = cast(DeformationParameterBinding)binding;
+                if (deformBinding is null) continue;
+                writefln("    Adjust binding %s", deformBinding.getTarget.name);
+                foreach (x; 0 .. deformBinding.values.length) {
+                    foreach (y; 0 .. deformBinding.values[x].length) {
+                        auto offsets = deformBinding.values[x][y].vertexOffsets;
+                        if (remap.length == offsets.length && remap.length > 0) {
+                            vec2[] reordered;
+                            reordered.length = remap.length;
+                            foreach (oldIdx, newIdx; remap) {
+                                reordered[newIdx] = offsets[oldIdx];
+                            }
+                            deformBinding.values[x][y].vertexOffsets = reordered;
+                            writefln("      Reordered keypoint (%s, %s)", x, y);
+                        } else if (replacement.length == newLength && newLength > 0) {
+                            deformBinding.values[x][y].vertexOffsets = replacement.dup;
+                            deformBinding.isSet_[x][y] = true;
+                            writefln("      Replaced keypoint (%s, %s) with new deformation.", x, y);
+                        } else {
+                            offsets.length = newLength;
+                            foreach (ref v; offsets) {
+                                v = vec2(0, 0);
+                            }
+                            deformBinding.values[x][y].vertexOffsets = offsets;
+                            deformBinding.isSet_[x][y] = false;
+                            writefln("      Reset keypoint (%s, %s) due to mismatch (%s -> %s)", x, y, offsets.length, newLength);
+                        }
+                    }
+                }
             }
         }
     }

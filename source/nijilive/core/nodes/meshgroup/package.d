@@ -501,10 +501,10 @@ public:
                     data.indices.reserve(reserveCount);
                     foreach (x; 0 .. cols - 1) {
                         foreach (y; 0 .. rows - 1) {
-                            auto a = cast(ushort)(x * rows + y);
-                            auto b = cast(ushort)((x + 1) * rows + y);
-                            auto c = cast(ushort)(x * rows + (y + 1));
-                            auto d = cast(ushort)((x + 1) * rows + (y + 1));
+                            auto a = cast(ushort)(y * cols + x);
+                            auto b = cast(ushort)(y * cols + (x + 1));
+                            auto c = cast(ushort)((y + 1) * cols + x);
+                            auto d = cast(ushort)((y + 1) * cols + (x + 1));
                             data.indices ~= [a, b, c, b, d, c];
                         }
                     }
