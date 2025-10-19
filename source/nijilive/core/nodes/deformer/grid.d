@@ -172,7 +172,11 @@ public:
             auto cache = caches[i];
             if (!cache.valid) continue;
 
-            vec2 cVertex = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
+            vec2 cVertex;
+            if (dynamic)
+                cVertex = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
+            else
+                cVertex = vec2(centerMatrix * vec4(vertex, 0, 1));
             vec2 targetPos = sampleDeformed(cache);
             vec2 offsetLocal = targetPos - cVertex;
             if (offsetLocal == vec2(0, 0)) continue;
