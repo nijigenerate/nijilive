@@ -46,6 +46,7 @@ private:
 
 public:
     bool dynamic = false;
+    bool translateChildren = true;
 
     this(Node parent = null) {
         super(parent);
@@ -110,31 +111,35 @@ public:
     override
     bool setupChild(Node child) {
         super.setupChild(child);
-        void setupRecursive(Node node) {
+        void setGroup(Node node) {
+            bool mustPropagate = node.mustPropagate();
             setupChildNoRecurse(node);
-            if (node.mustPropagate()) {
+            if (mustPropagate) {
                 foreach (c; node.children) {
-                    setupRecursive(c);
+                    setGroup(c);
                 }
             }
         }
-        setupRecursive(child);
-        return true;
+        if (hasValidGrid()) {
+            setGroup(child);
+        }
+        return false;
     }
 
     override
     bool releaseChild(Node child) {
-        void releaseRecursive(Node node) {
+        void unsetGroup(Node node) {
             releaseChildNoRecurse(node);
-            if (!node.mustPropagate()) {
+            bool mustPropagate = node.mustPropagate();
+            if (mustPropagate) {
                 foreach (c; node.children) {
-                    releaseRecursive(c);
+                    unsetGroup(c);
                 }
             }
         }
-        releaseRecursive(child);
+        unsetGroup(child);
         super.releaseChild(child);
-        return true;
+        return false;
     }
 
     override
@@ -202,7 +207,7 @@ public:
             inverseMatrix = globalTransform.matrix.inverse;
         }
 
-        bool transfer() { return false; }
+        bool transfer() { return translateChildren; }
 
         _applyDeformToChildren(tuple(1, &deformChildren), &update, &transfer, params, recursive);
     }
@@ -218,6 +223,7 @@ public:
             formation = grid.formation;
             dynamic = grid.dynamic;
             deformation = grid.deformation.dup;
+            translateChildren = grid.translateChildren;
             initialized = true;
         } else if (auto drawable = cast(Drawable)src) {
             if (adoptFromVertices(drawable.vertices, true)) {
@@ -240,7 +246,7 @@ public:
     bool coverOthers() { return true; }
 
     override
-    bool mustPropagate() { return true; }
+    bool mustPropagate() { return false; }
 
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags = SerializeNodeFlags.All) {
@@ -553,9 +559,14 @@ private:
     void cacheTarget(Node node) {
         vec2[] vertices = getVertices(node);
 
-        mat4 forwardMatrix = node.transform.matrix;
+        mat4 targetMatrix;
+        if (cast(Deformable)node) {
+            targetMatrix = node.transform.matrix;
+        } else {
+            targetMatrix = node.parent ? node.parent.transform.matrix : mat4.identity;
+        }
         mat4 inverseLocal = transform.matrix.inverse;
-        mat4 tran = inverseLocal * forwardMatrix;
+        mat4 tran = inverseLocal * targetMatrix;
 
         GridCellCache[] caches;
         caches.length = vertices.length;
@@ -571,15 +582,17 @@ private:
         if (auto drawable = cast(Deformable)node) {
             return drawable.vertices;
         }
-        return [node.transform.translation.xy];
+        return [node.localTransform.translation.xy];
     }
 
     void setupChildNoRecurse(bool prepend = false)(Node node) {
         auto drawable = cast(Deformable)node;
         bool isDrawable = drawable !is null;
-        if (isDrawable) {
+        bool include = translateChildren || isDrawable;
+
+        if (include) {
             cacheTarget(node);
-            if (dynamic) {
+            if (isDrawable && dynamic) {
                 node.postProcessFilters  = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
                 node.preProcessFilters   = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
             } else {
@@ -587,9 +600,7 @@ private:
                 node.postProcessFilters  = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
             }
         } else {
-            targetCaches.remove(node);
-            node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
-            node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
+            releaseChildNoRecurse(node);
         }
     }
 
