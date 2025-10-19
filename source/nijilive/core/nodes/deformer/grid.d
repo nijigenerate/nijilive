@@ -8,8 +8,8 @@ import nijilive.core.param;
 import nijilive.core;
 import nijilive.fmt.serialize;
 import nijilive.math;
-import std.algorithm : map, sort;
-import std.math : approxEqual;
+import std.algorithm : sort;
+import std.math : isClose;
 import std.typecons : tuple, Tuple;
 
 enum GridFormation {
@@ -39,7 +39,6 @@ private:
     float[] axisX;
     float[] axisY;
     GridFormation formation = GridFormation.Bilinear;
-    GridCellCache[][Node] targetCaches;
     mat4 inverseMatrix;
 
     enum DefaultAxis = [-0.5f, 0.5f];
@@ -105,7 +104,6 @@ public:
 
     override
     void clearCache() {
-        targetCaches.clear();
     }
 
     override
@@ -160,30 +158,31 @@ public:
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
         }
 
-        auto cachePtr = target in targetCaches;
-        if (cachePtr is null || (*cachePtr).length != origVertices.length) {
-            cacheTarget(target);
-            cachePtr = target in targetCaches;
-        }
-        if (cachePtr is null) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
-        }
-        auto caches = *cachePtr;
-
         mat4 centerMatrix = inverseMatrix * (*origTransform);
         bool anyChanged = false;
+
+        GridCellCache[] caches;
+        caches.length = origVertices.length;
+        vec2[] baseLocals;
+        baseLocals.length = origVertices.length;
+
+        foreach (i, vertex; origVertices) {
+            vec2 samplePoint;
+            if (dynamic && i < origDeformation.length) {
+                samplePoint = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
+            } else {
+                samplePoint = vec2(centerMatrix * vec4(vertex, 0, 1));
+            }
+            baseLocals[i] = samplePoint;
+            caches[i] = computeCache(samplePoint);
+        }
 
         foreach (i, vertex; origVertices) {
             auto cache = caches[i];
             if (!cache.valid) continue;
 
-            vec2 cVertex;
-            if (dynamic)
-                cVertex = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
-            else
-                cVertex = vec2(centerMatrix * vec4(vertex, 0, 1));
             vec2 targetPos = sampleDeformed(cache);
-            vec2 offsetLocal = targetPos - cVertex;
+            vec2 offsetLocal = targetPos - baseLocals[i];
             if (offsetLocal == vec2(0, 0)) continue;
 
             mat4 inv = centerMatrix.inverse;
@@ -338,7 +337,7 @@ private:
         sort(sorted);
         size_t write = 1;
         foreach (i; 1 .. sorted.length) {
-            if (!approxEqual(sorted[write - 1], sorted[i], AxisTolerance, AxisTolerance)) {
+            if (!isClose(sorted[write - 1], sorted[i], AxisTolerance, AxisTolerance)) {
                 sorted[write] = sorted[i];
                 ++write;
             }
@@ -349,7 +348,7 @@ private:
 
     int axisIndexOfValue(const(float)[] axis, float value) const {
         foreach (i, v; axis) {
-            if (approxEqual(v, value, AxisTolerance, AxisTolerance)) {
+            if (isClose(v, value, AxisTolerance, AxisTolerance)) {
                 return cast(int)i;
             }
         }
@@ -556,49 +555,20 @@ private:
         return a * (1 - v) + b * v;
     }
 
-    void cacheTarget(Node node) {
-        vec2[] vertices = getVertices(node);
-
-        mat4 targetMatrix;
-        if (cast(Deformable)node) {
-            targetMatrix = node.transform.matrix;
-        } else {
-            targetMatrix = node.parent ? node.parent.transform.matrix : mat4.identity;
-        }
-        mat4 inverseLocal = transform.matrix.inverse;
-        mat4 tran = inverseLocal * targetMatrix;
-
-        GridCellCache[] caches;
-        caches.length = vertices.length;
-        foreach (i, vertex; vertices) {
-            vec2 localPos = vec2(tran * vec4(vertex, 0, 1));
-            caches[i] = computeCache(localPos);
-        }
-
-        targetCaches[node] = caches;
-    }
-
-    vec2[] getVertices(Node node) {
-        if (auto drawable = cast(Deformable)node) {
-            return drawable.vertices;
-        }
-        return [node.localTransform.translation.xy];
-    }
-
     void setupChildNoRecurse(bool prepend = false)(Node node) {
         auto drawable = cast(Deformable)node;
         bool isDrawable = drawable !is null;
-        bool include = translateChildren || isDrawable;
-
-        if (include) {
-            cacheTarget(node);
-            if (isDrawable && dynamic) {
+        if (isDrawable) {
+            if (dynamic) {
                 node.postProcessFilters  = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
                 node.preProcessFilters   = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
             } else {
                 node.preProcessFilters   = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
                 node.postProcessFilters  = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
             }
+        } else if (translateChildren) {
+            node.preProcessFilters   = node.preProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
+            node.postProcessFilters  = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
         } else {
             releaseChildNoRecurse(node);
         }
@@ -607,6 +577,5 @@ private:
     void releaseChildNoRecurse(Node node) {
         node.preProcessFilters  = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
         node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
-        targetCaches.remove(node);
     }
 }

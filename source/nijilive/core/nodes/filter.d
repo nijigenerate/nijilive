@@ -31,8 +31,16 @@ mixin template NodeFilterMixin() {
             } 
             extractTRSBindings(param);
 
+            enum string[] TransformBindingNames = [
+                "transform.t.x",
+                "transform.t.y",
+                "transform.r.z",
+                "transform.s.x",
+                "transform.s.y"
+            ];
+
             void applyTranslation(Node node, Parameter param, vec2u keypoint, vec2 ofs) {
-                foreach (name; ["t.x", "t.y", "r.z", "s.x", "s.y"].map!((x)=> "transform.%s".format(x))) {
+                foreach (name; TransformBindingNames) {
                     if (name in trsBindings && node in trsBindings[name]) {
                         trsBindings[name][node].apply(keypoint, ofs);
                     }
