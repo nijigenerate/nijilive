@@ -4,6 +4,7 @@ import nijilive.core.nodes;
 import nijilive.core.nodes.utils;
 import nijilive.core.nodes.defstack;
 import nijilive.core.nodes.deformer.base;
+import nijilive.core.nodes.deformer.path;
 import nijilive.core.param;
 import nijilive.core;
 import nijilive.fmt.serialize;
@@ -156,6 +157,12 @@ public:
     Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         if (!hasValidGrid()) {
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+
+        if (auto pathTarget = cast(PathDeformer)target) {
+            if (!pathTarget.physicsEnabled) {
+                return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            }
         }
 
         mat4 centerMatrix = inverseMatrix * (*origTransform);
