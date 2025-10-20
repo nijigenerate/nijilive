@@ -95,7 +95,7 @@ public:
                 if (!pathDeformer.physicsEnabled) {
                     return Tuple!(vec2[], mat4*, bool)(null, null, false);
                 }
-            } else {
+            } else if (cast(GridDeformer)deformer is null) {
                 return Tuple!(vec2[], mat4*, bool)(null, null, false);
             }
         }
