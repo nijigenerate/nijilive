@@ -481,11 +481,15 @@ private:
         auto resultX = locateInterval(axisX, localPoint.x);
         auto resultY = locateInterval(axisY, localPoint.y);
 
-        cache.cellX = cast(ushort)resultX.index;
-        cache.cellY = cast(ushort)resultY.index;
-        cache.u = resultX.weight;
-        cache.v = resultY.weight;
-        cache.valid = resultX.valid && resultY.valid;
+        if (resultX.valid && resultY.valid) {
+            cache.cellX = cast(ushort)resultX.index;
+            cache.cellY = cast(ushort)resultY.index;
+            cache.u = resultX.weight;
+            cache.v = resultY.weight;
+            cache.valid = true;
+        } else {
+            cache.valid = false;
+        }
         return cache;
     }
 
@@ -502,16 +506,8 @@ private:
             return r;
         }
 
-        if (value <= axis[0]) {
-            r.index = 0;
-            r.weight = 0;
-            r.valid = true;
-            return r;
-        }
-        if (value >= axis[$ - 1]) {
-            r.index = axis.length - 2;
-            r.weight = 1;
-            r.valid = true;
+        if (value < axis[0] || value > axis[$ - 1]) {
+            r.valid = false;
             return r;
         }
 
