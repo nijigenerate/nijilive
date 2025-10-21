@@ -8,6 +8,7 @@ import nijilive.core.nodes.defstack;
 public import nijilive.core.nodes.deformer.drivers.phys;
 public import nijilive.core.nodes.deformer.curve;
 import nijilive.core.nodes.deformer.base;
+import nijilive.core.nodes.deformer.grid;
 import inmath.linalg;
 
 //import std.stdio;
@@ -289,8 +290,10 @@ public:
 
     bool setupChildNoRecurse(bool prepend = false)(Node node) {
         auto drawable = cast(Drawable)node;
-        bool isDrawable = drawable !is null;
-        if (isDrawable) {
+        auto grid = cast(GridDeformer)node;
+        bool supportsDeform = (drawable !is null) || (grid !is null);
+
+        if (supportsDeform) {
             cacheClosestPoints(node);
             if (dynamic) {
                 node.postProcessFilters  = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
@@ -326,6 +329,7 @@ public:
     }
 
     bool releaseChildNoRecurse(Node node) {
+        meshCaches.remove(node);
         node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
         node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
         return true;
