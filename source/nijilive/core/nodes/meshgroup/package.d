@@ -10,7 +10,9 @@
 */
 module nijilive.core.nodes.meshgroup;
 import nijilive.core.nodes.drawable;
+import nijilive.core.nodes.deformer.base;
 import nijilive.core.nodes.deformer.path;
+import nijilive.core.nodes.deformer.grid;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
@@ -23,6 +25,8 @@ import std.typecons: tuple, Tuple;
 import nijilive.core.nodes.utils;
 import std.algorithm.searching;
 import std.algorithm;
+import std.algorithm.iteration : uniq;
+import std.array : array;
 import std.string;
 
 package(nijilive) {
@@ -86,8 +90,12 @@ public:
         if (!precalculated)
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
 
-        if (auto deformer = cast(PathDeformer)target) {
-            if (!deformer.physicsEnabled) {
+        if (auto deformer = cast(Deformer)target) {
+            if (auto pathDeformer = cast(PathDeformer)deformer) {
+                if (!pathDeformer.physicsEnabled) {
+                    return Tuple!(vec2[], mat4*, bool)(null, null, false);
+                }
+            } else if (cast(GridDeformer)deformer is null) {
                 return Tuple!(vec2[], mat4*, bool)(null, null, false);
             }
         }
@@ -473,6 +481,43 @@ public:
             clearCache();
         } else if (auto dcomposite = cast(DynamicComposite)src) {
 //            dynamic = true;  // disabled dynamic mode by default.
+            translateChildren = true;
+            clearCache();
+        } else if (auto gdef = cast(GridDeformer)src) {
+            MeshData data;
+            auto baseVerts = gdef.vertices;
+            if (baseVerts.length >= 4) {
+                auto xs = baseVerts.map!(v => v.x).array.sort().uniq.array;
+                auto ys = baseVerts.map!(v => v.y).array.sort().uniq.array;
+                if (xs.length >= 2 && ys.length >= 2 && xs.length * ys.length == baseVerts.length) {
+                    data.vertices = baseVerts.dup;
+                    float[][] axes;
+                    axes ~= ys.dup;
+                    axes ~= xs.dup;
+                    data.gridAxes = axes;
+                    size_t rows = ys.length;
+                    size_t cols = xs.length;
+                    auto reserveCount = (cols - 1) * (rows - 1) * 6;
+                    data.indices.reserve(reserveCount);
+                    foreach (x; 0 .. cols - 1) {
+                        foreach (y; 0 .. rows - 1) {
+                            auto a = cast(ushort)(y * cols + x);
+                            auto b = cast(ushort)(y * cols + (x + 1));
+                            auto c = cast(ushort)((y + 1) * cols + x);
+                            auto d = cast(ushort)((y + 1) * cols + (x + 1));
+                            data.indices ~= [a, b, c, b, d, c];
+                        }
+                    }
+                } else {
+                    data.vertices = baseVerts.dup;
+                }
+            }
+            rebuffer(data);
+            deformation.length = gdef.deformation.length;
+            foreach (i; 0 .. deformation.length) {
+                deformation[i] = gdef.deformation[i];
+            }
+            dynamic = gdef.dynamic;
             translateChildren = true;
             clearCache();
         }

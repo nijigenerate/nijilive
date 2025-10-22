@@ -7,7 +7,8 @@ import nijilive.core.nodes.utils;
 import nijilive.core.nodes.defstack;
 public import nijilive.core.nodes.deformer.drivers.phys;
 public import nijilive.core.nodes.deformer.curve;
-import nijilive.core;
+import nijilive.core.nodes.deformer.base;
+import nijilive.core.nodes.deformer.grid;
 import inmath.linalg;
 
 //import std.stdio;
@@ -39,7 +40,7 @@ package(nijilive) {
 
 
 @TypeId("PathDeformer")
-class PathDeformer : Deformable, NodeFilter {
+class PathDeformer : Deformable, NodeFilter, Deformer {
     mixin NodeFilterMixin;
 protected:
     mat4 inverseMatrix;
@@ -289,8 +290,10 @@ public:
 
     bool setupChildNoRecurse(bool prepend = false)(Node node) {
         auto drawable = cast(Drawable)node;
-        bool isDrawable = drawable !is null;
-        if (isDrawable) {
+        auto grid = cast(GridDeformer)node;
+        bool supportsDeform = (drawable !is null) || (grid !is null);
+
+        if (supportsDeform) {
             cacheClosestPoints(node);
             if (dynamic) {
                 node.postProcessFilters  = node.postProcessFilters.upsert!(Node.Filter, prepend)(tuple(1, &deformChildren));
@@ -326,6 +329,7 @@ public:
     }
 
     bool releaseChildNoRecurse(Node node) {
+        meshCaches.remove(node);
         node.preProcessFilters = node.preProcessFilters.removeByValue(tuple(1, &deformChildren));
         node.postProcessFilters = node.postProcessFilters.removeByValue(tuple(1, &deformChildren));
         return true;
@@ -364,6 +368,7 @@ public:
         vec2[][Node] closestPointsDeformed; // debug code
         vec2[][Node] closestPointsOriginal; // debug code
     }
+    override
     Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         if (!originalCurve || vertices.length < 2) {
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
