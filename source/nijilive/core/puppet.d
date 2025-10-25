@@ -9,6 +9,9 @@ import std.format;
 import std.file;
 import std.path : extension;
 import std.json;
+import nijilive.core.render.queue;
+import nijilive.core.render.graph;
+import nijilive.core.render.scheduler;
 
 /**
     Magic value meaning that the model has no thumbnail
@@ -231,6 +234,10 @@ private:
         A dictionary of named animations
     */
     Animation[string] animations;
+    RenderQueue renderQueue;
+    RenderBackend renderBackend;
+    RenderGraph renderGraph;
+    RenderContext renderContext;
 
     void scanPartsRecurse(ref Node node, bool driversOnly = false) {
 
@@ -301,6 +308,10 @@ private:
         sort!((a, b) => cmp(
             a.zSort, 
             b.zSort) > 0, SwapStrategy.stable)(rootParts);
+    }
+
+    package(nijilive)
+    void markRenderGraphDirty() {
     }
 
     Node findNode(Node n, string name) {
@@ -407,6 +418,11 @@ public:
         root = new Node(this.puppetRootNode); 
         root.name = "Root";
         transform = Transform(vec3(0, 0, 0));
+        renderQueue = new RenderQueue();
+        renderBackend = new ImmediateRenderBackend();
+        renderGraph = new RenderGraph();
+        renderContext.renderQueue = &renderQueue;
+        renderContext.renderBackend = renderBackend;
     }
 
     /**
@@ -421,6 +437,11 @@ public:
         this.scanParts!true(this.root);
         transform = Transform(vec3(0, 0, 0));
         this.selfSort();
+        renderQueue = new RenderQueue();
+        renderBackend = new ImmediateRenderBackend();
+        renderGraph = new RenderGraph();
+        renderContext.renderQueue = &renderQueue;
+        renderContext.renderBackend = renderBackend;
     }
 
     Node actualRoot() {
@@ -440,34 +461,23 @@ public:
             auto_.update();
         }
 
-        actualRoot.beginUpdate();
+        auto rootNode = actualRoot();
+        if (rootNode is null) return;
 
         if (renderParameters) {
-
-            // Update parameters
             foreach(parameter; parameters) {
-
                 if (!enableDrivers || parameter !in drivenParameters)
                     parameter.update();
             }
         }
 
-        // Ensure the transform tree is updated
-        actualRoot.transformChanged();
+        rootNode.transformChanged();
 
-        if (renderParameters && enableDrivers) {
-            // Update parameter/node driver nodes (e.g. physics)
-            foreach(driver; drivers) {
-                driver.updateDriver();
-            }
-        }
-
-        // Update nodes
-        actualRoot.update();
-
-        foreach (id; [0, 1, 2, -1]) {
-            actualRoot.endUpdate(id);
-        }
+        renderContext.renderQueue = &renderQueue;
+        renderContext.renderBackend = renderBackend;
+        renderQueue.clear();
+        renderGraph.buildFrame(rootNode);
+        renderGraph.execute(renderContext);
     }
 
     /**
@@ -521,12 +531,16 @@ public:
         Draws the puppet
     */
     final void draw() {
-        this.selfSort();
-
-        foreach(rootPart; rootParts) {
-            if (!rootPart.renderEnabled) continue;
-            rootPart.drawOne();
+        if (renderQueue is null || renderBackend is null || renderQueue.empty()) {
+            this.selfSort();
+            foreach(rootPart; rootParts) {
+                if (!rootPart.renderEnabled) continue;
+                rootPart.drawOne();
+            }
+            return;
         }
+
+        renderQueue.flush(renderBackend);
         /*
         // debug
         foreach (c; findNodesType!Composite(actualRoot())) {

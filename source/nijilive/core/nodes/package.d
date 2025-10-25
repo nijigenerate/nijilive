@@ -27,8 +27,10 @@ public import nijilive.core.nodes.deformer.path;
 public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
+import nijilive.core.render.queue;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
+import nijilive.core.render.scheduler;
 import std.string;
 
 // Flags to control which Node properties get serialized
@@ -816,7 +818,7 @@ public:
         }
     }
 
-    void beginUpdate() {
+    protected void runBeginTask() {
         preProcessed  = false;
         postProcessed = -1;
         changed = false;
@@ -826,34 +828,51 @@ public:
         offsetSort = 0;
         offsetTransform.clear();
         overrideTransformMatrix = null;
-
-        // Iterate through children
-        foreach(child; children_) {
-            child.beginUpdate();
-        }
     }
 
     /**
         Updates the node
     */
-    void update() {
+    protected void runPreProcessTask() {
         preProcess();
+    }
 
-        if (!enabled) return;
+    protected void runDynamicTask() {
+    }
+
+    protected void runPostTask(int id) {
+        postProcess(id);
+    }
+
+    protected void runFinalTask() {
+        postProcess(-1);
+        flushNotifyChange();
+    }
+
+    protected void runRenderTask(RenderContext ctx) {
+        if (!enabled || ctx.renderQueue is null) return;
+        ctx.renderQueue.enqueue(new DrawNodeCommand(this));
+    }
+
+    void registerRenderTasks(TaskScheduler scheduler) {
+        if (scheduler is null) return;
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+        scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
 
         foreach(child; children) {
-            child.update();
+            child.registerRenderTasks(scheduler);
         }
     }
 
-    void endUpdate(int id = 0) {
-        postProcess(id);
-        foreach (child; children) {
-            child.endUpdate(id);
-        }
-        if (id == -1)
-            flushNotifyChange();
-    }
+    void beginUpdate() { }
+    void update() { }
+    void endUpdate(int id = 0) { }
 
     /**
         Marks this node's transform (and its descendents') as dirty
@@ -1088,10 +1107,16 @@ public:
         setupSelf();
     }
 
-    bool setupChild(Node child) { return false; }
-    bool releaseChild(Node child) { return false; }
-    void setupSelf() { }
-    void releaseSelf() { }
+    bool setupChild(Node child) {
+        return false;
+    }
+    bool releaseChild(Node child) {
+        return false;
+    }
+    void setupSelf() {
+    }
+    void releaseSelf() {
+    }
 
     mat4 getDynamicMatrix() {
         if (overrideTransformMatrix !is null) {
