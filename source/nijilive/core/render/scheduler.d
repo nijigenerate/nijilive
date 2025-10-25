@@ -30,7 +30,7 @@ import nijilive.core.render.queue;
 /// Context shared by task handlers for per-frame data.
 struct RenderContext {
     RenderQueue* renderQueue;
-    RenderBackend renderBackend;
+    
 }
 
 alias TaskHandler = void delegate(ref RenderContext);

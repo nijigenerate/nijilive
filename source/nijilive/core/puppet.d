@@ -10,6 +10,8 @@ import std.file;
 import std.path : extension;
 import std.json;
 import nijilive.core.render.queue;
+import nijilive.core.render.commands : RenderBackend;
+import nijilive.core.render.backends.opengl : GLRenderBackend;
 import nijilive.core.render.graph;
 import nijilive.core.render.scheduler;
 
@@ -419,7 +421,7 @@ public:
         root.name = "Root";
         transform = Transform(vec3(0, 0, 0));
         renderQueue = new RenderQueue();
-        renderBackend = new ImmediateRenderBackend();
+        renderBackend = new GLRenderBackend();
         renderGraph = new RenderGraph();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
@@ -438,7 +440,7 @@ public:
         transform = Transform(vec3(0, 0, 0));
         this.selfSort();
         renderQueue = new RenderQueue();
-        renderBackend = new ImmediateRenderBackend();
+        renderBackend = new GLRenderBackend();
         renderGraph = new RenderGraph();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;

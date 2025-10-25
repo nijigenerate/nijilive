@@ -11,7 +11,7 @@
 module nijilive.core.nodes.part;
 
 import nijilive.core.render.scheduler;
-import nijilive.core.render.queue : DrawPartCommand;
+import nijilive.core.render.commands : DrawPartCommand;
 import nijilive.integration;
 import nijilive.fmt;
 import nijilive.core.nodes.drawable;

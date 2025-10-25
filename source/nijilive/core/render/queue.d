@@ -1,37 +1,6 @@
 module nijilive.core.render.queue;
 
-import nijilive.core.nodes;
-
-interface RenderBackend {
-    void drawNode(Node node);
-    void drawPartRaw(Part part);
-}
-
-abstract class RenderCommand {
-    abstract void execute(RenderBackend backend);
-}
-
-final class DrawNodeCommand : RenderCommand {
-    Node node;
-    this(Node node) {
-        this.node = node;
-    }
-    override void execute(RenderBackend backend) {
-        if (node is null || backend is null) return;
-        backend.drawNode(node);
-    }
-}
-
-final class DrawPartCommand : RenderCommand {
-    Part part;
-    this(Part part) {
-        this.part = part;
-    }
-    override void execute(RenderBackend backend) {
-        if (part is null || backend is null) return;
-        backend.drawPartRaw(part);
-    }
-}
+import nijilive.core.render.commands;
 
 final class RenderQueue {
 private:
@@ -55,17 +24,5 @@ public:
 
     bool empty() const {
         return commands.length == 0;
-    }
-}
-
-final class ImmediateRenderBackend : RenderBackend {
-    override void drawNode(Node node) {
-        if (node is null) return;
-        node.drawOne();
-    }
-
-    override void drawPartRaw(Part part) {
-        if (part is null) return;
-        part.drawOneImmediate();
     }
 }
