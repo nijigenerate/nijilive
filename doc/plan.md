@@ -13,9 +13,13 @@
    - `RenderContext` に `RenderQueue` 参照を渡し、`TaskOrder.Render` で `runRenderTask()` を実行する仕組みを実装。
    - 基本形として `DrawNodeCommand` を積み、`Puppet.draw()` では `RenderQueue.flush()` を呼ぶ。
 
-3. **描画コマンドの細分化** *(進行中: Part を `DrawPartCommand` で RenderQueue に載せた段階。Composite/Mask 等の OpenGL 呼びを Backend コマンドに押し込む作業が残り。OpenGL 呼び出しを完全に Backend へ抽象化する必要がある。)*
-   - Composite / Mask / MeshGroup / PathDeformer など、`drawOne()` 内で直接 OpenGL を呼んでいる箇所をコマンド化。
-   - Stencil/FBO 切り替え、テクスチャ設定などを `RenderBackend` インターフェース経由で発行できるよう、`GPUCommand` バリエーションを追加する。
+3. **描画コマンドの細分化** *(進行中: Part の RenderQueue 化は途中段階。以下の順で実装する)*
+   0. **バックエンド分離** … OpenGL 呼び出しは `nijilive.core.render.backends.*`（仮）に集約し、Node からは RenderBackend コマンドのみ発行する。
+   1. **Part** … `drawOneImmediate` の OpenGL 呼びを backend へ移し、`DrawPartCommand` は描画データのみ保持。
+   2. **Composite / Mask** … FBO 切替・マスク処理を Backend コマンド（例: `BeginComposite`, `EndComposite`）に分割し、子ノードの描画先を Backend 側で制御できるようにする。
+   2a. **DynamicComposite** … 子ノードの描画先を一時的に内部 FBO へ差し替える仕組みを Backend コマンドとして表現し、描画終了後に差し替え前へ戻す（`BeginDynamicComposite`, `EndDynamicComposite`）。
+   3. **MeshGroup / GridDeformer / PathDeformer** … 描画を担わない変形ノードとして整備（CPU 側で頂点変形を行い、描画は下流の Drawable コマンドに任せる）。
+   4. **その他 Drawable** … `drawOne()` の OpenGL 呼び出しを backend へ移す。
 
 4. **旧パイプラインの削除**
    - `beginUpdate` / `update` / `endUpdate` の再帰呼び出しを完全に削除し、`run*Task` + RenderQueue の構成に一本化。
