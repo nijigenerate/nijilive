@@ -13,7 +13,7 @@
    - `RenderContext` に `RenderQueue` 参照を渡し、`TaskOrder.Render` で `runRenderTask()` を実行する仕組みを実装。
    - 基本形として `DrawNodeCommand` を積み、`Puppet.draw()` では `RenderQueue.flush()` を呼ぶ。
 
-3. **描画コマンドの細分化**
+3. **描画コマンドの細分化** *(進行中: Part を `DrawPartCommand` で RenderQueue に載せた段階。Composite/Mask 等の OpenGL 呼びを Backend コマンドに押し込む作業が残り。OpenGL 呼び出しを完全に Backend へ抽象化する必要がある。)*
    - Composite / Mask / MeshGroup / PathDeformer など、`drawOne()` 内で直接 OpenGL を呼んでいる箇所をコマンド化。
    - Stencil/FBO 切り替え、テクスチャ設定などを `RenderBackend` インターフェース経由で発行できるよう、`GPUCommand` バリエーションを追加する。
 

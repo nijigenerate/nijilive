@@ -9,6 +9,9 @@
     Authors: Luna Nielsen
 */
 module nijilive.core.nodes.part;
+
+import nijilive.core.render.scheduler;
+import nijilive.core.render.queue : DrawPartCommand;
 import nijilive.integration;
 import nijilive.fmt;
 import nijilive.core.nodes.drawable;
@@ -882,13 +885,13 @@ public:
     }
 
     override
-    void beginUpdate() {
+    protected void runBeginTask() {
         offsetMaskThreshold = 0;
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
         offsetEmissionStrength = 1;
-        super.beginUpdate();
+        super.runBeginTask();
     }
     
     override
@@ -898,17 +901,20 @@ public:
     }
 
     override
-    void draw() {
-        if (!enabled) return;
-        this.drawOne();
+    void draw() { }
 
-        foreach(child; children) {
-            child.draw();
-        }
+    override
+    protected void runRenderTask(RenderContext ctx) {
+        if (!enabled || ctx.renderQueue is null) return;
+        ctx.renderQueue.enqueue(new DrawPartCommand(this));
     }
 
     override
     void drawOne() {
+        drawOneImmediate();
+    }
+
+    void drawOneImmediate() {
         version (InDoesRender) {
             if (!enabled) return;
             if (!data.isReady) return; // Yeah, don't even try
@@ -925,17 +931,14 @@ public:
 
                 inBeginMaskContent();
 
-                // We are the content
                 this.drawSelf();
 
                 inEndMask();
                 return;
             }
 
-            // No masks, draw normally
             this.drawSelf();
         }
-        super.drawOne();
     }
 
     override
