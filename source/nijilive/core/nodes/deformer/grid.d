@@ -89,7 +89,8 @@ public:
     void update() {
         preProcess();
         deformStack.update();
-        inverseMatrix = globalTransform.matrix.inverse;
+        auto worldMatrix = transform.matrix; // ensure translateChildren updates are applied
+        inverseMatrix = worldMatrix.inverse;
         Node.update();
         updateDeform();
     }
