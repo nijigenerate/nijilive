@@ -14,7 +14,6 @@ import nijilive.core;
 import nijilive.math;
 import nijilive;
 import nijilive.core.nodes.utils;
-import bindbc.opengl;
 import std.exception;
 import std.algorithm;
 import std.algorithm.sorting;
@@ -22,6 +21,13 @@ import std.algorithm.sorting;
 import std.array;
 import std.format;
 import std.range;
+import nijilive.core.render.commands : makeBeginDynamicCompositeCommand,
+    makeEndDynamicCompositeCommand;
+import nijilive.core.render.scheduler : RenderContext;
+version (InDoesRender) {
+    import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
+        endDynamicCompositeGL;
+}
 
 package(nijilive) {
     void inInitDComposite() {
@@ -143,10 +149,10 @@ public:
     }
 
 protected:
-    GLuint cfBuffer;
-    GLint origBuffer;
-    Texture stencil;
-    GLint[4] origViewport;
+    package(nijilive) uint cfBuffer;
+    package(nijilive) int origBuffer;
+    package(nijilive) Texture stencil;
+    package(nijilive) int[4] origViewport;
     bool textureInvalidated = false;
     bool shouldUpdateVertices = false;
 
@@ -184,20 +190,8 @@ protected:
         textureOffset = (bounds.zw + bounds.xy) / 2 - transform.translation.xy;
         setIgnorePuppet(true);
 
-        glGenFramebuffers(1, &cfBuffer);
         textures = [new Texture(texWidth, texHeight), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true);
-
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
-        glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0].getTextureId(), 0);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
-        glClear(GL_STENCIL_BUFFER_BIT);
-
-        // go back to default fb
-        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-
         if (prevTexture !is null) {
             prevTexture.dispose();
         }
@@ -220,25 +214,6 @@ protected:
                 return false;
             }
         }
-        if (textureInvalidated || deferred > 0) {
-            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
-            glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
-            glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
-            inPushViewport(textures[0].width, textures[0].height);
-            Camera camera = inGetCamera();
-            camera.scale = vec2(1, -1);
-//            camera.position = (mat4.identity.scaling(transform.scale.x == 0 ? 0: 1/transform.scale.x, transform.scale.y == 0? 0: 1/transform.scale.y, 1) * mat4.identity.rotateZ(-transform.rotation.z) * -vec4(textureOffset, 0, 1)).xy;
-            camera.position = (mat4.identity.scaling(transform.scale.x == 0 ? 0: 1/transform.scale.x, transform.scale.y == 0? 0: 1/transform.scale.y, 1) * mat4.identity.rotateZ(-transform.rotation.z) * -vec4(0, 0, 0, 1)).xy;
-            glViewport(0, 0, textures[0].width, textures[0].height);
-
-            glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-            glClearColor(0, 0, 0, 0);
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            // Everything else is the actual texture used by the meshes at id 0
-            glActiveTexture(GL_TEXTURE0);
-            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        }
         return textureInvalidated || deferred > 0;
     }
     void endComposite() {
@@ -248,12 +223,6 @@ protected:
         }
         if (deferred > 0)
             deferred --;
-
-        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-        inPopViewport();
-        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glFlush();
     }
 
     Part[] subParts;
@@ -465,8 +434,7 @@ public:
         }
     }
 
-    void drawContents() {
-        // Optimization: Nothing to be drawn, skip context switching
+    bool prepareDynamicRenderState() {
         if (deferredChanged) {
             if (autoResizedMesh) {
                 if (createSimpleMesh()) initialized = false;
@@ -474,21 +442,78 @@ public:
             deferredChanged = false;
             textureInvalidated = true;
         }
+        return beginComposite();
+    }
 
-        if (beginComposite()) {
-            this.selfSort();
-            mat4* origTransform = oneTimeTransform;
-            mat4 tmpTransform = transform.matrix.inverse;
-            tmpTransform[0][3] -= textureOffset.x;
-            tmpTransform[1][3] -= textureOffset.y;
-            setOneTimeTransform(&tmpTransform);
+    void withChildRenderTransform(scope void delegate() drawChildren) {
+        auto targetTexture = textures[0];
+        if (targetTexture is null) {
+            drawChildren();
+            return;
+        }
+
+        inPushViewport(cast(int)targetTexture.width, cast(int)targetTexture.height);
+        Camera camera = inGetCamera();
+        camera.scale = vec2(1, -1);
+        camera.position = (
+            mat4.identity.scaling(
+                transform.scale.x == 0 ? 0 : 1 / transform.scale.x,
+                transform.scale.y == 0 ? 0 : 1 / transform.scale.y,
+                1
+            ) *
+            mat4.identity.rotateZ(-transform.rotation.z) *
+            -vec4(0, 0, 0, 1)
+        ).xy;
+
+        mat4* origTransform = oneTimeTransform;
+        mat4 tmpTransform = transform.matrix.inverse;
+        tmpTransform[0][3] -= textureOffset.x;
+        tmpTransform[1][3] -= textureOffset.y;
+        setOneTimeTransform(&tmpTransform);
+
+        scope(exit) {
+            setOneTimeTransform(origTransform);
+            inPopViewport();
+        }
+
+        drawChildren();
+    }
+
+    void drawContents() {
+        if (!prepareDynamicRenderState()) return;
+
+        selfSort();
+
+        version (InDoesRender) {
+            beginDynamicCompositeGL(this);
+        }
+
+        withChildRenderTransform({
             foreach(Part child; subParts) {
                 child.drawOne();
             }
-            setOneTimeTransform(origTransform);
-            endComposite();
-            textures[0].genMipmap();
+        });
+
+        version (InDoesRender) {
+            endDynamicCompositeGL(this);
         }
+        endComposite();
+    }
+
+    bool enqueueDynamicComposite(RenderContext ctx) {
+        if (ctx.renderQueue is null) return false;
+        if (!prepareDynamicRenderState()) return false;
+
+        selfSort();
+        ctx.renderQueue.enqueue(makeBeginDynamicCompositeCommand(this));
+        withChildRenderTransform({
+            foreach (Part child; subParts) {
+                child.enqueueRenderCommands(ctx);
+            }
+        });
+        ctx.renderQueue.enqueue(makeEndDynamicCompositeCommand(this));
+        endComposite();
+        return true;
     }
 
     override
@@ -506,6 +531,44 @@ public:
     void draw() {
         if (!enabled || puppet is null) return;
         this.drawOne();
+    }
+
+    private void dynamicRenderBegin(RenderContext ctx) {
+        if (!enabled || ctx.renderQueue is null) return;
+        enqueueDynamicComposite(ctx);
+    }
+
+    private void dynamicRenderEnd(RenderContext ctx) {
+        if (!enabled || ctx.renderQueue is null) return;
+        enqueueRenderCommands(ctx);
+    }
+
+    package(nijilive)
+    void delegatedRunRenderBeginTask(RenderContext ctx) {
+        dynamicRenderBegin(ctx);
+    }
+
+    package(nijilive)
+    void delegatedRunRenderTask(RenderContext ctx) {
+    }
+
+    package(nijilive)
+    void delegatedRunRenderEndTask(RenderContext ctx) {
+        dynamicRenderEnd(ctx);
+    }
+
+    override
+    protected void runRenderBeginTask(RenderContext ctx) {
+        dynamicRenderBegin(ctx);
+    }
+
+    override
+    protected void runRenderTask(RenderContext ctx) {
+    }
+
+    override
+    protected void runRenderEndTask(RenderContext ctx) {
+        dynamicRenderEnd(ctx);
     }
 
 

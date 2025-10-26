@@ -143,6 +143,12 @@ backend.flush(GPUQueue);
 
 RenderQueue 上では `BeginMask → ApplyMask×N → BeginMaskContent → DrawXXX → EndMask` という並びを保証し、Backend 側では `MaskApplyPacket.isDodge` を見て `glStencilFunc(GL_ALWAYS, 0|1, 0xFF)` を切り替える。Mask ノード自身は `MaskDrawPacket` を組み立てるだけで GL 呼び出しを持たないため、将来的に別 Backend へ差し替えても CPU 側変更は不要。
 
+### DynamicComposite の描画
+
+- `BeginDynamicComposite` … DynamicComposite ノードがオフスクリーン描画を要求した時に enqueue。Backend 側で RenderTarget スタックへ push し、FBO/Viewport を差し替えてクリアする。
+- 子 Part/Composite は DynamicComposite が flatten 済みの `subParts` を走査して `PartDrawPacket` を enqueue。CPU 側では `withChildRenderTransform` で Camera/Transform を一時的に差し替える。
+- `EndDynamicComposite` … push した RenderTarget を pop し、元の FBO/Viewport へ戻してテクスチャの mipmap を更新する。
+
 ---
 
 ## 既存パイプラインからのマッピング

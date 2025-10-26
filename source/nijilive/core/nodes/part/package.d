@@ -564,8 +564,8 @@ public:
     override
     void draw() { }
 
-    override
-    protected void runRenderTask(RenderContext ctx) {
+    package(nijilive)
+    void enqueueRenderCommands(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
         auto packet = makePartDrawPacket(this);
         bool hasMasks = masks.length > 0;
@@ -586,6 +586,11 @@ public:
         if (hasMasks) {
             ctx.renderQueue.enqueue(makeEndMaskCommand());
         }
+    }
+
+    override
+    protected void runRenderTask(RenderContext ctx) {
+        enqueueRenderCommands(ctx);
     }
 
     override

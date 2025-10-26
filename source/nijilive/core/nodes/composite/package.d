@@ -11,7 +11,7 @@
 module nijilive.core.nodes.composite;
 import nijilive.core.nodes.common;
 import nijilive.core.render.commands : RenderCommandData, RenderCommandKind, makeBeginCompositeCommand,
-    makeDrawCompositeCommand, makeBeginMaskCommand, makeApplyMaskCommand,
+    makeBeginMaskCommand, makeApplyMaskCommand,
     makeBeginMaskContentCommand, makeEndMaskCommand, makeEndCompositeCommand,
     makeCompositeDrawPacket, makeDrawCompositeQuadCommand, tryMakeMaskApplyPacket,
     MaskApplyPacket;
@@ -541,7 +541,10 @@ public:
     override
     protected void runRenderBeginTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
-        if (delegated) return;
+        if (delegated) {
+            delegated.delegatedRunRenderBeginTask(ctx);
+            return;
+        }
 
         pendingMaskCommands = false;
         selfSort();
@@ -568,15 +571,18 @@ public:
 
     override
     protected void runRenderTask(RenderContext ctx) {
-        if (delegated && ctx.renderQueue !is null) {
-            ctx.renderQueue.enqueue(makeDrawCompositeCommand(this));
+        if (delegated) {
+            delegated.delegatedRunRenderTask(ctx);
         }
     }
 
     override
     protected void runRenderEndTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
-        if (delegated) return;
+        if (delegated) {
+            delegated.delegatedRunRenderEndTask(ctx);
+            return;
+        }
 
         auto packet = makeCompositeDrawPacket(this);
         ctx.renderQueue.enqueue(makeDrawCompositeQuadCommand(packet));

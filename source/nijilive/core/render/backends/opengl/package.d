@@ -4,12 +4,14 @@ import nijilive.core.render.backends;
 import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket;
 import nijilive.core.nodes : Node;
 import nijilive.core.nodes.part : Part;
-import nijilive.core.nodes.composite : Composite;
+import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.nodes.drawable : inBeginMask, inBeginMaskContent, inEndMask;
 import nijilive.core : inBeginComposite, inEndComposite;
 import nijilive.core.render.backends.opengl.part : glDrawPartPacket;
 import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
 import nijilive.core.render.backends.opengl.mask : executeMaskApplyPacket;
+import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
+    endDynamicCompositeGL;
 
 class GLRenderBackend : RenderBackend {
     override void drawNode(Node node) {
@@ -21,9 +23,12 @@ class GLRenderBackend : RenderBackend {
         glDrawPartPacket(packet);
     }
 
-    override void drawCompositeRaw(Composite composite) {
-        if (composite is null) return;
-        composite.drawOne();
+    override void beginDynamicComposite(DynamicComposite composite) {
+        beginDynamicCompositeGL(composite);
+    }
+
+    override void endDynamicComposite(DynamicComposite composite) {
+        endDynamicCompositeGL(composite);
     }
 
     override void beginMask(bool useStencil) {

@@ -5,6 +5,7 @@ import nijilive.core.nodes.part;
 import nijilive.core.nodes.composite;
 import nijilive.core.nodes.drawable;
 import nijilive.core.nodes.mask : Mask;
+import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.math;
 import nijilive.core.texture : Texture;
 import bindbc.opengl : GLuint;
@@ -13,7 +14,8 @@ import bindbc.opengl : GLuint;
 enum RenderCommandKind {
     DrawNode,
     DrawPart,
-    DrawComposite,
+    BeginDynamicComposite,
+    EndDynamicComposite,
     BeginMask,
     ApplyMask,
     BeginMaskContent,
@@ -73,7 +75,7 @@ struct RenderCommandData {
     RenderCommandKind kind;
     Node node;
     PartDrawPacket partPacket;
-    Composite composite;
+    DynamicComposite dynamicComposite;
     bool maskUsesStencil;
     MaskApplyPacket maskPacket;
     CompositeDrawPacket compositePacket;
@@ -108,10 +110,17 @@ RenderCommandData makeDrawPartCommand(PartDrawPacket packet) {
     return data;
 }
 
-RenderCommandData makeDrawCompositeCommand(Composite composite) {
+RenderCommandData makeBeginDynamicCompositeCommand(DynamicComposite composite) {
     RenderCommandData data;
-    data.kind = RenderCommandKind.DrawComposite;
-    data.composite = composite;
+    data.kind = RenderCommandKind.BeginDynamicComposite;
+    data.dynamicComposite = composite;
+    return data;
+}
+
+RenderCommandData makeEndDynamicCompositeCommand(DynamicComposite composite) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.EndDynamicComposite;
+    data.dynamicComposite = composite;
     return data;
 }
 

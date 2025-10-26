@@ -29,8 +29,8 @@
 - [x] `source/nijilive/core/nodes/mask/package.d` のマスク生成処理を `MaskDrawPacket` に分離し、Part との共有ロジックを Backend にまとめる。
 
 ### 3.2a DynamicComposite
-- [ ] `source/nijilive/core/nodes/composite/dynamic.d`(※存在箇所) での一時 FBO 差し替えロジックを `BeginDynamicComposite`/`EndDynamicComposite` コマンドに置き換える。
-- [ ] Backend に RenderTarget スタックを実装し、DynamicComposite 子描画中の FBO/テクスチャを自動で push/pop する。
+- [x] `source/nijilive/core/nodes/composite/dynamic.d`(※存在箇所) での一時 FBO 差し替えロジックを `BeginDynamicComposite`/`EndDynamicComposite` コマンドに置き換える。
+- [x] Backend に RenderTarget スタックを実装し、DynamicComposite 子描画中の FBO/テクスチャを自動で push/pop する。
 
 ### 3.3 MeshGroup / GridDeformer / PathDeformer
 - [x] `source/nijilive/core/nodes/meshgroup/package.d` の `drawOne()` / RenderTask を廃し、`runDynamicTask` で頂点更新のみ行う CPU ノードにする。
