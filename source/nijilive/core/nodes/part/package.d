@@ -11,14 +11,20 @@
 module nijilive.core.nodes.part;
 
 import nijilive.core.render.scheduler;
-import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket, makeBeginMaskCommand, makeApplyMaskCommand, makeBeginMaskContentCommand, makeEndMaskCommand;
+import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket,
+    makeBeginMaskCommand, makeApplyMaskCommand, makeBeginMaskContentCommand, makeEndMaskCommand,
+    tryMakeMaskApplyPacket, MaskApplyPacket, MaskDrawableKind;
 import nijilive.integration;
 import nijilive.fmt;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
-import bindbc.opengl;
-version(InDoesRender) import nijilive.core.render.backends.opengl.part : executePartPacket;
+version(InDoesRender) {
+    import nijilive.core.render.backends.opengl.part : executePartPacket;
+    import nijilive.core.render.backends.opengl.part_resources : initPartBackendResources,
+        createPartUVBuffer, updatePartUVBuffer;
+    import nijilive.core.render.backends.opengl.mask : executeMaskApplyPacket;
+}
 import std.exception;
 import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
@@ -28,96 +34,10 @@ public import nijilive.core.meshdata;
 
 
 package(nijilive) {
-        Texture boundAlbedo;
-
-        Shader partShader;
-        Shader partShaderStage1;
-        Shader partShaderStage2;
-        Shader partMaskShader;
-
-        /* GLSL Uniforms (Normal) */
-        GLint mvp;
-        GLint offset;
-        GLint gopacity;
-        GLint gMultColor;
-        GLint gScreenColor;
-        GLint gEmissionStrength;
-
-        
-        /* GLSL Uniforms (Stage 1) */
-        GLint gs1mvp;
-        GLint gs1offset;
-        GLint gs1opacity;
-        GLint gs1MultColor;
-        GLint gs1ScreenColor;
-
-        
-        /* GLSL Uniforms (Stage 2) */
-        GLint gs2mvp;
-        GLint gs2offset;
-        GLint gs2opacity;
-        GLint gs2EmissionStrength;
-        GLint gs2MultColor;
-        GLint gs2ScreenColor;
-
-        /* GLSL Uniforms (Masks) */
-        GLint mmvp;
-        GLint mthreshold;
-
-        GLuint sVertexBuffer;
-        GLuint sUVBuffer;
-        GLuint sElementBuffer;
-
     void inInitPart() {
         inRegisterNodeType!Part;
-
         version(InDoesRender) {
-            partShader = new Shader(import("basic/basic.vert"), import("basic/basic.frag"));
-            partShaderStage1 = new Shader(import("basic/basic.vert"), import("basic/basic-stage1.frag"));
-            partShaderStage2 = new Shader(import("basic/basic.vert"), import("basic/basic-stage2.frag"));
-            partMaskShader = new Shader(import("basic/basic.vert"), import("basic/basic-mask.frag"));
-
-            incDrawableBindVAO();
-
-            partShader.use();
-            partShader.setUniform(partShader.getUniformLocation("albedo"), 0);
-            partShader.setUniform(partShader.getUniformLocation("emissive"), 1);
-            partShader.setUniform(partShader.getUniformLocation("bumpmap"), 2);
-            mvp = partShader.getUniformLocation("mvp");
-            offset = partShader.getUniformLocation("offset");
-            gopacity = partShader.getUniformLocation("opacity");
-            gMultColor = partShader.getUniformLocation("multColor");
-            gScreenColor = partShader.getUniformLocation("screenColor");
-            gEmissionStrength = partShader.getUniformLocation("emissionStrength");
-            
-            partShaderStage1.use();
-            partShaderStage1.setUniform(partShader.getUniformLocation("albedo"), 0);
-            gs1mvp = partShaderStage1.getUniformLocation("mvp");
-            gs1offset = partShaderStage1.getUniformLocation("offset");
-            gs1opacity = partShaderStage1.getUniformLocation("opacity");
-            gs1MultColor = partShaderStage1.getUniformLocation("multColor");
-            gs1ScreenColor = partShaderStage1.getUniformLocation("screenColor");
-
-            partShaderStage2.use();
-            partShaderStage2.setUniform(partShaderStage2.getUniformLocation("emissive"), 1);
-            partShaderStage2.setUniform(partShaderStage2.getUniformLocation("bumpmap"), 2);
-            gs2mvp = partShaderStage2.getUniformLocation("mvp");
-            gs2offset = partShaderStage2.getUniformLocation("offset");
-            gs2opacity = partShaderStage2.getUniformLocation("opacity");
-            gs2MultColor = partShaderStage2.getUniformLocation("multColor");
-            gs2ScreenColor = partShaderStage2.getUniformLocation("screenColor");
-            gs2EmissionStrength = partShaderStage2.getUniformLocation("emissionStrength");
-
-            partMaskShader.use();
-            partMaskShader.setUniform(partMaskShader.getUniformLocation("albedo"), 0);
-            partMaskShader.setUniform(partMaskShader.getUniformLocation("emissive"), 1);
-            partMaskShader.setUniform(partMaskShader.getUniformLocation("bumpmap"), 2);
-            mmvp = partMaskShader.getUniformLocation("mvp");
-            mthreshold = partMaskShader.getUniformLocation("threshold");
-            
-            glGenBuffers(1, &sVertexBuffer);
-            glGenBuffers(1, &sUVBuffer);
-            glGenBuffers(1, &sElementBuffer);
+            initPartBackendResources();
         }
     }
 }
@@ -188,12 +108,12 @@ enum TextureUsage : size_t {
 @TypeId("Part")
 class Part : Drawable {
 private:    
-    GLuint uvbo;
+    uint uvbo;
 
     void updateUVs() {
         version(InDoesRender) {
-            glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-            glBufferData(GL_ARRAY_BUFFER, data.uvs.length*vec2.sizeof, data.uvs.ptr, GL_STATIC_DRAW);
+            if (uvbo == 0) uvbo = createPartUVBuffer();
+            updatePartUVBuffer(uvbo, data);
         }
     }
 
@@ -215,13 +135,7 @@ protected:
         super(data, uuid, parent);
 
         version(InDoesRender) {
-            glGenBuffers(1, &uvbo);
-
-            mvp = partShader.getUniformLocation("mvp");
-            gopacity = partShader.getUniformLocation("opacity");
-            
-            mmvp = partMaskShader.getUniformLocation("mvp");
-            mthreshold = partMaskShader.getUniformLocation("threshold");
+            uvbo = createPartUVBuffer();
         }
 
         this.updateUVs();
@@ -480,7 +394,7 @@ public:
     this(Node parent = null) {
         super(parent);
         
-        version(InDoesRender) glGenBuffers(1, &uvbo);
+        version(InDoesRender) uvbo = createPartUVBuffer();
     }
 
     /**
@@ -494,13 +408,7 @@ public:
         }
 
         version(InDoesRender) {
-            glGenBuffers(1, &uvbo);
-
-            mvp = partShader.getUniformLocation("mvp");
-            gopacity = partShader.getUniformLocation("opacity");
-            
-            mmvp = partMaskShader.getUniformLocation("mvp");
-            mthreshold = partMaskShader.getUniformLocation("threshold");
+            uvbo = createPartUVBuffer();
         }
 
         this.updateUVs();
@@ -508,18 +416,13 @@ public:
     
     override
     void renderMask(bool dodge = false) {
-        
-        // Enable writing to stencil buffer and disable writing to color buffer
-        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glStencilFunc(GL_ALWAYS, dodge ? 0 : 1, 0xFF);
-        glStencilMask(0xFF);
-
-        // Draw ourselves to the stencil buffer
-        drawSelf!true();
-
-        // Disable writing to stencil buffer and enable writing to color buffer
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        version(InDoesRender) {
+            MaskApplyPacket packet;
+            packet.kind = MaskDrawableKind.Part;
+            packet.isDodge = dodge;
+            packet.partPacket = makePartDrawPacket(this, true);
+            executeMaskApplyPacket(packet);
+        }
     }
 
     override
@@ -671,7 +574,10 @@ public:
             foreach (ref mask; masks) {
                 if (mask.maskSrc !is null) {
                     bool isDodge = mask.mode == MaskingMode.DodgeMask;
-                    ctx.renderQueue.enqueue(makeApplyMaskCommand(mask.maskSrc, isDodge));
+                    MaskApplyPacket applyPacket;
+                    if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
+                        ctx.renderQueue.enqueue(makeApplyMaskCommand(applyPacket));
+                    }
                 }
             }
             ctx.renderQueue.enqueue(makeBeginMaskContentCommand());

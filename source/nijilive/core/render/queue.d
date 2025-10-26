@@ -38,7 +38,7 @@ public:
                     backend.beginMask(command.maskUsesStencil);
                     break;
                 case RenderCommandKind.ApplyMask:
-                    backend.applyMask(command.maskDrawable, command.maskIsDodge);
+                    backend.applyMask(command.maskPacket);
                     break;
                 case RenderCommandKind.BeginMaskContent:
                     backend.beginMaskContent();

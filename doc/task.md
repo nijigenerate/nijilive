@@ -26,7 +26,7 @@
 ### 3.2 Composite / Mask
 - [x] `source/nijilive/core/nodes/composite/package.d` の `drawContents()` / `drawSelfImmediate()` での `inBeginComposite` / `glDrawBuffers` 呼びを Backend コマンド（`BeginComposite`, `EndComposite`, `CompositeDrawQuad`）へ移す。
 - [x] Composite のマスク (`Composite.renderMaskImmediate`) を RenderQueue 上の mask コマンド（`BeginMask`, `ApplyMask`, `BeginMaskContent`, `EndMask`）に切り替え、Backend 側で子 Part を順序制御できるようにする。
-- [ ] `source/nijilive/core/nodes/mask/package.d` のマスク生成処理を `MaskDrawPacket` に分離し、Part との共有ロジックを Backend にまとめる。
+- [x] `source/nijilive/core/nodes/mask/package.d` のマスク生成処理を `MaskDrawPacket` に分離し、Part との共有ロジックを Backend にまとめる。
 
 ### 3.2a DynamicComposite
 - [ ] `source/nijilive/core/nodes/composite/dynamic.d`(※存在箇所) での一時 FBO 差し替えロジックを `BeginDynamicComposite`/`EndDynamicComposite` コマンドに置き換える。

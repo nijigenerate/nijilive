@@ -12,28 +12,24 @@ module nijilive.core.nodes.mask;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
-import bindbc.opengl;
 import std.exception;
 import std.algorithm.mutation : copy;
 
 public import nijilive.core.meshdata;
 
+import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind,
+    makeMaskDrawPacket;
+version (InDoesRender) {
+    import nijilive.core.render.backends.opengl.mask : executeMaskPacket,
+        executeMaskApplyPacket;
+    import nijilive.core.render.backends.opengl.mask_resources : initMaskBackendResources;
+}
 
 package(nijilive) {
-    private {
-        Shader maskShader;
-    }
-
-    /* GLSL Uniforms (Normal) */
-    GLint mvp;
-    GLint offset;
-
     void inInitMask() {
         inRegisterNodeType!Mask;
         version(InDoesRender) {
-            maskShader = new Shader(import("mask.vert"), import("mask.frag"));
-            offset = maskShader.getUniformLocation("offset");
-            mvp = maskShader.getUniformLocation("mvp");
+            initMaskBackendResources();
         }
     }
 }
@@ -50,35 +46,10 @@ private:
         RENDERING
     */
     void drawSelf() {
-
-        // Bind the vertex array
-        incDrawableBindVAO();
-        // Calculate matrix
-        mat4 matrix = transform.matrix();
-        if (overrideTransformMatrix !is null)
-            matrix = overrideTransformMatrix.matrix;
-        if (oneTimeTransform !is null)
-            matrix = (*oneTimeTransform) * matrix;
-        
-        maskShader.use();
-        maskShader.setUniform(offset, data.origin);
-//        maskShader.setUniform(mvp, inGetCamera().matrix * transform.matrix());
-        maskShader.setUniform(mvp, inGetCamera().matrix * puppet.transform.matrix * matrix);
-        
-        // Enable points array
-        glEnableVertexAttribArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-        glEnableVertexAttribArray(1); // deforms
-        glBindBuffer(GL_ARRAY_BUFFER, dbo);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-        // Bind index buffer
-        this.bindIndex();
-
-        // Disable the vertex attribs after use
-        glDisableVertexAttribArray(0);
-        glDisableVertexAttribArray(1);
+        version (InDoesRender) {
+            auto packet = makeMaskDrawPacket(this);
+            executeMaskPacket(packet);
+        }
     }
 
 protected:
@@ -111,18 +82,13 @@ public:
     
     override
     void renderMask(bool dodge = false) {
-        
-        // Enable writing to stencil buffer and disable writing to color buffer
-        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glStencilFunc(GL_ALWAYS, dodge ? 0 : 1, 0xFF);
-        glStencilMask(0xFF);
-
-        // Draw ourselves to the stencil buffer
-        drawSelf();
-
-        // Disable writing to stencil buffer and enable writing to color buffer
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        version (InDoesRender) {
+            MaskApplyPacket packet;
+            packet.kind = MaskDrawableKind.Mask;
+            packet.isDodge = dodge;
+            packet.maskPacket = makeMaskDrawPacket(this);
+            executeMaskApplyPacket(packet);
+        }
     }
 
     override
@@ -137,7 +103,30 @@ public:
 
     override
     void drawOneDirect(bool forMasking) {
-        this.drawSelf();
+        version (InDoesRender) {
+            this.drawSelf();
+        }
+    }
+
+    package(nijilive)
+    void fillMaskDrawPacket(ref MaskDrawPacket packet) {
+        packet.mask = this;
+
+        mat4 modelMatrix = transform.matrix();
+        if (overrideTransformMatrix !is null)
+            modelMatrix = overrideTransformMatrix.matrix;
+        if (oneTimeTransform !is null)
+            modelMatrix = (*oneTimeTransform) * modelMatrix;
+        packet.modelMatrix = modelMatrix;
+
+        mat4 puppetMatrix = puppet ? puppet.transform.matrix : mat4.identity;
+        packet.mvp = inGetCamera().matrix * puppetMatrix * modelMatrix;
+
+        packet.origin = data.origin;
+        packet.vertexBuffer = vbo;
+        packet.deformBuffer = dbo;
+        packet.indexBuffer = ibo;
+        packet.indexCount = cast(uint)data.indices.length;
     }
 
     override

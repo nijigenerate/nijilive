@@ -4,6 +4,7 @@ import nijilive.core.nodes;
 import nijilive.core.nodes.part;
 import nijilive.core.nodes.composite;
 import nijilive.core.nodes.drawable;
+import nijilive.core.nodes.mask : Mask;
 import nijilive.math;
 import nijilive.core.texture : Texture;
 import bindbc.opengl : GLuint;
@@ -20,6 +21,11 @@ enum RenderCommandKind {
     BeginComposite,
     DrawCompositeQuad,
     EndComposite,
+}
+
+enum MaskDrawableKind {
+    Part,
+    Mask,
 }
 
 struct PartDrawPacket {
@@ -44,6 +50,24 @@ struct PartDrawPacket {
     uint indexCount;
 }
 
+struct MaskDrawPacket {
+    Mask mask;
+    mat4 modelMatrix;
+    mat4 mvp;
+    vec2 origin;
+    GLuint vertexBuffer;
+    GLuint deformBuffer;
+    GLuint indexBuffer;
+    uint indexCount;
+}
+
+struct MaskApplyPacket {
+    MaskDrawableKind kind;
+    bool isDodge;
+    PartDrawPacket partPacket;
+    MaskDrawPacket maskPacket;
+}
+
 /// RenderQueue に積まれる汎用パケット。
 struct RenderCommandData {
     RenderCommandKind kind;
@@ -51,8 +75,7 @@ struct RenderCommandData {
     PartDrawPacket partPacket;
     Composite composite;
     bool maskUsesStencil;
-    Drawable maskDrawable;
-    bool maskIsDodge;
+    MaskApplyPacket maskPacket;
     CompositeDrawPacket compositePacket;
 }
 
@@ -99,11 +122,35 @@ RenderCommandData makeBeginMaskCommand(bool useStencil) {
     return data;
 }
 
-RenderCommandData makeApplyMaskCommand(Drawable drawable, bool isDodge) {
+MaskDrawPacket makeMaskDrawPacket(Mask mask) {
+    MaskDrawPacket packet;
+    if (mask !is null) {
+        mask.fillMaskDrawPacket(packet);
+    }
+    return packet;
+}
+
+bool tryMakeMaskApplyPacket(Drawable drawable, bool isDodge, out MaskApplyPacket packet) {
+    if (drawable is null) return false;
+    if (auto part = cast(Part)drawable) {
+        packet.kind = MaskDrawableKind.Part;
+        packet.partPacket = makePartDrawPacket(part, true);
+        packet.isDodge = isDodge;
+        return true;
+    }
+    if (auto mask = cast(Mask)drawable) {
+        packet.kind = MaskDrawableKind.Mask;
+        packet.maskPacket = makeMaskDrawPacket(mask);
+        packet.isDodge = isDodge;
+        return true;
+    }
+    return false;
+}
+
+RenderCommandData makeApplyMaskCommand(MaskApplyPacket packet) {
     RenderCommandData data;
     data.kind = RenderCommandKind.ApplyMask;
-    data.maskDrawable = drawable;
-    data.maskIsDodge = isDodge;
+    data.maskPacket = packet;
     return data;
 }
 

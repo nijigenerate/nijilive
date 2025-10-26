@@ -13,13 +13,15 @@ import nijilive.core.nodes.common;
 import nijilive.core.render.commands : RenderCommandData, RenderCommandKind, makeBeginCompositeCommand,
     makeDrawCompositeCommand, makeBeginMaskCommand, makeApplyMaskCommand,
     makeBeginMaskContentCommand, makeEndMaskCommand, makeEndCompositeCommand,
-    makeCompositeDrawPacket, makeDrawCompositeQuadCommand;
+    makeCompositeDrawPacket, makeDrawCompositeQuadCommand, tryMakeMaskApplyPacket,
+    MaskApplyPacket;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes;
 import nijilive.fmt;
 import nijilive.core;
 import nijilive.math;
 import bindbc.opengl;
+version(InDoesRender) import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
 import std.exception;
 import std.algorithm.sorting;
 import nijilive.core.render.scheduler : RenderContext;
@@ -184,34 +186,11 @@ private:
     }
 
     void drawSelfImmediate() {
-        if (subParts.length == 0) return;
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glBindVertexArray(cVAO);
-
-        cShader.use();
-        cShader.setUniform(gopacity, clamp(offsetOpacity * opacity, 0, 1));
-        incCompositePrepareRender();
-        
-        vec3 clampedColor = tint;
-        if (!offsetTint.x.isNaN) clampedColor.x = clamp(tint.x*offsetTint.x, 0, 1);
-        if (!offsetTint.y.isNaN) clampedColor.y = clamp(tint.y*offsetTint.y, 0, 1);
-        if (!offsetTint.z.isNaN) clampedColor.z = clamp(tint.z*offsetTint.z, 0, 1);
-        cShader.setUniform(gMultColor, clampedColor);
-
-        clampedColor = screenTint;
-        if (!offsetScreenTint.x.isNaN) clampedColor.x = clamp(screenTint.x+offsetScreenTint.x, 0, 1);
-        if (!offsetScreenTint.y.isNaN) clampedColor.y = clamp(screenTint.y+offsetScreenTint.y, 0, 1);
-        if (!offsetScreenTint.z.isNaN) clampedColor.z = clamp(screenTint.z+offsetScreenTint.z, 0, 1);
-        cShader.setUniform(gScreenColor, clampedColor);
-        inSetBlendMode(blendingMode, true);
-
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
-
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        version(InDoesRender) {
+            if (subParts.length == 0) return;
+            auto packet = makeCompositeDrawPacket(this);
+            compositeDrawQuad(packet);
+        }
     }
 
     void selfSort() {
@@ -259,38 +238,6 @@ private:
 
 protected:
     Part[] subParts;
-    
-    void renderMaskImmediate(Part[] maskParts) {
-        inBeginComposite();
-
-            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);
-            glStencilMask(0xFF);
-
-            foreach(Part child; maskParts) {
-                child.drawOneDirect(true);
-            }
-
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        inEndComposite();
-
-        glBindVertexArray(cVAO);
-        cShaderMask.use();
-        cShaderMask.setUniform(mopacity, opacity);
-        cShaderMask.setUniform(mthreshold, threshold);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, inGetCompositeImage());
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-    }
 
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
@@ -607,7 +554,10 @@ public:
             foreach (ref mask; masks) {
                 if (mask.maskSrc !is null) {
                     bool isDodge = mask.mode == MaskingMode.DodgeMask;
-                    ctx.renderQueue.enqueue(makeApplyMaskCommand(mask.maskSrc, isDodge));
+                    MaskApplyPacket applyPacket;
+                    if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
+                        ctx.renderQueue.enqueue(makeApplyMaskCommand(applyPacket));
+                    }
                 }
             }
             ctx.renderQueue.enqueue(makeBeginMaskContentCommand());

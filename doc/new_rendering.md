@@ -131,9 +131,17 @@ sequenceDiagram
 
 描画前の最終ステップとして
 
-    backend.flush(GPUQueue);
+backend.flush(GPUQueue);
 
 を呼ぶ。`flush` は backend 固有実装（OpenGL, Metal, Vulkan...）が `GPUQueue` の内容を順番に `glBindBuffer`, `vkCmdDraw` 等へ変換して送出する。この段階では CPU 側の状態更新は行わず、描画専用コマンドのみが流れる。
+
+### Maskコマンドの分解
+
+- `BeginMask` … ステンシルバッファのクリアと enable/disable だけを担当。親ノード（Part/Composite）が RenderBegin で enqueue。
+- `ApplyMask` … `MaskApplyPacket`（`MaskDrawableKind` + `PartDrawPacket` or `MaskDrawPacket`）を保持し、Backend で `glColorMask(GL_FALSE, ...)` → mask geometry draw → `glColorMask(GL_TRUE, ...)` の順序を一箇所に閉じ込める。
+- `BeginMaskContent` / `EndMask` … `glStencilFunc(GL_EQUAL, …)` と `glStencilMask(0x00)` / reset を行う。以降の `DrawPart` / `DrawCompositeQuad` が自動的にマスクされる。
+
+RenderQueue 上では `BeginMask → ApplyMask×N → BeginMaskContent → DrawXXX → EndMask` という並びを保証し、Backend 側では `MaskApplyPacket.isDodge` を見て `glStencilFunc(GL_ALWAYS, 0|1, 0xFF)` を切り替える。Mask ノード自身は `MaskDrawPacket` を組み立てるだけで GL 呼び出しを持たないため、将来的に別 Backend へ差し替えても CPU 側変更は不要。
 
 ---
 
