@@ -18,6 +18,7 @@ import std.array;
 import std.range;
 import std.typecons;
 import nijilive.core;
+import nijilive.core.render.scheduler : RenderContext;
 import nijilive.core.dbg;
 import core.exception;
 
@@ -368,6 +369,11 @@ public:
     void releaseTarget(Node target) {
         releaseChildNoRecurse(target);
         children_ref = children_ref.removeByValue(target);
+    }
+
+    override
+    protected void runRenderTask(RenderContext ctx) {
+        // PathDeformer does not enqueue GPU work.
     }
 
     debug(path_deform) {

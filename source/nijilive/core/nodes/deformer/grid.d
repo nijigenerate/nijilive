@@ -12,6 +12,7 @@ import nijilive.math;
 import std.algorithm : sort;
 import std.math : isClose;
 import std.typecons : tuple, Tuple;
+import nijilive.core.render.scheduler : RenderContext;
 
 enum GridFormation {
     Bilinear,
@@ -150,6 +151,11 @@ public:
     void releaseTarget(Node target) {
         releaseChildNoRecurse(target);
         children_ref = children_ref.removeByValue(target);
+    }
+
+    override
+    protected void runRenderTask(RenderContext ctx) {
+        // GridDeformer does not emit GPU commands.
     }
 
     override

@@ -20,6 +20,7 @@ import nijilive.math.triangle;
 import std.exception;
 import nijilive.core.dbg;
 import nijilive.core;
+import nijilive.core.render.scheduler : RenderContext;
 import std.typecons: tuple, Tuple;
 //import std.stdio;
 import nijilive.core.nodes.utils;
@@ -156,6 +157,11 @@ public:
     override
     void draw() {
         super.draw();
+    }
+
+    override
+    protected void runRenderTask(RenderContext ctx) {
+        // MeshGroup does not issue GPU commands; downstream Parts handle drawing.
     }
 
 

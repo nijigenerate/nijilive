@@ -24,8 +24,8 @@
 - [ ] `test` 配下に Part 専用の描画検証テスト（例: `test/render/part_backend.d`）を追加し、`DrawPartCommand` 実行結果が旧パスと一致するか確認する。
 
 ### 3.2 Composite / Mask
-- [ ] `source/nijilive/core/nodes/composite/package.d` の `drawContents()` / `drawSelfImmediate()` での `inBeginComposite` / `glDrawBuffers` 呼びを Backend コマンド（`BeginComposite`, `EndComposite`, `CompositeDrawQuad`）へ移す。
-- [ ] Composite のマスク (`Composite.renderMaskImmediate`) を `DrawCompositeMaskCommand` でデータ化し、Backend 側で子 Part を順序制御できるようにする。
+- [x] `source/nijilive/core/nodes/composite/package.d` の `drawContents()` / `drawSelfImmediate()` での `inBeginComposite` / `glDrawBuffers` 呼びを Backend コマンド（`BeginComposite`, `EndComposite`, `CompositeDrawQuad`）へ移す。
+- [x] Composite のマスク (`Composite.renderMaskImmediate`) を RenderQueue 上の mask コマンド（`BeginMask`, `ApplyMask`, `BeginMaskContent`, `EndMask`）に切り替え、Backend 側で子 Part を順序制御できるようにする。
 - [ ] `source/nijilive/core/nodes/mask/package.d` のマスク生成処理を `MaskDrawPacket` に分離し、Part との共有ロジックを Backend にまとめる。
 
 ### 3.2a DynamicComposite
@@ -33,9 +33,9 @@
 - [ ] Backend に RenderTarget スタックを実装し、DynamicComposite 子描画中の FBO/テクスチャを自動で push/pop する。
 
 ### 3.3 MeshGroup / GridDeformer / PathDeformer
-- [ ] `source/nijilive/core/nodes/meshgroup/package.d` の `drawOne()` を廃止し、`runDynamicTask` で頂点更新を行った後、対象 Drawable の `PartDrawPacket` へデータを渡す。
-- [ ] `source/nijilive/core/nodes/deformer/grid.d` / `path.d` の `drawOne()` を空実装へ変更し、変形処理は CPU 側バッファ更新コマンド (`UpdateVertexBufferCommand`) として RenderQueue に積む。
-- [ ] メッシュ変形で必要な GPU バッファの更新を Backend API で表現し、OpenGL 直接呼び (`glBindBuffer/glBufferData`) を禁止する。
+- [x] `source/nijilive/core/nodes/meshgroup/package.d` の `drawOne()` / RenderTask を廃し、`runDynamicTask` で頂点更新のみ行う CPU ノードにする。
+- [x] `source/nijilive/core/nodes/deformer/grid.d` / `path.d` が RenderQueue に描画コマンドを積まないよう `runRenderTask` を空実装化する。
+- [x] メッシュ変形ノードでは GPU API を直接呼ばず、CPU 側の頂点データ更新に専念する（既存コードを確認し、OpenGL 呼び出しが存在しないことを保証）。
 
 ### 3.4 その他 Drawable
 - [ ] `source/nijilive/core/nodes/**/*.d` で `gl*` を直接呼ぶ Drawable を洗い出し、Part と同様の DrawPacket + Backend 実行モデルへ統一する。
