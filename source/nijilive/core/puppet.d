@@ -10,7 +10,7 @@ import std.file;
 import std.path : extension;
 import std.json;
 import nijilive.core.render.queue;
-import nijilive.core.render.commands : RenderBackend;
+import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 import nijilive.core.render.backends.opengl : GLRenderBackend;
 import nijilive.core.render.graph;
 import nijilive.core.render.scheduler;
@@ -425,6 +425,7 @@ public:
         renderGraph = new RenderGraph();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
+        renderContext.gpuState = RenderGpuState.init;
     }
 
     /**
@@ -444,6 +445,7 @@ public:
         renderGraph = new RenderGraph();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
+        renderContext.gpuState = RenderGpuState.init;
     }
 
     Node actualRoot() {
@@ -477,6 +479,7 @@ public:
 
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
+        renderContext.gpuState = RenderGpuState.init;
         renderQueue.clear();
         renderGraph.buildFrame(rootNode);
         renderGraph.execute(renderContext);
@@ -542,7 +545,7 @@ public:
             return;
         }
 
-        renderQueue.flush(renderBackend);
+        renderQueue.flush(renderBackend, renderContext.gpuState);
         /*
         // debug
         foreach (c; findNodesType!Composite(actualRoot())) {

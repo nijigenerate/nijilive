@@ -10,7 +10,7 @@
 */
 module nijilive.core.nodes.composite;
 import nijilive.core.nodes.common;
-import nijilive.core.render.commands : DrawCompositeCommand;
+import nijilive.core.render.commands;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes;
 import nijilive.fmt;

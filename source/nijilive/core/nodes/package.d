@@ -28,6 +28,7 @@ public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
 import nijilive.core.render.queue;
+import nijilive.core.render.commands : makeDrawNodeCommand;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
 import nijilive.core.render.scheduler;
@@ -851,7 +852,7 @@ public:
 
     protected void runRenderTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
-        ctx.renderQueue.enqueue(new DrawNodeCommand(this));
+        ctx.renderQueue.enqueue(makeDrawNodeCommand(this));
     }
 
     void registerRenderTasks(TaskScheduler scheduler) {

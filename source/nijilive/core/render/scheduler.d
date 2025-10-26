@@ -26,11 +26,13 @@ enum TaskKind {
 }
 
 import nijilive.core.render.queue;
+import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 
 /// Context shared by task handlers for per-frame data.
 struct RenderContext {
     RenderQueue* renderQueue;
-    
+    RenderBackend renderBackend;
+    RenderGpuState gpuState;
 }
 
 alias TaskHandler = void delegate(ref RenderContext);

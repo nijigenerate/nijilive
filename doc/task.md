@@ -19,7 +19,7 @@
 - [x] `source/nijilive/core/render/commands.d` に `PartDrawPacket` を追加し、行列・色・ブレンド状態など描画に必要な CPU 側データをまとめて RenderQueue に積む構成へ切り替える。
 - [x] `Part.drawSelf()` で必要な定数バッファ・ユニフォーム・テクスチャ参照および VBO/IBO ハンドルを `PartDrawPacket` に詰める実装を行う。
 - [x] `source/nijilive/core/render/backends/opengl/part.d` に `executePartPacket(const PartDrawPacket packet)` を実装し、これまで `Part.drawSelf()` が直接呼んでいた `gl*` 群を移植する。
-- [ ] `source/nijilive/core/nodes/part/package.d` の `drawSelf` / `setupShaderStage` / `renderStage` から OpenGL 呼び出しを削除し、代わりに `ctx.renderQueue.enqueue(makeDrawPartCommand(packet))` を行う。
+- [x] `source/nijilive/core/nodes/part/package.d` の `drawSelf` / `setupShaderStage` / `renderStage` から OpenGL 呼び出しを削除し、代わりに `ctx.renderQueue.enqueue(makeDrawPartCommand(packet))` を行う。
 - [ ] Part のマスク処理 (`inBeginMask` 等) を Backend コマンド（`BeginMask`, `ApplyMask`, `EndMask`）に変換し、`glDrawPart()` ではなく RenderQueue 経由でマスクを組み立てる。
 - [ ] `test` 配下に Part 専用の描画検証テスト（例: `test/render/part_backend.d`）を追加し、`DrawPartCommand` 実行結果が旧パスと一致するか確認する。
 
