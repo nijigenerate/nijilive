@@ -40,7 +40,7 @@
 ### 3.4 その他 Drawable
 - [ ] `source/nijilive/core/nodes/**/*.d` で `gl*` を直接呼ぶ Drawable を洗い出し、Part と同様の DrawPacket + Backend 実行モデルへ統一する。
 - [ ] BlendShader など特殊処理が必要な Drawable について、Backend に専用コマンド（例: `ExecuteBlendShaderCommand`）を設け、Node 側は状態記述のみ持つようにする。
-- [ ] OpenGL 依存のユーティリティ (`inDrawTextureAtPart`, `inDrawTextureAtPosition` など) を `source/nijilive/core/render/backends/opengl/**` 配下へ移設し、ノード側から OpenGL 参照を完全排除する。
+- [x] OpenGL 依存のユーティリティ (`inDrawTextureAtPart`, `inDrawTextureAtPosition` など) を `source/nijilive/core/render/backends/opengl/**` 配下へ移設し、ノード側から OpenGL 参照を完全排除する。
 
 ## ステップ4 旧パイプライン削除
 - [ ] `source/nijilive/core/nodes/package.d` から `beginUpdate` / `update` / `endUpdate` の残骸を削除し、関連呼び出しを含むテストを更新する。
