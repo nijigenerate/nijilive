@@ -7,8 +7,9 @@ import nijilive.core;
 import nijilive.math;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.texture : Texture;
-import nijilive.core.nodes.part;
-static import partmodule = nijilive.core.nodes.part;
+import nijilive.core.nodes.part : Part;
+import nijilive.core.render.backends.opengl.part_resources : partShader, gopacity, gMultColor,
+    gScreenColor, mvp, sVertexBuffer, sUVBuffer, sElementBuffer;
 
 void inDrawTextureAtPart(Texture texture, Part part) {
     if (texture is null || part is null) return;
@@ -18,19 +19,19 @@ void inDrawTextureAtPart(Texture texture, Part part) {
 
     incDrawableBindVAO();
 
-    partmodule.partShader.use();
-    partmodule.partShader.setUniform(partmodule.mvp,
+    partShader.use();
+    partShader.setUniform(mvp,
         inGetCamera().matrix *
         mat4.translation(vec3(part.transform.matrix() * vec4(1, 1, 1, 1)))
     );
-    partmodule.partShader.setUniform(partmodule.gopacity, part.opacity);
-    partmodule.partShader.setUniform(partmodule.gMultColor, part.tint);
-    partmodule.partShader.setUniform(partmodule.gScreenColor, part.screenTint);
+    partShader.setUniform(gopacity, part.opacity);
+    partShader.setUniform(gMultColor, part.tint);
+    partShader.setUniform(gScreenColor, part.screenTint);
 
     texture.bind();
 
     glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, partmodule.sVertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
         -texWidthP, -texHeightP,
         texWidthP, -texHeightP,
@@ -40,7 +41,7 @@ void inDrawTextureAtPart(Texture texture, Part part) {
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, partmodule.sUVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
     glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
         0, 0,
         1, 0,
@@ -49,7 +50,7 @@ void inDrawTextureAtPart(Texture texture, Part part) {
     ].ptr, GL_STATIC_DRAW);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, partmodule.sElementBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
         0u, 1u, 2u,
         2u, 1u, 3u
@@ -68,20 +69,20 @@ void inDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, 
 
     incDrawableBindVAO();
 
-    partmodule.partShader.use();
-    partmodule.partShader.setUniform(partmodule.mvp,
+    partShader.use();
+    partShader.setUniform(mvp,
         inGetCamera().matrix *
         mat4.scaling(1, 1, 1) *
         mat4.translation(vec3(position, 0))
     );
-    partmodule.partShader.setUniform(partmodule.gopacity, opacity);
-    partmodule.partShader.setUniform(partmodule.gMultColor, color);
-    partmodule.partShader.setUniform(partmodule.gScreenColor, screenColor);
+    partShader.setUniform(gopacity, opacity);
+    partShader.setUniform(gMultColor, color);
+    partShader.setUniform(gScreenColor, screenColor);
 
     texture.bind();
 
     glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, partmodule.sVertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
         -texWidthP, -texHeightP,
         texWidthP, -texHeightP,
@@ -91,7 +92,7 @@ void inDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, partmodule.sUVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
     glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
         0, 0,
         1, 0,
@@ -100,7 +101,7 @@ void inDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, 
     ].ptr, GL_STATIC_DRAW);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, partmodule.sElementBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
         0u, 1u, 2u,
         2u, 1u, 3u
@@ -116,7 +117,7 @@ void inDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1)
 
     incDrawableBindVAO();
 
-    if (!s) s = partmodule.partShader;
+    if (!s) s = partShader;
     if (!cam) cam = inGetCamera();
     s.use();
     s.setUniform(s.getUniformLocation("mvp"),
@@ -130,7 +131,7 @@ void inDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1)
     texture.bind();
 
     glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, partmodule.sVertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
         area.left, area.top,
         area.right, area.top,
@@ -140,7 +141,7 @@ void inDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, partmodule.sUVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
     glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
         uvs.x, uvs.y,
         uvs.width, uvs.y,
@@ -149,7 +150,7 @@ void inDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1)
     ].ptr, GL_STATIC_DRAW);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, partmodule.sElementBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
         0u, 1u, 2u,
         2u, 1u, 3u

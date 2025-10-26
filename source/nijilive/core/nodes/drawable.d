@@ -13,7 +13,7 @@ import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
 import nijilive.math.triangle;
-import bindbc.opengl;
+import bindbc.opengl : GLuint;
 import std.exception;
 import nijilive.core.dbg;
 import nijilive.core;
@@ -24,12 +24,18 @@ import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
 //import std.stdio;
 
-private GLuint drawableVAO;
+version (InDoesRender) {
+    import nijilive.core.render.backends.opengl.drawable_buffers : initDrawableBackend,
+        bindDrawableVAO, createDrawableBuffers, uploadDrawableIndices, uploadDrawableVertices,
+        uploadDrawableDeform, drawDrawableElements;
+    import nijilive.core.render.backends.opengl.mask_state : beginMaskGL, endMaskGL,
+        beginMaskContentGL;
+}
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
 
 package(nijilive) {
     void inInitDrawable() {
-        version(InDoesRender) glGenVertexArrays(1, &drawableVAO);
+        version(InDoesRender) initDrawableBackend();
     }
 
 
@@ -37,9 +43,7 @@ package(nijilive) {
         Binds the internal vertex array for rendering
     */
     void incDrawableBindVAO() {
-
-        // Bind our vertex array
-        glBindVertexArray(drawableVAO);
+        version(InDoesRender) bindDrawableVAO();
     }
 
     bool doGenerateBounds = false;
@@ -69,18 +73,14 @@ protected:
 
     void updateIndices() {
         version (InDoesRender) {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.indices.length*ushort.sizeof, data.indices.ptr, GL_STATIC_DRAW);
+            uploadDrawableIndices(ibo, data.indices);
         }
     }
 
     override
     void updateVertices() {
         version (InDoesRender) {
-
-            // Important check since the user can change this every frame
-            glBindBuffer(GL_ARRAY_BUFFER, vbo);
-            glBufferData(GL_ARRAY_BUFFER, data.vertices.length*vec2.sizeof, data.vertices.ptr, GL_DYNAMIC_DRAW);
+            uploadDrawableVertices(vbo, data.vertices);
         }
 
         // Zero-fill the deformation delta
@@ -163,8 +163,7 @@ protected:
             origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
         }
         version (InDoesRender) {
-            glBindBuffer(GL_ARRAY_BUFFER, dbo);
-            glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
+            uploadDrawableDeform(dbo, deformation);
         }
 
         return tuple(origDeformation, cast(mat4*)null, changed);
@@ -174,8 +173,7 @@ protected:
     void updateDeform() {
         super.updateDeform();
         version (InDoesRender) {
-            glBindBuffer(GL_ARRAY_BUFFER, dbo);
-            glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
+            uploadDrawableDeform(dbo, deformation);
         }
 
         this.updateBounds();
@@ -209,9 +207,7 @@ protected:
     */
     final void bindIndex() {
         version (InDoesRender) {
-            // Bind element array and draw our mesh
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-            glDrawElements(GL_TRIANGLES, cast(int)data.indices.length, GL_UNSIGNED_SHORT, null);
+            drawDrawableElements(ibo, data.indices.length);
         }
     }
 
@@ -284,9 +280,7 @@ public:
         version(InDoesRender) {
 
             // Generate the buffers
-            glGenBuffers(1, &vbo);
-            glGenBuffers(1, &ibo);
-            glGenBuffers(1, &dbo);
+            createDrawableBuffers(vbo, ibo, dbo);
         }
     }
 
@@ -310,9 +304,7 @@ public:
         version(InDoesRender) {
             
             // Generate the buffers
-            glGenBuffers(1, &vbo);
-            glGenBuffers(1, &ibo);
-            glGenBuffers(1, &dbo);
+            createDrawableBuffers(vbo, ibo, dbo);
         }
 
         // Update indices and vertices
@@ -665,11 +657,7 @@ version (InDoesRender) {
         This also clears whatever old mask there was.
     */
     void inBeginMask(bool hasMasks) {
-
-        // Enable and clear the stencil buffer so we can write our mask to it
-        glEnable(GL_STENCIL_TEST);
-        glClearStencil(hasMasks ? 0 : 1);
-        glClear(GL_STENCIL_BUFFER_BIT);
+        beginMaskGL(hasMasks);
     }
 
     /**
@@ -678,11 +666,7 @@ version (InDoesRender) {
         Once masking is ended content will no longer be masked by the defined mask.
     */
     void inEndMask() {
-
-        // We're done stencil testing, disable it again so that we don't accidentally mask more stuff out
-        glStencilMask(0xFF);
-        glStencilFunc(GL_ALWAYS, 1, 0xFF);   
-        glDisable(GL_STENCIL_TEST);
+        endMaskGL();
     }
 
     /**
@@ -691,8 +675,6 @@ version (InDoesRender) {
         NOTE: This have to be run within a inBeginMask and inEndMask block!
     */
     void inBeginMaskContent() {
-
-        glStencilFunc(GL_EQUAL, 1, 0xFF);
-        glStencilMask(0x00);
+        beginMaskContentGL();
     }
 }
