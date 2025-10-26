@@ -2,11 +2,16 @@ module nijilive.core.render.backends.opengl.part;
 
 import bindbc.opengl;
 import nijilive.core.nodes.part : Part;
-static import partmodule = nijilive.core.nodes.part;
+import nijilive.core.render.backends.opengl.part_resources : boundAlbedo, partShader,
+    partShaderStage1, partShaderStage2, partMaskShader, offset, mvp, gopacity, gMultColor,
+    gScreenColor, gEmissionStrength, gs1offset, gs1mvp, gs1opacity, gs1MultColor,
+    gs1ScreenColor, gs2offset, gs2mvp, gs2opacity, gs2EmissionStrength, gs2MultColor,
+    gs2ScreenColor, mmvp, mthreshold;
 import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFallbackEnabled;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.commands : PartDrawPacket;
 import nijilive.core;
+import nijilive.core.render.backends.opengl.blend_resources : getBlendShader, blendToBuffer;
 import nijilive.math : mat4;
 
 void glDrawPartPacket(ref PartDrawPacket packet) {
@@ -24,7 +29,7 @@ void executePartPacket(ref PartDrawPacket packet) {
 
     incDrawableBindVAO();
 
-    if (partmodule.boundAlbedo != textures[0]) {
+    if (boundAlbedo != textures[0]) {
         foreach(i, ref texture; textures) {
             if (texture) texture.bind(cast(uint)i);
             else {
@@ -32,16 +37,16 @@ void executePartPacket(ref PartDrawPacket packet) {
                 glBindTexture(GL_TEXTURE_2D, 0);
             }
         }
-        partmodule.boundAlbedo = textures[0];
+        boundAlbedo = textures[0];
     }
 
     auto matrix = packet.modelMatrix;
 
     if (packet.isMask) {
-        partmodule.partMaskShader.use();
-        partmodule.partMaskShader.setUniform(partmodule.offset, packet.origin);
-        partmodule.partMaskShader.setUniform(partmodule.mmvp, packet.mvp);
-        partmodule.partMaskShader.setUniform(partmodule.mthreshold, packet.maskThreshold);
+        partMaskShader.use();
+        partMaskShader.setUniform(offset, packet.origin);
+        partMaskShader.setUniform(mmvp, packet.mvp);
+        partMaskShader.setUniform(mthreshold, packet.maskThreshold);
 
         glBlendEquation(GL_FUNC_ADD);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -58,7 +63,7 @@ void executePartPacket(ref PartDrawPacket packet) {
             }
         } else {
             if (nlIsTripleBufferFallbackEnabled()) {
-                auto blendShader = inGetBlendShader(packet.blendingMode);
+                auto blendShader = getBlendShader(packet.blendingMode);
                 if (blendShader) {
                     GLint previous_draw_fbo;
                     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
@@ -102,7 +107,7 @@ void executePartPacket(ref PartDrawPacket packet) {
                     GLuint fgBump = inGetBlendBump();
 
                     GLuint destinationFBO = drawingMainBuffer ? inGetCompositeFramebuffer() : inGetFramebuffer();
-                    inBlendToBuffer(
+                    blendToBuffer(
                         blendShader,
                         packet.blendingMode,
                         destinationFBO,
@@ -139,36 +144,36 @@ private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix)
         case 0:
             glDrawBuffers(1, [GL_COLOR_ATTACHMENT0].ptr);
 
-            partmodule.partShaderStage1.use();
-            partmodule.partShaderStage1.setUniform(partmodule.gs1offset, packet.origin);
-            partmodule.partShaderStage1.setUniform(partmodule.gs1mvp, mvpMatrix);
-            partmodule.partShaderStage1.setUniform(partmodule.gs1opacity, packet.opacity);
-            partmodule.partShaderStage1.setUniform(partmodule.gs1MultColor, packet.clampedTint);
-            partmodule.partShaderStage1.setUniform(partmodule.gs1ScreenColor, packet.clampedScreen);
+            partShaderStage1.use();
+            partShaderStage1.setUniform(gs1offset, packet.origin);
+            partShaderStage1.setUniform(gs1mvp, mvpMatrix);
+            partShaderStage1.setUniform(gs1opacity, packet.opacity);
+            partShaderStage1.setUniform(gs1MultColor, packet.clampedTint);
+            partShaderStage1.setUniform(gs1ScreenColor, packet.clampedScreen);
             inSetBlendMode(packet.blendingMode, false);
             break;
         case 1:
             glDrawBuffers(2, [GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
 
-            partmodule.partShaderStage2.use();
-            partmodule.partShaderStage2.setUniform(partmodule.gs2offset, packet.origin);
-            partmodule.partShaderStage2.setUniform(partmodule.gs2mvp, mvpMatrix);
-            partmodule.partShaderStage2.setUniform(partmodule.gs2opacity, packet.opacity);
-            partmodule.partShaderStage2.setUniform(partmodule.gs2EmissionStrength, packet.emissionStrength);
-            partmodule.partShaderStage2.setUniform(partmodule.gs2MultColor, packet.clampedTint);
-            partmodule.partShaderStage2.setUniform(partmodule.gs2ScreenColor, packet.clampedScreen);
+            partShaderStage2.use();
+            partShaderStage2.setUniform(gs2offset, packet.origin);
+            partShaderStage2.setUniform(gs2mvp, mvpMatrix);
+            partShaderStage2.setUniform(gs2opacity, packet.opacity);
+            partShaderStage2.setUniform(gs2EmissionStrength, packet.emissionStrength);
+            partShaderStage2.setUniform(gs2MultColor, packet.clampedTint);
+            partShaderStage2.setUniform(gs2ScreenColor, packet.clampedScreen);
             inSetBlendMode(packet.blendingMode, true);
             break;
         case 2:
             glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
 
-            partmodule.partShader.use();
-            partmodule.partShader.setUniform(partmodule.offset, packet.origin);
-            partmodule.partShader.setUniform(partmodule.mvp, mvpMatrix);
-            partmodule.partShader.setUniform(partmodule.gopacity, packet.opacity);
-            partmodule.partShader.setUniform(partmodule.gEmissionStrength, packet.emissionStrength);
-            partmodule.partShader.setUniform(partmodule.gMultColor, packet.clampedTint);
-            partmodule.partShader.setUniform(partmodule.gScreenColor, packet.clampedScreen);
+            partShader.use();
+            partShader.setUniform(offset, packet.origin);
+            partShader.setUniform(mvp, mvpMatrix);
+            partShader.setUniform(gopacity, packet.opacity);
+            partShader.setUniform(gEmissionStrength, packet.emissionStrength);
+            partShader.setUniform(gMultColor, packet.clampedTint);
+            partShader.setUniform(gScreenColor, packet.clampedScreen);
             inSetBlendMode(packet.blendingMode, true);
             break;
         default:

@@ -108,8 +108,6 @@ private {
 
     bool isCompositing;
 
-    Shader[BlendMode] blendShaders;
-
     void renderScene(vec4 area, PostProcessingShader shaderToUse, GLuint albedo, GLuint emissive, GLuint bump) {
         glViewport(0, 0, cast(int)area.z, cast(int)area.w);
 
@@ -270,25 +268,6 @@ package(nijilive) {
             // go back to default fb
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-            if (blendShaders.length == 0) {
-                auto advancedBlendShader = new Shader(import("basic/basic.vert"), import("basic/advanced_blend.frag"));
-                BlendMode[] advancedModes = [
-                    BlendMode.Multiply,
-                    BlendMode.Screen,
-                    BlendMode.Overlay,
-                    BlendMode.Darken,
-                    BlendMode.Lighten,
-                    BlendMode.ColorDodge,
-                    BlendMode.ColorBurn,
-                    BlendMode.HardLight,
-                    BlendMode.SoftLight,
-                    BlendMode.Difference,
-                    BlendMode.Exclusion
-                ];
-                foreach(mode; advancedModes) {
-                    blendShaders[mode] = advancedBlendShader;
-                }
-            }
         }
     }
 }
@@ -599,97 +578,6 @@ GLuint inGetMainAlbedo() {
 /**
     Gets the blend shader for the specified mode
 */
-Shader inGetBlendShader(BlendMode mode) {
-    auto shader = mode in blendShaders;
-    if (shader) return *shader;
-    return null;
-}
-
-/**
-    Blends the composite buffer (BG) and main buffer (FG) into the blend buffer.
-*/
-package void inBlendToBuffer(
-    Shader shader,
-    BlendMode mode,
-    GLuint dstFramebuffer,
-    GLuint bgAlbedo, GLuint bgEmissive, GLuint bgBump,
-    GLuint fgAlbedo, GLuint fgEmissive, GLuint fgBump
-) {
-    glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
-    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-
-    shader.use();
-    GLint modeUniform = shader.getUniformLocation("blend_mode");
-    if (modeUniform != -1) {
-        shader.setUniform(modeUniform, cast(int)mode);
-    }
-    
-    // Bind background textures to units 0, 1, 2
-    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, bgAlbedo);
-    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, bgEmissive);
-    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, bgBump);
-
-    // Bind foreground textures to units 3, 4, 5
-    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, fgAlbedo);
-    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, fgEmissive);
-    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, fgBump);
-
-    shader.setUniform(shader.getUniformLocation("bg_albedo"), 0);
-    shader.setUniform(shader.getUniformLocation("bg_emissive"), 1);
-    shader.setUniform(shader.getUniformLocation("bg_bump"), 2);
-
-    shader.setUniform(shader.getUniformLocation("fg_albedo"), 3);
-    shader.setUniform(shader.getUniformLocation("fg_emissive"), 4);
-    shader.setUniform(shader.getUniformLocation("fg_bump"), 5);
-
-    // Ensure the quad is rendered in clip space with predictable coordinates.
-    GLint mvpUniform = shader.getUniformLocation("mvp");
-    if (mvpUniform != -1) {
-        shader.setUniform(mvpUniform, mat4.identity);
-    }
-
-    GLint offsetUniform = shader.getUniformLocation("offset");
-    if (offsetUniform != -1) {
-        shader.setUniform(offsetUniform, vec2(0f, 0f));
-    }
-
-    // Draw a full screen quad
-    glBindVertexArray(inGetCompositeVAO());
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-
-    // Restore texture units
-    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, 0);
-    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, 0);
-    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0);
-    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0);
-    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
-    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
-}
-
-void inBlendToBlendBuffer(Shader shader) {
-    inBlendToBuffer(
-        shader,
-        BlendMode.Difference,
-        blendFBO,
-        cfAlbedo, cfEmissive, cfBump,
-        fAlbedo, fEmissive, fBump
-    );
-}
-
-/**
-    Blits the blend buffer to the composite buffer.
-*/
-void inBlitBlendToComposite() {
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, blendFBO);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cfBuffer);
-    glBlitFramebuffer(
-        0, 0, inViewportWidth[$-1], inViewportHeight[$-1], // src rect
-        0, 0, inViewportWidth[$-1], inViewportHeight[$-1], // dst rect
-        GL_COLOR_BUFFER_BIT, // blit mask
-        GL_NEAREST // blit filter
-    );
-}
-
 GLuint inGetCompositeVAO() {
     version (InDoesRender) {
         import nijilive.core.render.backends.opengl.composite_resources : getCompositeVAO;
