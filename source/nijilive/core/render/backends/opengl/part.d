@@ -3,8 +3,8 @@ module nijilive.core.render.backends.opengl.part;
 import bindbc.opengl;
 import nijilive.core.nodes.part : Part;
 static import partmodule = nijilive.core.nodes.part;
-import nijilive.core.nodes.common : MaskingMode, inUseMultistageBlending, nlIsTripleBufferFallbackEnabled;
-import nijilive.core.nodes.drawable : inBeginMask, inBeginMaskContent, inEndMask, incDrawableBindVAO;
+import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFallbackEnabled;
+import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.commands : PartDrawPacket;
 import nijilive.core;
 import nijilive.math : mat4;
@@ -12,23 +12,7 @@ import nijilive.math : mat4;
 void glDrawPartPacket(ref PartDrawPacket packet) {
     auto part = packet.part;
     if (part is null || !part.backendRenderable()) return;
-
-    auto masks = part.backendMasks();
-    size_t cMasks = part.backendMaskCount();
-
-    if (masks.length > 0) {
-        inBeginMask(cMasks > 0);
-
-        foreach (ref mask; masks) {
-            mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
-        }
-
-        inBeginMaskContent();
-        executePartPacket(packet);
-        inEndMask();
-    } else {
-        executePartPacket(packet);
-    }
+    executePartPacket(packet);
 }
 
 void executePartPacket(ref PartDrawPacket packet) {

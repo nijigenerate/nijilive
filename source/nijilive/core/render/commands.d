@@ -3,6 +3,7 @@ module nijilive.core.render.commands;
 import nijilive.core.nodes;
 import nijilive.core.nodes.part;
 import nijilive.core.nodes.composite;
+import nijilive.core.nodes.drawable;
 import nijilive.math;
 import nijilive.core.texture : Texture;
 import bindbc.opengl : GLuint;
@@ -13,6 +14,10 @@ enum RenderCommandKind {
     DrawPart,
     DrawComposite,
     DrawCompositeMask,
+    BeginMask,
+    ApplyMask,
+    BeginMaskContent,
+    EndMask,
 }
 
 struct PartDrawPacket {
@@ -44,6 +49,9 @@ struct RenderCommandData {
     PartDrawPacket partPacket;
     Composite composite;
     Part[] masks;
+    bool maskUsesStencil;
+    Drawable maskDrawable;
+    bool maskIsDodge;
 }
 
 RenderCommandData makeDrawNodeCommand(Node node) {
@@ -80,5 +88,32 @@ RenderCommandData makeDrawCompositeMaskCommand(Composite composite, Part[] masks
     data.kind = RenderCommandKind.DrawCompositeMask;
     data.composite = composite;
     data.masks = masks;
+    return data;
+}
+
+RenderCommandData makeBeginMaskCommand(bool useStencil) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.BeginMask;
+    data.maskUsesStencil = useStencil;
+    return data;
+}
+
+RenderCommandData makeApplyMaskCommand(Drawable drawable, bool isDodge) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.ApplyMask;
+    data.maskDrawable = drawable;
+    data.maskIsDodge = isDodge;
+    return data;
+}
+
+RenderCommandData makeBeginMaskContentCommand() {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.BeginMaskContent;
+    return data;
+}
+
+RenderCommandData makeEndMaskCommand() {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.EndMask;
     return data;
 }

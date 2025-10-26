@@ -11,7 +11,7 @@
 module nijilive.core.nodes.part;
 
 import nijilive.core.render.scheduler;
-import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket;
+import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket, makeBeginMaskCommand, makeApplyMaskCommand, makeBeginMaskContentCommand, makeEndMaskCommand;
 import nijilive.integration;
 import nijilive.fmt;
 import nijilive.core.nodes.drawable;
@@ -665,7 +665,21 @@ public:
     protected void runRenderTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
         auto packet = makePartDrawPacket(this);
+        bool hasMasks = masks.length > 0;
+        if (hasMasks) {
+            ctx.renderQueue.enqueue(makeBeginMaskCommand(maskCount > 0));
+            foreach (ref mask; masks) {
+                if (mask.maskSrc !is null) {
+                    bool isDodge = mask.mode == MaskingMode.DodgeMask;
+                    ctx.renderQueue.enqueue(makeApplyMaskCommand(mask.maskSrc, isDodge));
+                }
+            }
+            ctx.renderQueue.enqueue(makeBeginMaskContentCommand());
+        }
         ctx.renderQueue.enqueue(makeDrawPartCommand(packet));
+        if (hasMasks) {
+            ctx.renderQueue.enqueue(makeEndMaskCommand());
+        }
     }
 
     override

@@ -20,7 +20,7 @@
 - [x] `Part.drawSelf()` で必要な定数バッファ・ユニフォーム・テクスチャ参照および VBO/IBO ハンドルを `PartDrawPacket` に詰める実装を行う。
 - [x] `source/nijilive/core/render/backends/opengl/part.d` に `executePartPacket(const PartDrawPacket packet)` を実装し、これまで `Part.drawSelf()` が直接呼んでいた `gl*` 群を移植する。
 - [x] `source/nijilive/core/nodes/part/package.d` の `drawSelf` / `setupShaderStage` / `renderStage` から OpenGL 呼び出しを削除し、代わりに `ctx.renderQueue.enqueue(makeDrawPartCommand(packet))` を行う。
-- [ ] Part のマスク処理 (`inBeginMask` 等) を Backend コマンド（`BeginMask`, `ApplyMask`, `EndMask`）に変換し、`glDrawPart()` ではなく RenderQueue 経由でマスクを組み立てる。
+- [x] Part のマスク処理 (`inBeginMask` 等) を Backend コマンド（`BeginMask`, `ApplyMask`, `EndMask`）に変換し、`glDrawPart()` ではなく RenderQueue 経由でマスクを組み立てる。
 - [ ] `test` 配下に Part 専用の描画検証テスト（例: `test/render/part_backend.d`）を追加し、`DrawPartCommand` 実行結果が旧パスと一致するか確認する。
 
 ### 3.2 Composite / Mask
@@ -40,6 +40,7 @@
 ### 3.4 その他 Drawable
 - [ ] `source/nijilive/core/nodes/**/*.d` で `gl*` を直接呼ぶ Drawable を洗い出し、Part と同様の DrawPacket + Backend 実行モデルへ統一する。
 - [ ] BlendShader など特殊処理が必要な Drawable について、Backend に専用コマンド（例: `ExecuteBlendShaderCommand`）を設け、Node 側は状態記述のみ持つようにする。
+- [ ] OpenGL 依存のユーティリティ (`inDrawTextureAtPart`, `inDrawTextureAtPosition` など) を `source/nijilive/core/render/backends/opengl/**` 配下へ移設し、ノード側から OpenGL 参照を完全排除する。
 
 ## ステップ4 旧パイプライン削除
 - [ ] `source/nijilive/core/nodes/package.d` から `beginUpdate` / `update` / `endUpdate` の残骸を削除し、関連呼び出しを含むテストを更新する。

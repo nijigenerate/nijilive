@@ -38,6 +38,18 @@ public:
                     if (command.composite !is null)
                         backend.drawCompositeMask(command.composite, command.masks);
                     break;
+                case RenderCommandKind.BeginMask:
+                    backend.beginMask(command.maskUsesStencil);
+                    break;
+                case RenderCommandKind.ApplyMask:
+                    backend.applyMask(command.maskDrawable, command.maskIsDodge);
+                    break;
+                case RenderCommandKind.BeginMaskContent:
+                    backend.beginMaskContent();
+                    break;
+                case RenderCommandKind.EndMask:
+                    backend.endMask();
+                    break;
             }
         }
         clear();
