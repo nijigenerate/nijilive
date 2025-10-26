@@ -10,6 +10,7 @@
 */
 module nijilive.core.nodes.composite;
 import nijilive.core.nodes.common;
+import nijilive.core.render.commands : DrawCompositeCommand;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes;
 import nijilive.fmt;
@@ -150,12 +151,13 @@ private:
     void drawSelf() {
         if (delegated) {
             synchronizeDelegated();
-//            writefln("%s: delegate drawSelf", name);
             delegated.drawSelf();
             return;
-        } else {
-//            writefln("%s: drawSelf", name);
         }
+        drawSelfImmediate();
+    }
+
+    void drawSelfImmediate() {
         if (subParts.length == 0) return;
         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
         glBindVertexArray(cVAO);
@@ -177,14 +179,12 @@ private:
         cShader.setUniform(gScreenColor, clampedColor);
         inSetBlendMode(blendingMode, true);
 
-        // Enable points array
         glEnableVertexAttribArray(0);
         glEnableVertexAttribArray(1);
         glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
 
-        // Bind the texture
         glDrawArrays(GL_TRIANGLES, 0, 6);
     }
 
@@ -234,23 +234,20 @@ private:
 protected:
     Part[] subParts;
     
-    void renderMask() {
+    void renderMaskImmediate(Part[] maskParts) {
         inBeginComposite();
 
-            // Enable writing to stencil buffer and disable writing to color buffer
             glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
             glStencilFunc(GL_ALWAYS, 1, 0xFF);
             glStencilMask(0xFF);
 
-            foreach(Part child; subParts) {
+            foreach(Part child; maskParts) {
                 child.drawOneDirect(true);
             }
 
-            // Disable writing to stencil buffer and enable writing to color buffer
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         inEndComposite();
-
 
         glBindVertexArray(cVAO);
         cShaderMask.use();
@@ -258,7 +255,6 @@ protected:
         cShaderMask.setUniform(mthreshold, threshold);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-        // Enable points array
         glEnableVertexAttribArray(0);
         glEnableVertexAttribArray(1);
         glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
@@ -520,33 +516,40 @@ public:
     }
 
     override
-    void beginUpdate() {
+    protected void runBeginTask() {
         if (delegated) {
             delegated.beginUpdate();
         }
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
-        super.beginUpdate();
+        super.runBeginTask();
     }
 
-    override
-    void update() {
-        super.update();
+    void updateDelegated() {
         if (delegated) {
             delegated.update();
         }
     }
 
     override
+    void update() {
+        super.update();
+        updateDelegated();
+    }
+
+    override
+    protected void runDynamicTask() {
+        super.runDynamicTask();
+        updateDelegated();
+    }
+
+    override
     void drawOne() {
         if (delegated) {
             synchronizeDelegated();
-//            writefln("%s: delegate: drawOne", name);
             delegated.drawOne();
             return;
-        } else {
-//            writefln("%s: drawOne", name);
         }
         if (!enabled) return;
         
@@ -564,16 +567,13 @@ public:
 
             inBeginMaskContent();
 
-            // We are the content
-            this.drawSelf();
+            drawSelfImmediate();
 
             inEndMask();
             return;
         }
 
-        // No masks, draw normally
-        super.drawOne();
-        this.drawSelf();
+        drawSelfImmediate();
     }
 
     override

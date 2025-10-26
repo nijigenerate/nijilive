@@ -32,13 +32,26 @@ protected:
 
 public:
     override
-    void beginUpdate() {
-        super.beginUpdate();
+    protected void runBeginTask() {
+        super.runBeginTask();
     }
 
     override
     void update() {
-        super.update();
+        runPreProcessTask();
+        runDynamicTask();
+        if (!enabled) return;
+        foreach(child; children) {
+            child.update();
+        }
+    }
+
+    override
+    protected void runDynamicTask() {
+        if (puppet !is null && puppet.renderParameters && puppet.enableDrivers) {
+            updateDriver();
+        }
+        super.runDynamicTask();
     }
 
     Parameter[] getAffectedParameters() {

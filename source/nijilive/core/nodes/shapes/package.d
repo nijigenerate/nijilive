@@ -63,8 +63,7 @@ public:
     */
     vec2 selector;
 
-    override
-    void update() {
+    void processShapes() {
         foreach(Drawable part, nodes; shapes) {
             
             size_t nodeLen = nodes.length;
@@ -100,5 +99,16 @@ public:
             }
             
         }
+    }
+
+    override
+    void update() {
+        processShapes();
+    }
+
+    override
+    protected void runDynamicTask() {
+        processShapes();
+        super.runDynamicTask();
     }
 }

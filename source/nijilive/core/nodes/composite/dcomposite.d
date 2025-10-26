@@ -426,12 +426,25 @@ public:
     override
     void update() {
         if (autoResizedMesh) {
+            runPreProcessTask();
+            runDynamicTask();
+            if (!enabled) return;
+            foreach(child; children) child.update();
+        } else {
+            super.update();
+        }
+    }
+
+    override
+    protected void runDynamicTask() {
+        if (autoResizedMesh) {
             if (shouldUpdateVertices) {
                 shouldUpdateVertices = false;
             }
-            Node.update();
             if (createSimpleMesh()) initialized = false;
-        } else super.update();
+        } else {
+            super.runDynamicTask();
+        }
     }
 
     override

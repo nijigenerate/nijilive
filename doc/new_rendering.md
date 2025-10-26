@@ -4,6 +4,14 @@
 
 既存の `beginUpdate → update → endUpdate` 方式は、親→子の再帰と `preProcess` / `postProcess` の副作用が絡み合うため、どの処理がいつ動くのか可視性が低い。そこで以下の方針で順序を明示的に管理する。
 
+~~~mermaid
+flowchart LR
+    A[Node Tree Traverse<br/>親→子で1回] --> B[TaskQueue Order 1..N 登録]
+    B --> C[Order 1..N の順番で TaskQueue 実行<br/>CPU側で計算完了]
+    C --> D[GPUQueue に描画コマンドを enqueue]
+    D --> E[flush（GPUQueue） GPU描画]
+~~~
+
 1. 実行順序番号 `Order[1..N]` を定義し、各順序に対応するコマンドキュー `TaskQueue[Order]` を用意する。
 2. GPU バックエンド専用のキュー `GPUQueue` を用意し、描画 API 呼び出しはすべてここに集約する。
 3. ノードツリーを親→子で1度だけトラバースし、各ノードが必要とする処理を `TaskQueue` へ登録する。
@@ -12,22 +20,47 @@
 
 これにより「いつ何が動くか」を明示しつつ、CPU 側と GPU 側の責務を分離できる。
 
+---
+
 ## キュー構造
 
-```text
-TaskQueue[1] :  beginUpdate 相当（状態初期化、キャッシュ無効化 等）
-TaskQueue[2] :  前処理（デフォーマ設定、translateChildren 等）
-TaskQueue[3] :  拡張ステージ（Physics, Driver 更新 等）
-TaskQueue[4] :  後処理（postProcess、通知フラッシュ 等）
-...
-GPUQueue     :  描画 API 呼び出しのみ
-```
+    TaskQueue[1] :  beginUpdate 相当（状態初期化、キャッシュ無効化 等）
+    TaskQueue[2] :  前処理（デフォーマ設定、translateChildren 等）
+    TaskQueue[3] :  拡張ステージ（Physics, Driver 更新 等）
+    TaskQueue[4] :  後処理（postProcess、通知フラッシュ 等）
+    ...
+    GPUQueue     :  描画 API 呼び出しのみ
+
+~~~mermaid
+flowchart TB
+    Q1[TaskQueue 1<br/>beginUpdate相当]
+    Q2[TaskQueue 2<br/>前処理]
+    Q3[TaskQueue 3<br/>拡張ステージ（Physics, Driver）]
+    Q4[TaskQueue 4<br/>後処理（postProcess）]
+    GPU[GPUQueue<br/>描画API呼び出しのみ]
+    Q1 --> Q2 --> Q3 --> Q4 --> GPU
+~~~
 
 - `TaskQueue` の要素は `{ Node node; TaskKind kind; void delegate(Context) handler; }` のような構造体を想定。`Context` には現在の `Puppet`、時間情報、共有バッファなどを渡す。
 - `TaskKind` はログ出力や可視化のための分類（例: `Init`, `PreDeform`, `Physics`, `Post`, `Render`）。
 - `GPUQueue` の要素は `{ BackendCommand cmd; BackendPayload payload; }`。`BackendCommand` は OpenGL/Vulkan 等の抽象化で、実装は `nijilive.backend.opengl`, `nijilive.backend.metal` など backend 固有モジュールに閉じ込める。
 
+---
+
 ## ノードトラバースとタスク登録
+
+~~~mermaid
+sequenceDiagram
+    participant R as Puppet Root
+    participant DFS as DFS(親→子)
+    participant N as Node
+    participant TQ as TaskQueue
+    DFS->>R: 開始
+    loop 親→子で1回
+        DFS->>N: executionOrders() の取得
+        DFS->>TQ: TaskQueue[orderId] へ登録
+    end
+~~~
 
 1. Puppet のルートから DFS で親→子へ1パス走査し、各ノードが必要とするタスクを登録する。
 2. 各ノードは「自分が必要とする実行順序」を宣言（例: `Node.executionOrders()` が `OrderSpec[]` を返す）。
@@ -44,31 +77,59 @@ GPUQueue     :  描画 API 呼び出しのみ
    - Drawable は `orderId=4` で最終的な描画命令生成タスクを登録し、ここで GPU コマンドを enqueue する。
 4. 子ノードの登録は親より後に必ず並ぶので、順序情報は `orderId` とキューの FIFO 性で保証される。
 
+---
+
 ## タスク実行フェーズ
+
+~~~mermaid
+sequenceDiagram
+    participant EX as Executor
+    participant T1 as TaskQueue[1]
+    participant T2 as TaskQueue[2]
+    participant T3 as TaskQueue[3]
+    participant T4 as TaskQueue[4]
+    participant GQ as GPUQueue
+    EX->>T1: 順番に実行
+    T1-->>GQ: enqueue (必要時)
+    EX->>T2: 次へ
+    T2-->>GQ: enqueue (必要時)
+    EX->>T3: 次へ
+    T3-->>GQ: enqueue (必要時)
+    EX->>T4: 次へ
+    T4-->>GQ: enqueue (必要時)
+~~~
 
 各 `orderId` について以下を繰り返す。
 
-```text
-for orderId in 1..N:
-    foreach task in TaskQueue[orderId]:
-        task.handler(context);              // CPU 計算をここで完結させる
-        if (task で GPU 呼び出しが必要)
-            backend.enqueue(GPUQueue, task.toBackendCommand())
-```
+    for orderId in 1..N:
+        foreach task in TaskQueue[orderId]:
+            task.handler(context);              // CPU 計算をここで完結させる
+            if (task で GPU 呼び出しが必要)
+                backend.enqueue(GPUQueue, task.toBackendCommand())
 
-- CPU 側で座標や行列、デフォーマのキャッシュ、物理演算等をすべて解決し、GPU が必要とする頂点/Uniform/Texture はここで確定させる。 
+- CPU 側で座標や行列、デフォーマのキャッシュ、物理演算等をすべて解決し、GPU が必要とする頂点/Uniform/Texture はここで確定させる。
 - OpenGL などの API 直接呼び出しは禁じ、バックエンド共通の `backend.enqueue` を経由する。この関数は backend 固有モジュールにのみ定義する（例: `nijilive.backend.opengl.enqueueDraw(meshId, uniforms)`）。
+
+---
 
 ## GPUQueue 実行フェーズ
 
+~~~mermaid
+sequenceDiagram
+    participant BE as backend
+    participant GQ as GPUQueue
+    BE->>GQ: flush()
+    GQ-->>BE: コマンドを順次取得
+    BE-->>BE: OpenGL / Vulkan / Metal などに変換・実行
+~~~
+
 描画前の最終ステップとして
 
-```text
-backend.flush(GPUQueue);
-```
+    backend.flush(GPUQueue);
 
-を呼ぶ。`flush` は backend 固有実装（OpenGL, Metal, Vulkan...）が `GPUQueue` の内容を順番に `glBindBuffer`, `vkCmdDraw` 等へ変換して送出する。
-この段階では CPU 側の状態更新は行わず、描画専用コマンドのみが流れる。
+を呼ぶ。`flush` は backend 固有実装（OpenGL, Metal, Vulkan...）が `GPUQueue` の内容を順番に `glBindBuffer`, `vkCmdDraw` 等へ変換して送出する。この段階では CPU 側の状態更新は行わず、描画専用コマンドのみが流れる。
+
+---
 
 ## 既存パイプラインからのマッピング
 
@@ -80,13 +141,29 @@ backend.flush(GPUQueue);
 | `postProcess` / `endUpdate`      | 4 (`Post`)           | 通知フラッシュや描画準備。 |
 | 描画 (`draw`, OpenGL 呼び出し)   | `GPUQueue`           | ここでは CPU 側計算無し。 |
 
-既存の `preProcessFilters` / `postProcessFilters` は「どの `orderId` で Task を登録するか」を返す形に置き換える。フィルタが `Node.Filter` を操作する代わりに、対応する Task をキューへ入れることで順序を制御する。
+---
 
 ## バックエンド実装の分離
 
-- `nijilive.backend.core` : `GPUQueue`, `BackendCommand`, `BackendPayload` の定義と enqueue/flush API。  
-- `nijilive.backend.opengl`, `nijilive.backend.vulkan`, ... : `BackendCommand` に対する具体的な API 呼び出し列を実装。  
+~~~mermaid
+classDiagram
+    class BackendCore{
+      enqueue()
+      flush()
+    }
+    class OpenGLBackend
+    class VulkanBackend
+    class MetalBackend
+    BackendCore <|-- OpenGLBackend
+    BackendCore <|-- VulkanBackend
+    BackendCore <|-- MetalBackend
+~~~
+
+- `nijilive.backend.core` : `GPUQueue`, `BackendCommand`, `BackendPayload` の定義と enqueue/flush API。
+- `nijilive.backend.opengl`, `nijilive.backend.vulkan`, ... : `BackendCommand` に対する具体的な API 呼び出し列を実装。
 - Node/Deformer 側は backend 具体実装に触れず、`backend.enqueueDraw(drawArgs)` などの抽象 API を呼ぶだけとする。こうすることで描画 API を差し替えやすくし、CPU 側計算ロジックとの依存を断つ。
+
+---
 
 ## 実装ステップの提案
 

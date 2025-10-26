@@ -86,12 +86,10 @@ public:
     string typeId() { return "GridDeformer"; }
 
     override
-    void update() {
-        preProcess();
-        deformStack.update();
+    protected void runDynamicTask() {
+        super.runDynamicTask();
         auto worldMatrix = transform.matrix; // ensure translateChildren updates are applied
         inverseMatrix = worldMatrix.inverse;
-        Node.update();
         updateDeform();
     }
 

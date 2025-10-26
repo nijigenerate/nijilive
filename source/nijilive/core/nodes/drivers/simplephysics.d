@@ -357,19 +357,14 @@ public:
     }
 
     override
-    void beginUpdate() {
-        super.beginUpdate();
+    protected void runBeginTask() {
+        super.runBeginTask();
         offsetGravity = 1;
         offsetLength = 0;
         offsetFrequency = 1;
         offsetAngleDamping = 1;
         offsetLengthDamping = 1;
         offsetOutputScale = vec2(1, 1);
-    }
-
-    override
-    void update() {
-        super.update();
     }
 
     override

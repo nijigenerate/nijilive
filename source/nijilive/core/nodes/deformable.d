@@ -85,27 +85,25 @@ public:
     }
 
     override
-    void beginUpdate() {
+    protected void runBeginTask() {
         deformStack.preUpdate();
         overrideTransformMatrix = null;
-        super.beginUpdate();
+        super.runBeginTask();
     }
 
     /**
         Updates the drawable
     */
     override
-    void update() {
-        preProcess();
+    protected void runDynamicTask() {
         deformStack.update();
-        super.update();
+        super.runDynamicTask();
     }
 
     override
-    void endUpdate(int id = 0) {
-        postProcess(id);
+    protected void runPostTask(int id) {
+        super.runPostTask(id);
         updateDeform();
-        super.endUpdate(id);
     }
 
     void updateDeform() {

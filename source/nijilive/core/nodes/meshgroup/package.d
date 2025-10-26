@@ -129,11 +129,9 @@ public:
     /**
         A list of the shape offsets to apply per part
     */
-    override
-    void update() {
-        preProcess();
-        deformStack.update();
-        
+   override
+   protected void runDynamicTask() {
+        super.runDynamicTask();
         if (data.indices.length > 0) {
             if (!precalculated) {
                 precalculate();
@@ -153,8 +151,6 @@ public:
             forwardMatrix = transform.matrix;
             inverseMatrix = globalTransform.matrix.inverse;
         }
-
-        Node.update();
    }
 
     override

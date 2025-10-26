@@ -331,11 +331,11 @@ public:
     vec4 bounds;
 
     override
-    void beginUpdate() {
+    protected void runBeginTask() {
         weldingApplied.clear();
         foreach (link; welded)
             weldingApplied[link.target] = false;
-        super.beginUpdate();
+        super.runBeginTask();
     }
 
     /**

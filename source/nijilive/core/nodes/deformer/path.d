@@ -221,15 +221,22 @@ public:
         return _driver;
     }
 
+    vec2[] preDeformSnapshot;
+
     override
-    void update() {
+    protected void runPreProcessTask() {
+        preDeformSnapshot = deformation.dup;
+        super.runPreProcessTask();
+    }
+
+    override
+    protected void runDynamicTask() {
         if (driver) {
-            vec2[] origDeform = deformation.dup;
+            vec2[] origDeform = preDeformSnapshot.length == deformation.length ? preDeformSnapshot.dup : deformation.dup;
             if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
                 driver.setup();
                 driverInitialized = true;
             }
-            preProcess();
             vec2[] diffDeform = zip(origDeform, deformation).map!((t) => t[1] - t[0]).array;
 
             if (vertices.length >= 2) {
@@ -237,7 +244,7 @@ public:
                 clearCache();
                 if (driver !is null && puppet !is null && puppet.enableDrivers)
                     driver.updateDefaultShape();
-                deformStack.update();
+                super.runDynamicTask();
                 if (driver !is null && puppet !is null && puppet.enableDrivers) {
                     vec2 root;
                     if (deformation.length > 0)
@@ -265,18 +272,17 @@ public:
             }
             inverseMatrix = globalTransform.matrix.inverse;
         } else {
-            preProcess();
 
             if (vertices.length >= 2) {
-                deformStack.update();
+                super.runDynamicTask();
                 deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
             }
             inverseMatrix = globalTransform.matrix.inverse;
 
         }
 
-        Node.update();
-        this.updateDeform();
+        updateDeform();
+        preDeformSnapshot.length = 0;
     }
 
     override
