@@ -1,12 +1,14 @@
 module nijilive.core.render.backends.opengl;
 
 import nijilive.core.render.backends;
-import nijilive.core.render.commands : PartDrawPacket;
+import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket;
 import nijilive.core.nodes : Node;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.drawable : Drawable, inBeginMask, inBeginMaskContent, inEndMask;
+import nijilive.core : inBeginComposite, inEndComposite;
 import nijilive.core.render.backends.opengl.part : glDrawPartPacket;
+import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
 
 class GLRenderBackend : RenderBackend {
     override void drawNode(Node node) {
@@ -20,12 +22,7 @@ class GLRenderBackend : RenderBackend {
 
     override void drawCompositeRaw(Composite composite) {
         if (composite is null) return;
-        composite.drawOneImmediate();
-    }
-
-    override void drawCompositeMask(Composite composite, Part[] masks) {
-        if (composite is null) return;
-        composite.renderMaskImmediate(masks);
+        composite.drawOne();
     }
 
     override void beginMask(bool useStencil) {
@@ -43,5 +40,16 @@ class GLRenderBackend : RenderBackend {
 
     override void endMask() {
         inEndMask();
+    }
+    override void beginComposite() {
+        inBeginComposite();
+    }
+
+    override void drawCompositeQuad(ref CompositeDrawPacket packet) {
+        compositeDrawQuad(packet);
+    }
+
+    override void endComposite() {
+        inEndComposite();
     }
 }

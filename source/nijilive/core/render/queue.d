@@ -34,10 +34,6 @@ public:
                 case RenderCommandKind.DrawComposite:
                     if (command.composite !is null) backend.drawCompositeRaw(command.composite);
                     break;
-                case RenderCommandKind.DrawCompositeMask:
-                    if (command.composite !is null)
-                        backend.drawCompositeMask(command.composite, command.masks);
-                    break;
                 case RenderCommandKind.BeginMask:
                     backend.beginMask(command.maskUsesStencil);
                     break;
@@ -49,6 +45,15 @@ public:
                     break;
                 case RenderCommandKind.EndMask:
                     backend.endMask();
+                    break;
+                case RenderCommandKind.BeginComposite:
+                    backend.beginComposite();
+                    break;
+                case RenderCommandKind.DrawCompositeQuad:
+                    backend.drawCompositeQuad(command.compositePacket);
+                    break;
+                case RenderCommandKind.EndComposite:
+                    backend.endComposite();
                     break;
             }
         }

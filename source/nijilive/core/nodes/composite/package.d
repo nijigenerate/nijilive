@@ -10,7 +10,10 @@
 */
 module nijilive.core.nodes.composite;
 import nijilive.core.nodes.common;
-import nijilive.core.render.commands;
+import nijilive.core.render.commands : RenderCommandData, RenderCommandKind, makeBeginCompositeCommand,
+    makeDrawCompositeCommand, makeBeginMaskCommand, makeApplyMaskCommand,
+    makeBeginMaskContentCommand, makeEndMaskCommand, makeEndCompositeCommand,
+    makeCompositeDrawPacket, makeDrawCompositeQuadCommand;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes;
 import nijilive.fmt;
@@ -19,9 +22,9 @@ import nijilive.math;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
+import nijilive.core.render.scheduler : RenderContext;
 //import std.stdio;
 
-private {
     GLuint cVAO;
     GLuint cBuffer;
     Shader cShader;
@@ -33,8 +36,6 @@ private {
 
     GLint mthreshold;
     GLint mopacity;
-}
-
 package(nijilive) {
     void inInitComposite() {
         inRegisterNodeType!Composite;
@@ -102,6 +103,30 @@ package(nijilive) {
     GLuint inGetCompositeVAO() {
         return cVAO;
     }
+
+    GLuint inGetCompositeBuffer() {
+        return cBuffer;
+    }
+
+    Shader inGetCompositeShader() {
+        return cShader;
+    }
+
+    Shader inGetCompositeMaskShader() {
+        return cShaderMask;
+    }
+
+    GLint inGetCompositeOpacityUniform() {
+        return gopacity;
+    }
+
+    GLint inGetCompositeMultColorUniform() {
+        return gMultColor;
+    }
+
+    GLint inGetCompositeScreenColorUniform() {
+        return gScreenColor;
+    }
 }
 
 /**
@@ -112,6 +137,7 @@ class Composite : Node {
 public:
     DynamicComposite delegated = null;
 private:
+    bool pendingMaskCommands = false;
 
     this() { }
 
@@ -323,6 +349,7 @@ protected:
     //
     //      PARAMETER OFFSETS
     //
+public:
     float offsetOpacity = 1;
     vec3 offsetTint = vec3(0);
     vec3 offsetScreenTint = vec3(0);
@@ -341,6 +368,26 @@ protected:
         size_t c;
         foreach(m; masks) if (m.mode == MaskingMode.DodgeMask) c++;
         return c;
+    }
+
+    float effectiveOpacity() const {
+        return clamp(offsetOpacity * opacity, 0, 1);
+    }
+
+    vec3 computeClampedTint() const {
+        vec3 clamped = tint;
+        if (!offsetTint.x.isNaN) clamped.x = clamp(tint.x * offsetTint.x, 0, 1);
+        if (!offsetTint.y.isNaN) clamped.y = clamp(tint.y * offsetTint.y, 0, 1);
+        if (!offsetTint.z.isNaN) clamped.z = clamp(tint.z * offsetTint.z, 0, 1);
+        return clamped;
+    }
+
+    vec3 computeClampedScreenTint() const {
+        vec3 clamped = screenTint;
+        if (!offsetScreenTint.x.isNaN) clamped.x = clamp(screenTint.x + offsetScreenTint.x, 0, 1);
+        if (!offsetScreenTint.y.isNaN) clamped.y = clamp(screenTint.y + offsetScreenTint.y, 0, 1);
+        if (!offsetScreenTint.z.isNaN) clamped.z = clamp(screenTint.z + offsetScreenTint.z, 0, 1);
+        return clamped;
     }
 
     override
@@ -542,6 +589,53 @@ public:
     protected void runDynamicTask() {
         super.runDynamicTask();
         updateDelegated();
+    }
+
+    override
+    protected void runRenderBeginTask(RenderContext ctx) {
+        if (!enabled || ctx.renderQueue is null) return;
+        if (delegated) return;
+
+        pendingMaskCommands = false;
+        selfSort();
+        if (subParts.length == 0) return;
+
+        bool hasMasks = masks.length > 0;
+        pendingMaskCommands = hasMasks;
+        if (hasMasks) {
+            ctx.renderQueue.enqueue(makeBeginMaskCommand(maskCount() > 0));
+            foreach (ref mask; masks) {
+                if (mask.maskSrc !is null) {
+                    bool isDodge = mask.mode == MaskingMode.DodgeMask;
+                    ctx.renderQueue.enqueue(makeApplyMaskCommand(mask.maskSrc, isDodge));
+                }
+            }
+            ctx.renderQueue.enqueue(makeBeginMaskContentCommand());
+        }
+
+        ctx.renderQueue.enqueue(makeBeginCompositeCommand());
+    }
+
+    override
+    protected void runRenderTask(RenderContext ctx) {
+        if (delegated && ctx.renderQueue !is null) {
+            ctx.renderQueue.enqueue(makeDrawCompositeCommand(this));
+        }
+    }
+
+    override
+    protected void runRenderEndTask(RenderContext ctx) {
+        if (!enabled || ctx.renderQueue is null) return;
+        if (delegated) return;
+
+        auto packet = makeCompositeDrawPacket(this);
+        ctx.renderQueue.enqueue(makeDrawCompositeQuadCommand(packet));
+        ctx.renderQueue.enqueue(makeEndCompositeCommand());
+
+        if (pendingMaskCommands) {
+            ctx.renderQueue.enqueue(makeEndMaskCommand());
+            pendingMaskCommands = false;
+        }
     }
 
     override

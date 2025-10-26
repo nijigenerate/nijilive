@@ -13,11 +13,13 @@ enum RenderCommandKind {
     DrawNode,
     DrawPart,
     DrawComposite,
-    DrawCompositeMask,
     BeginMask,
     ApplyMask,
     BeginMaskContent,
     EndMask,
+    BeginComposite,
+    DrawCompositeQuad,
+    EndComposite,
 }
 
 struct PartDrawPacket {
@@ -48,10 +50,17 @@ struct RenderCommandData {
     Node node;
     PartDrawPacket partPacket;
     Composite composite;
-    Part[] masks;
     bool maskUsesStencil;
     Drawable maskDrawable;
     bool maskIsDodge;
+    CompositeDrawPacket compositePacket;
+}
+
+struct CompositeDrawPacket {
+    Composite composite;
+    float opacity;
+    vec3 tint;
+    vec3 screenTint;
 }
 
 RenderCommandData makeDrawNodeCommand(Node node) {
@@ -83,14 +92,6 @@ RenderCommandData makeDrawCompositeCommand(Composite composite) {
     return data;
 }
 
-RenderCommandData makeDrawCompositeMaskCommand(Composite composite, Part[] masks) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.DrawCompositeMask;
-    data.composite = composite;
-    data.masks = masks;
-    return data;
-}
-
 RenderCommandData makeBeginMaskCommand(bool useStencil) {
     RenderCommandData data;
     data.kind = RenderCommandKind.BeginMask;
@@ -115,5 +116,35 @@ RenderCommandData makeBeginMaskContentCommand() {
 RenderCommandData makeEndMaskCommand() {
     RenderCommandData data;
     data.kind = RenderCommandKind.EndMask;
+    return data;
+}
+
+CompositeDrawPacket makeCompositeDrawPacket(Composite composite) {
+    CompositeDrawPacket packet;
+    if (composite !is null) {
+        packet.composite = composite;
+        packet.opacity = composite.opacity * composite.offsetOpacity;
+        packet.tint = composite.computeClampedTint();
+        packet.screenTint = composite.computeClampedScreenTint();
+    }
+    return packet;
+}
+
+RenderCommandData makeBeginCompositeCommand() {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.BeginComposite;
+    return data;
+}
+
+RenderCommandData makeDrawCompositeQuadCommand(CompositeDrawPacket packet) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.DrawCompositeQuad;
+    data.compositePacket = packet;
+    return data;
+}
+
+RenderCommandData makeEndCompositeCommand() {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.EndComposite;
     return data;
 }

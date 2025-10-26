@@ -28,6 +28,9 @@ flowchart LR
     TaskQueue[2] :  前処理（デフォーマ設定、translateChildren 等）
     TaskQueue[3] :  拡張ステージ（Physics, Driver 更新 等）
     TaskQueue[4] :  後処理（postProcess、通知フラッシュ 等）
+    TaskQueue[5] :  RenderBegin（親ノードが BeginComposite/BeginMask などを enqueue）
+    TaskQueue[6] :  Render（Drawable が描画コマンドを生成）
+    TaskQueue[7] :  RenderEnd（親ノードが EndComposite/EndMask を enqueue）
     ...
     GPUQueue     :  描画 API 呼び出しのみ
 
@@ -37,8 +40,11 @@ flowchart TB
     Q2[TaskQueue 2<br/>前処理]
     Q3[TaskQueue 3<br/>拡張ステージ（Physics, Driver）]
     Q4[TaskQueue 4<br/>後処理（postProcess）]
+    Q5[TaskQueue 5<br/>RenderBegin]
+    Q6[TaskQueue 6<br/>Render]
+    Q7[TaskQueue 7<br/>RenderEnd]
     GPU[GPUQueue<br/>描画API呼び出しのみ]
-    Q1 --> Q2 --> Q3 --> Q4 --> GPU
+    Q1 --> Q2 --> Q3 --> Q4 --> Q5 --> Q6 --> Q7 --> GPU
 ~~~
 
 - `TaskQueue` の要素は `{ Node node; TaskKind kind; void delegate(Context) handler; }` のような構造体を想定。`Context` には現在の `Puppet`、時間情報、共有バッファなどを渡す。

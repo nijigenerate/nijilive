@@ -850,9 +850,15 @@ public:
         flushNotifyChange();
     }
 
-    protected void runRenderTask(RenderContext ctx) {
+protected void runRenderTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
         ctx.renderQueue.enqueue(makeDrawNodeCommand(this));
+    }
+
+    protected void runRenderBeginTask(RenderContext ctx) {
+    }
+
+    protected void runRenderEndTask(RenderContext ctx) {
     }
 
     void registerRenderTasks(TaskScheduler scheduler) {
@@ -863,12 +869,15 @@ public:
         scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
         scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
         scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+        scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
         scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
-        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+    scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
 
         foreach(child; children) {
             child.registerRenderTasks(scheduler);
         }
+
+        scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
     }
 
     void beginUpdate() { }

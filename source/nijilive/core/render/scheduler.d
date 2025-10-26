@@ -11,8 +11,10 @@ enum TaskOrder : int {
     Post0 = 4,
     Post1 = 5,
     Post2 = 6,
-    Render = 7,
-    Final = 8,
+    RenderBegin = 7,
+    Render = 8,
+    RenderEnd = 9,
+    Final = 10,
 }
 
 /// Classification used mainly for debugging/logging.
@@ -53,7 +55,8 @@ public:
     this() {
         orderSequence = [TaskOrder.Init, TaskOrder.PreProcess, TaskOrder.Dynamic,
                          TaskOrder.Post0, TaskOrder.Post1, TaskOrder.Post2,
-                         TaskOrder.Render, TaskOrder.Final];
+                         TaskOrder.RenderBegin, TaskOrder.Render, TaskOrder.RenderEnd,
+                         TaskOrder.Final];
         foreach (order; orderSequence) {
             queues[order] = [];
         }
