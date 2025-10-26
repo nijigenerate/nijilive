@@ -9,45 +9,11 @@ module nijilive.core.texture;
 import nijilive.math;
 import std.exception;
 import std.format;
-import bindbc.opengl;
 import imagefmt;
+import std.algorithm : clamp;
 import nijilive.core.nodes : inCreateUUID;
-
-/**
-    Filtering mode for texture
-*/
-enum Filtering {
-    /**
-        Linear filtering will try to smooth out textures
-    */
-    Linear,
-
-    /**
-        Point filtering will try to preserve pixel edges.
-        Due to texture sampling being float based this is imprecise.
-    */
-    Point
-}
-
-/**
-    Texture wrapping modes
-*/
-enum Wrapping {
-    /**
-        Clamp texture sampling to be within the texture
-    */
-    Clamp = GL_CLAMP_TO_BORDER,
-
-    /**
-        Wrap the texture in every direction idefinitely
-    */
-    Repeat = GL_REPEAT,
-
-    /**
-        Wrap the texture mirrored in every direction indefinitely
-    */
-    Mirror = GL_MIRRORED_REPEAT
-}
+import nijilive.core.texture_types : Filtering, Wrapping;
+import nijilive.core.render.backends.opengl.texture_backend;
 
 /**
     A texture which is not bound to an OpenGL context
@@ -186,13 +152,11 @@ public:
 */
 class Texture {
 private:
-    GLuint id;
+    uint id;
     int width_;
     int height_;
-
-    GLuint inColorMode_;
-    GLuint outColorMode_;
     int channels_;
+    bool stencil_;
 
     uint uuid;
 
@@ -252,30 +216,11 @@ public:
         this.width_ = width;
         this.height_ = height;
         this.channels_ = outChannels;
+        this.stencil_ = stencil;
 
-        this.inColorMode_ = GL_RGBA;
-        this.outColorMode_ = GL_RGBA;
-        if (inChannels == 1) this.inColorMode_ = GL_RED;
-        else if (inChannels == 2) this.inColorMode_ = GL_RG;
-        else if (inChannels == 3) this.inColorMode_ = GL_RGB;
-        if (outChannels == 1) this.outColorMode_ = GL_RED;
-        else if (outChannels == 2) this.outColorMode_ = GL_RG;
-        else if (outChannels == 3) this.outColorMode_ = GL_RGB;
-        if (stencil) {
-            this.outColorMode_ = GL_DEPTH24_STENCIL8;
-            this.inColorMode_  = GL_DEPTH_STENCIL;
-        }
+        createTextureHandle(id);
+        this.setData(data, inChannels);
 
-        // Generate OpenGL texture
-        glGenTextures(1, &id);
-        if (stencil) {
-            this.bind();
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width_, height_, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, null);
-        } else {
-            this.setData(data);
-        }
-
-        // Set default filtering and wrapping
         this.setFiltering(Filtering.Linear);
         this.setWrapping(Wrapping.Clamp);
         this.setAnisotropy(incGetMaxAnisotropy()/2.0f);
@@ -298,13 +243,6 @@ public:
     */
     int height() {
         return height_;
-    }
-
-    /**
-        Gets the OpenGL color mode
-    */
-    GLuint colorMode() {
-        return outColorMode_;
     }
 
     /**
@@ -339,52 +277,29 @@ public:
         Set the filtering mode used for the texture
     */
     void setFiltering(Filtering filtering) {
-        this.bind();
-        glTexParameteri(
-            GL_TEXTURE_2D, 
-            GL_TEXTURE_MIN_FILTER, 
-            filtering == Filtering.Linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST
-        );
-
-        glTexParameteri(
-            GL_TEXTURE_2D, 
-            GL_TEXTURE_MAG_FILTER, 
-            filtering == Filtering.Linear ? GL_LINEAR : GL_NEAREST
-        );
+        applyTextureFiltering(id, filtering);
     }
 
     void setAnisotropy(float value) {
-        this.bind();
-        glTexParameterf(
-            GL_TEXTURE_2D,
-            GL_TEXTURE_MAX_ANISOTROPY,
-            clamp(value, 1, incGetMaxAnisotropy())
-        );
+        applyTextureAnisotropy(id, clamp(value, 1, incGetMaxAnisotropy()));
     }
 
     /**
         Set the wrapping mode used for the texture
     */
     void setWrapping(Wrapping wrapping) {
-        this.bind();
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapping);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapping);
-        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, [0f, 0f, 0f, 0f].ptr);
+        applyTextureWrapping(id, wrapping);
     }
 
     /**
         Sets the data of the texture
     */
-    void setData(ubyte[] data) {
+    void setData(ubyte[] data, int inChannels) {
         if (locked) {
             lockedData = data;
             modified = true;
         } else {
-            this.bind();
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            glTexImage2D(GL_TEXTURE_2D, 0, outColorMode_, width_, height_, 0, inColorMode_, GL_UNSIGNED_BYTE, data.ptr);
-            
+            uploadTextureData(id, width_, height_, inChannels, channels_, stencil_, data);
             this.genMipmap();
         }
     }
@@ -393,27 +308,22 @@ public:
         Generate mipmaps
     */
     void genMipmap() {
-        this.bind();
-        glGenerateMipmap(GL_TEXTURE_2D);
+        if (!stencil_) {
+            generateTextureMipmap(id);
+        }
     }
 
     /**
         Sets a region of a texture to new data
     */
-    void setDataRegion(ubyte[] data, int x, int y, int width, int height, int channels = 4) {
-        this.bind();
+    void setDataRegion(ubyte[] data, int x, int y, int width, int height, int channels = -1) {
+        auto actualChannels = channels == -1 ? this.channels_ : channels;
 
         // Make sure we don't try to change the texture in an out of bounds area.
         enforce( x >= 0 && x+width <= this.width_, "x offset is out of bounds (xoffset=%s, xbound=%s)".format(x+width, this.width_));
         enforce( y >= 0 && y+height <= this.height_, "y offset is out of bounds (yoffset=%s, ybound=%s)".format(y+height, this.height_));
 
-        GLuint inChannelMode = GL_RGBA;
-        if (channels == 1) inChannelMode = GL_RED;
-        else if (channels == 2) inChannelMode = GL_RG;
-        else if (channels == 3) inChannelMode = GL_RGB;
-
-        // Update the texture
-        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, inChannelMode, GL_UNSIGNED_BYTE, data.ptr);
+        updateTextureRegion(id, x, y, width, height, actualChannels, data);
 
         this.genMipmap();
     }
@@ -427,8 +337,7 @@ public:
     */
     void bind(uint unit = 0) {
         assert(unit <= 31u, "Outside maximum OpenGL texture unit value");
-        glActiveTexture(GL_TEXTURE0+(unit <= 31u ? unit : 31u));
-        glBindTexture(GL_TEXTURE_2D, id);
+        bindTextureHandle(id, unit);
     }
 
     /**
@@ -446,8 +355,7 @@ public:
             return lockedData;
         } else {
             ubyte[] buf = new ubyte[width*height*channels_];
-            bind();
-            glGetTexImage(GL_TEXTURE_2D, 0, outColorMode_, GL_UNSIGNED_BYTE, buf.ptr);
+            readTextureData(id, channels_, stencil_, buf);
             if (unmultiply && channels == 4) {
                 inTexUnPremuliply(buf);
             }
@@ -458,7 +366,7 @@ public:
     /**
         Gets this texture's texture id
     */
-    GLuint getTextureId() {
+    uint getTextureId() {
         return id;
     }
 
@@ -466,15 +374,12 @@ public:
         Disposes texture from GL
     */
     void dispose() {
-        glDeleteTextures(1, &id);
-        id = 0;
+        deleteTextureHandle(id);
     }
 
     Texture dup() {
-        bool stencil = outColorMode_ == GL_DEPTH24_STENCIL8;
-        auto result = new Texture(width_, height_, channels_, stencil);
-        // FIXME: copy must be done in OpenGL Framebuffer, but currently uses offline copy instead.
-        result.setData(getTextureData());
+        auto result = new Texture(width_, height_, channels_, stencil_);
+        result.setData(getTextureData(), channels_);
         return result;
     }
 
@@ -490,7 +395,7 @@ public:
         if (locked) {
             locked = false;
             if (modified)
-                setData(lockedData);
+                setData(lockedData, channels_);
             modified = false;
             lockedData = null;
         }
@@ -506,9 +411,7 @@ private {
     Gets the maximum level of anisotropy
 */
 float incGetMaxAnisotropy() {
-    float max;
-    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max);
-    return max;
+    return maxTextureAnisotropy();
 }
 
 /**

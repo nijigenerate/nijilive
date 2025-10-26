@@ -38,7 +38,7 @@
 - [x] メッシュ変形ノードでは GPU API を直接呼ばず、CPU 側の頂点データ更新に専念する（既存コードを確認し、OpenGL 呼び出しが存在しないことを保証）。
 
 ### 3.4 その他 Drawable
-- [ ] `source/nijilive/core/nodes/**/*.d` で `gl*` を直接呼ぶ Drawable を洗い出し、Part と同様の DrawPacket + Backend 実行モデルへ統一する。
+- [x] `source/nijilive/core/nodes/**/*.d` で `gl*` を直接呼ぶ Drawable を洗い出し、Part と同様の DrawPacket + Backend 実行モデルへ統一する。
 - [x] BlendShader など特殊処理が必要な Drawable について、Backend に専用コマンド（例: `ExecuteBlendShaderCommand`）を設け、Node 側は状態記述のみ持つようにする。
 - [x] OpenGL 依存のユーティリティ (`inDrawTextureAtPart`, `inDrawTextureAtPosition` など) を `source/nijilive/core/render/backends/opengl/**` 配下へ移設し、ノード側から OpenGL 参照を完全排除する。
 

@@ -14,6 +14,7 @@ import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 import nijilive.core.render.backends.opengl : GLRenderBackend;
 import nijilive.core.render.graph;
 import nijilive.core.render.scheduler;
+import nijilive.core.texture_types : Filtering;
 
 /**
     Magic value meaning that the model has no thumbnail
