@@ -691,7 +691,11 @@ void inBlitBlendToComposite() {
 }
 
 GLuint inGetCompositeVAO() {
-    return nijilive.core.nodes.composite.inGetCompositeVAO();
+    version (InDoesRender) {
+        import nijilive.core.render.backends.opengl.composite_resources : getCompositeVAO;
+        return getCompositeVAO();
+    }
+    return 0;
 }
 
 package void inSwapMainCompositeBuffers() {

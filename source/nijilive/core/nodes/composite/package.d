@@ -20,114 +20,15 @@ import nijilive.core.nodes;
 import nijilive.fmt;
 import nijilive.core;
 import nijilive.math;
-import bindbc.opengl;
 version(InDoesRender) import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
 import std.exception;
 import std.algorithm.sorting;
 import nijilive.core.render.scheduler : RenderContext;
 //import std.stdio;
-
-    GLuint cVAO;
-    GLuint cBuffer;
-    Shader cShader;
-    Shader cShaderMask;
-
-    GLint gopacity;
-    GLint gMultColor;
-    GLint gScreenColor;
-
-    GLint mthreshold;
-    GLint mopacity;
 package(nijilive) {
     void inInitComposite() {
         inRegisterNodeType!Composite;
 
-        version(InDoesRender) {
-            cShader = new Shader(
-                import("basic/composite.vert"),
-                import("basic/composite.frag")
-            );
-
-            cShader.use();
-            gopacity = cShader.getUniformLocation("opacity");
-            gMultColor = cShader.getUniformLocation("multColor");
-            gScreenColor = cShader.getUniformLocation("screenColor");
-            cShader.setUniform(cShader.getUniformLocation("albedo"), 0);
-            cShader.setUniform(cShader.getUniformLocation("emissive"), 1);
-            cShader.setUniform(cShader.getUniformLocation("bumpmap"), 2);
-
-            cShaderMask = new Shader(
-                import("basic/composite.vert"),
-                import("basic/composite-mask.frag")
-            );
-            cShaderMask.use();
-            mthreshold = cShader.getUniformLocation("threshold");
-            mopacity = cShader.getUniformLocation("opacity");
-
-            glGenVertexArrays(1, &cVAO);
-            glGenBuffers(1, &cBuffer);
-
-            // Clip space vertex data since we'll just be superimposing
-            // Our composite framebuffer over the main framebuffer
-            float[] vertexData = [
-                // verts
-                -1f, -1f,
-                -1f, 1f,
-                1f, -1f,
-                1f, -1f,
-                -1f, 1f,
-                1f, 1f,
-
-                // uvs
-                0f, 0f,
-                0f, 1f,
-                1f, 0f,
-                1f, 0f,
-                0f, 1f,
-                1f, 1f,
-            ];
-
-            glBindVertexArray(cVAO);
-            glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
-            glBufferData(GL_ARRAY_BUFFER, float.sizeof*vertexData.length, vertexData.ptr, GL_STATIC_DRAW);
-
-            // Pre-configure attribute layout so the VAO can be reused across passes
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-            glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
-
-            glBindVertexArray(0);
-            glBindBuffer(GL_ARRAY_BUFFER, 0);
-        }
-    }
-
-    GLuint inGetCompositeVAO() {
-        return cVAO;
-    }
-
-    GLuint inGetCompositeBuffer() {
-        return cBuffer;
-    }
-
-    Shader inGetCompositeShader() {
-        return cShader;
-    }
-
-    Shader inGetCompositeMaskShader() {
-        return cShaderMask;
-    }
-
-    GLint inGetCompositeOpacityUniform() {
-        return gopacity;
-    }
-
-    GLint inGetCompositeMultColorUniform() {
-        return gMultColor;
-    }
-
-    GLint inGetCompositeScreenColorUniform() {
-        return gScreenColor;
     }
 }
 
