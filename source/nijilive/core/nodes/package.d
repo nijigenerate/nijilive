@@ -880,9 +880,15 @@ protected void runRenderTask(RenderContext ctx) {
         scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
     }
 
-    void beginUpdate() { }
-    void update() { }
-    void endUpdate(int id = 0) { }
+    public
+    void runManualTick() {
+        runPreProcessTask();
+        runDynamicTask();
+        if (!enabled) return;
+        foreach(child; children) {
+            child.runManualTick();
+        }
+    }
 
     /**
         Marks this node's transform (and its descendents') as dirty

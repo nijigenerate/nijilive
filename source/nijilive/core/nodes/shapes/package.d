@@ -102,11 +102,6 @@ public:
     }
 
     override
-    void update() {
-        processShapes();
-    }
-
-    override
     protected void runDynamicTask() {
         processShapes();
         super.runDynamicTask();

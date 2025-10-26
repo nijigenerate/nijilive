@@ -37,12 +37,12 @@ public:
     }
 
     override
-    void update() {
+    void runManualTick() {
         runPreProcessTask();
         runDynamicTask();
         if (!enabled) return;
         foreach(child; children) {
-            child.update();
+            child.runManualTick();
         }
     }
 

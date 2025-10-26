@@ -412,9 +412,6 @@ public:
 
     override
     protected void runBeginTask() {
-        if (delegated) {
-            delegated.beginUpdate();
-        }
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
@@ -423,14 +420,8 @@ public:
 
     void updateDelegated() {
         if (delegated) {
-            delegated.update();
+            delegated.runManualTick();
         }
-    }
-
-    override
-    void update() {
-        super.update();
-        updateDelegated();
     }
 
     override

@@ -43,7 +43,7 @@
 - [x] OpenGL 依存のユーティリティ (`inDrawTextureAtPart`, `inDrawTextureAtPosition` など) を `source/nijilive/core/render/backends/opengl/**` 配下へ移設し、ノード側から OpenGL 参照を完全排除する。
 
 ## ステップ4 旧パイプライン削除
-- [ ] `source/nijilive/core/nodes/package.d` から `beginUpdate` / `update` / `endUpdate` の残骸を削除し、関連呼び出しを含むテストを更新する。
+- [x] `source/nijilive/core/nodes/package.d` から `beginUpdate` / `update` / `endUpdate` の残骸を削除し、関連呼び出しを含むテストを更新する。
 - [ ] Drawable の `drawOne()` / `drawOneImmediate()` をすべて削除 or 非公開化し、RenderQueue 経由以外の描画ルートが存在しないことを確認する。
 
 ## ステップ5 最終チェック / ドキュメント更新

@@ -393,14 +393,14 @@ public:
 
 
     override
-    void update() {
+    void runManualTick() {
         if (autoResizedMesh) {
             runPreProcessTask();
             runDynamicTask();
             if (!enabled) return;
-            foreach(child; children) child.update();
+            foreach(child; children) child.runManualTick();
         } else {
-            super.update();
+            super.runManualTick();
         }
     }
 
