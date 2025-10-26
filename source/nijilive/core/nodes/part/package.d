@@ -11,13 +11,14 @@
 module nijilive.core.nodes.part;
 
 import nijilive.core.render.scheduler;
-import nijilive.core.render.commands : DrawPartCommand;
+import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket;
 import nijilive.integration;
 import nijilive.fmt;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
 import bindbc.opengl;
+version(InDoesRender) import nijilive.core.render.backends.opengl.part : executePartPacket;
 import std.exception;
 import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
@@ -27,7 +28,6 @@ public import nijilive.core.meshdata;
 
 
 package(nijilive) {
-    private {
         Texture boundAlbedo;
 
         Shader partShader;
@@ -67,7 +67,6 @@ package(nijilive) {
         GLuint sVertexBuffer;
         GLuint sUVBuffer;
         GLuint sElementBuffer;
-    }
 
     void inInitPart() {
         inRegisterNodeType!Part;
@@ -315,139 +314,10 @@ protected:
         RENDERING
     */
     void drawSelf(bool isMask = false)() {
-
-        // In some cases this may happen
-        if (textures.length == 0) return;
-
-        // Bind the vertex array
-        incDrawableBindVAO();
-
-        // Calculate matrix
-        mat4 matrix = transform.matrix();
-        if (overrideTransformMatrix !is null)
-            matrix = overrideTransformMatrix.matrix;
-        if (oneTimeTransform !is null)
-            matrix = (*oneTimeTransform) * matrix;
-
-        // Make sure we check whether we're already bound
-        // Otherwise we're wasting GPU resources
-        if (boundAlbedo != textures[0]) {
-
-            // Bind the textures
-            foreach(i, ref texture; textures) {
-                if (texture) texture.bind(cast(uint)i);
-                else {
-
-                    // Disable texture when none is there.
-                    glActiveTexture(GL_TEXTURE0+cast(uint)i);
-                    glBindTexture(GL_TEXTURE_2D, 0);
-                }
-            }
+        version (InDoesRender) {
+            auto packet = makePartDrawPacket(this, isMask);
+            executePartPacket(packet);
         }
-
-        static if (isMask) {
-            partMaskShader.use();
-            partMaskShader.setUniform(offset, data.origin);
-            partMaskShader.setUniform(mmvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
-            partMaskShader.setUniform(mthreshold, clamp(offsetMaskThreshold + maskAlphaThreshold, 0, 1));
-
-            // Make sure the equation is correct
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
-            renderStage!false(blendingMode);
-        } else {
-
-            bool hasEmissionOrBumpmap = (textures[1] || textures[2]);
-
-            if (inUseMultistageBlending(blendingMode)) {
-
-                // TODO: Detect if this Part is NOT in a composite,
-                // If so, we can relatively safely assume that we may skip stage 1.
-                setupShaderStage(0, matrix);
-                renderStage(blendingMode);
-                
-                // Only do stage 2 if we have emission or bumpmap textures.
-                if (hasEmissionOrBumpmap) {
-                    setupShaderStage(1, matrix);
-                    renderStage!false(blendingMode);
-                }
-            } else {
-                 if (nlIsTripleBufferFallbackEnabled()) {
-                     auto blendShader = inGetBlendShader(blendingMode);
-                     if (blendShader) {
-                         GLint previous_draw_fbo;
-                         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
-                         GLint previous_read_fbo;
-                         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read_fbo);
-                         GLfloat[4] previous_clear_color;
-                         glGetFloatv(GL_COLOR_CLEAR_VALUE, previous_clear_color.ptr);
-
-                         bool drawingMainBuffer = previous_draw_fbo == inGetFramebuffer();
-                         bool drawingCompositeBuffer = previous_draw_fbo == inGetCompositeFramebuffer();
-
-                         if (!drawingMainBuffer && !drawingCompositeBuffer) {
-                             setupShaderStage(2, matrix);
-                             renderStage!false(blendingMode);
-                             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
-                             glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
-                             glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
-                             return;
-                         }
-
-                         int viewportWidth, viewportHeight;
-                         inGetViewport(viewportWidth, viewportHeight);
-                         GLint[4] previousViewport;
-                         glGetIntegerv(GL_VIEWPORT, previousViewport.ptr);
-
-                         // 1. Draw foreground into the blend framebuffer
-                         GLuint blendFramebuffer = inGetBlendFramebuffer();
-                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
-                         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-                         glViewport(0, 0, viewportWidth, viewportHeight);
-                         glClearColor(0f, 0f, 0f, 0f);
-                         glClear(GL_COLOR_BUFFER_BIT);
-                         setupShaderStage(2, matrix);
-                         renderStage!false(blendingMode);
-
-                         // 2. Run difference blend into the opposite buffer to avoid read/write hazards
-                         GLuint bgAlbedo = drawingMainBuffer ? inGetMainAlbedo() : inGetCompositeImage();
-                         GLuint bgEmissive = drawingMainBuffer ? inGetMainEmissive() : inGetCompositeEmissive();
-                         GLuint bgBump = drawingMainBuffer ? inGetMainBump() : inGetCompositeBump();
-
-                         GLuint fgAlbedo = inGetBlendAlbedo();
-                         GLuint fgEmissive = inGetBlendEmissive();
-                         GLuint fgBump = inGetBlendBump();
-
-                         GLuint destinationFBO = drawingMainBuffer ? inGetCompositeFramebuffer() : inGetFramebuffer();
-                         inBlendToBuffer(
-                             blendShader,
-                             blendingMode,
-                             destinationFBO,
-                             bgAlbedo, bgEmissive, bgBump,
-                             fgAlbedo, fgEmissive, fgBump
-                         );
-
-                         // 3. Swap the main/composite attachments so the caller sees the blended result
-                         inSwapMainCompositeBuffers();
-
-                         // 4. Restore framebuffer bindings and state
-                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawingMainBuffer ? inGetFramebuffer() : inGetCompositeFramebuffer());
-                         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-                         glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
-                         glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
-                         glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
-                         return;
-                     }
-                 }
-                 setupShaderStage(2, matrix);
-                 renderStage!false(blendingMode);
-            }
-        }
-
-        // Reset draw buffers
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glBlendEquation(GL_FUNC_ADD);
     }
 
     /**
@@ -906,7 +776,8 @@ public:
     override
     protected void runRenderTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
-        ctx.renderQueue.enqueue(new DrawPartCommand(this));
+        auto packet = makePartDrawPacket(this);
+        ctx.renderQueue.enqueue(makeDrawPartCommand(packet));
     }
 
     override
@@ -939,6 +810,59 @@ public:
 
             this.drawSelf();
         }
+    }
+
+    package(nijilive) void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
+        packet.part = this;
+        packet.isMask = isMask;
+
+        mat4 modelMatrix = transform.matrix();
+        if (overrideTransformMatrix !is null)
+            modelMatrix = overrideTransformMatrix.matrix;
+        if (oneTimeTransform !is null)
+            modelMatrix = (*oneTimeTransform) * modelMatrix;
+        packet.modelMatrix = modelMatrix;
+
+        mat4 puppetMatrix = ignorePuppet ? mat4.identity : puppet.transform.matrix;
+        packet.mvp = inGetCamera().matrix * puppetMatrix * modelMatrix;
+
+        packet.opacity = clamp(offsetOpacity * opacity, 0, 1);
+        packet.emissionStrength = emissionStrength * offsetEmissionStrength;
+        packet.blendingMode = blendingMode;
+        packet.useMultistageBlend = inUseMultistageBlending(blendingMode);
+        packet.hasEmissionOrBumpmap = textures.length > 2 && (textures[1] !is null || textures[2] !is null);
+        packet.maskThreshold = clamp(offsetMaskThreshold + maskAlphaThreshold, 0, 1);
+
+        vec3 clampedTint = tint;
+        if (!offsetTint.x.isNaN) clampedTint.x = clamp(tint.x * offsetTint.x, 0, 1);
+        if (!offsetTint.y.isNaN) clampedTint.y = clamp(tint.y * offsetTint.y, 0, 1);
+        if (!offsetTint.z.isNaN) clampedTint.z = clamp(tint.z * offsetTint.z, 0, 1);
+        packet.clampedTint = clampedTint;
+
+        vec3 clampedScreen = screenTint;
+        if (!offsetScreenTint.x.isNaN) clampedScreen.x = clamp(screenTint.x + offsetScreenTint.x, 0, 1);
+        if (!offsetScreenTint.y.isNaN) clampedScreen.y = clamp(screenTint.y + offsetScreenTint.y, 0, 1);
+        if (!offsetScreenTint.z.isNaN) clampedScreen.z = clamp(screenTint.z + offsetScreenTint.z, 0, 1);
+        packet.clampedScreen = clampedScreen;
+        packet.textures = textures.dup;
+        packet.origin = data.origin;
+        packet.vertexBuffer = vbo;
+        packet.uvBuffer = uvbo;
+        packet.deformBuffer = dbo;
+        packet.indexBuffer = ibo;
+        packet.indexCount = cast(uint)data.indices.length;
+    }
+
+    package(nijilive) bool backendRenderable() {
+        return enabled && data.isReady();
+    }
+
+    package(nijilive) size_t backendMaskCount() {
+        return maskCount();
+    }
+
+    package(nijilive) MaskBinding[] backendMasks() {
+        return masks;
     }
 
     override
@@ -1010,6 +934,7 @@ public:
         }
     }
 }
+
 
 /**
     Draws a texture at the transform of the specified part

@@ -3,60 +3,82 @@ module nijilive.core.render.commands;
 import nijilive.core.nodes;
 import nijilive.core.nodes.part;
 import nijilive.core.nodes.composite;
+import nijilive.math;
+import nijilive.core.texture : Texture;
+import bindbc.opengl : GLuint;
 
-interface RenderBackend {
-    void drawNode(Node node);
-    void drawPartRaw(Part part);
-    void drawCompositeRaw(Composite composite);
-    void drawCompositeMask(Composite composite, Part[] masks);
+/// GPUコマンド種別。Backend 側で switch して処理する。
+enum RenderCommandKind {
+    DrawNode,
+    DrawPart,
+    DrawComposite,
+    DrawCompositeMask,
 }
 
-abstract class RenderCommand {
-    abstract void execute(RenderBackend backend);
-}
-
-final class DrawNodeCommand : RenderCommand {
-    Node node;
-    this(Node node) {
-        this.node = node;
-    }
-    override void execute(RenderBackend backend) {
-        if (node is null || backend is null) return;
-        backend.drawNode(node);
-    }
-}
-
-final class DrawPartCommand : RenderCommand {
+struct PartDrawPacket {
     Part part;
-    this(Part part) {
-        this.part = part;
-    }
-    override void execute(RenderBackend backend) {
-        if (part is null || backend is null) return;
-        backend.drawPartRaw(part);
-    }
+    bool isMask;
+    mat4 modelMatrix;
+    mat4 mvp;
+    vec3 clampedTint;
+    vec3 clampedScreen;
+    float opacity;
+    float emissionStrength;
+    float maskThreshold;
+    BlendMode blendingMode;
+    bool useMultistageBlend;
+    bool hasEmissionOrBumpmap;
+    Texture[] textures;
+    vec2 origin;
+    GLuint vertexBuffer;
+    GLuint uvBuffer;
+    GLuint deformBuffer;
+    GLuint indexBuffer;
+    uint indexCount;
 }
 
-final class DrawCompositeCommand : RenderCommand {
-    Composite composite;
-    this(Composite composite) {
-        this.composite = composite;
-    }
-    override void execute(RenderBackend backend) {
-        if (composite is null || backend is null) return;
-        backend.drawCompositeRaw(composite);
-    }
-}
-
-final class DrawCompositeMaskCommand : RenderCommand {
+/// RenderQueue に積まれる汎用パケット。
+struct RenderCommandData {
+    RenderCommandKind kind;
+    Node node;
+    PartDrawPacket partPacket;
     Composite composite;
     Part[] masks;
-    this(Composite composite, Part[] masks) {
-        this.composite = composite;
-        this.masks = masks;
+}
+
+RenderCommandData makeDrawNodeCommand(Node node) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.DrawNode;
+    data.node = node;
+    return data;
+}
+
+PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {
+    PartDrawPacket packet;
+    if (part !is null) {
+        part.fillDrawPacket(packet, isMask);
     }
-    override void execute(RenderBackend backend) {
-        if (composite is null || backend is null) return;
-        backend.drawCompositeMask(composite, masks);
-    }
+    return packet;
+}
+
+RenderCommandData makeDrawPartCommand(PartDrawPacket packet) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.DrawPart;
+    data.partPacket = packet;
+    return data;
+}
+
+RenderCommandData makeDrawCompositeCommand(Composite composite) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.DrawComposite;
+    data.composite = composite;
+    return data;
+}
+
+RenderCommandData makeDrawCompositeMaskCommand(Composite composite, Part[] masks) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.DrawCompositeMask;
+    data.composite = composite;
+    data.masks = masks;
+    return data;
 }
