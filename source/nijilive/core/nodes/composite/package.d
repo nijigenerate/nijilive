@@ -40,7 +40,12 @@ class Composite : Node {
 public:
     DynamicComposite delegated = null;
 private:
-    bool pendingMaskCommands = false;
+    bool renderScopeOpen = false;
+    size_t renderScopeDepth = size_t.max;
+    package(nijilive) void renderScopeClosed(bool /*autoClose*/) {
+        renderScopeOpen = false;
+        renderScopeDepth = size_t.max;
+    }
 
     this() { }
 
@@ -432,33 +437,34 @@ public:
 
     override
     protected void runRenderBeginTask(RenderContext ctx) {
+        renderScopeOpen = false;
+        renderScopeDepth = size_t.max;
         if (!enabled || ctx.renderQueue is null) return;
         if (delegated) {
             delegated.delegatedRunRenderBeginTask(ctx);
             return;
         }
-
-        pendingMaskCommands = false;
         selfSort();
         if (subParts.length == 0) return;
 
         bool hasMasks = masks.length > 0;
-        pendingMaskCommands = hasMasks;
+        MaskApplyPacket[] maskPackets;
+        bool useStencil = false;
         if (hasMasks) {
-            ctx.renderQueue.enqueue(makeBeginMaskCommand(maskCount() > 0));
+            useStencil = maskCount() > 0;
             foreach (ref mask; masks) {
                 if (mask.maskSrc !is null) {
                     bool isDodge = mask.mode == MaskingMode.DodgeMask;
                     MaskApplyPacket applyPacket;
                     if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
-                        ctx.renderQueue.enqueue(makeApplyMaskCommand(applyPacket));
+                        maskPackets ~= applyPacket;
                     }
                 }
             }
-            ctx.renderQueue.enqueue(makeBeginMaskContentCommand());
         }
 
-        ctx.renderQueue.enqueue(makeBeginCompositeCommand());
+        renderScopeDepth = ctx.renderQueue.pushComposite(this, useStencil, maskPackets);
+        renderScopeOpen = true;
     }
 
     override
@@ -470,20 +476,16 @@ public:
 
     override
     protected void runRenderEndTask(RenderContext ctx) {
-        if (!enabled || ctx.renderQueue is null) return;
+        if (ctx.renderQueue is null) return;
         if (delegated) {
             delegated.delegatedRunRenderEndTask(ctx);
             return;
         }
 
-        auto packet = makeCompositeDrawPacket(this);
-        ctx.renderQueue.enqueue(makeDrawCompositeQuadCommand(packet));
-        ctx.renderQueue.enqueue(makeEndCompositeCommand());
-
-        if (pendingMaskCommands) {
-            ctx.renderQueue.enqueue(makeEndMaskCommand());
-            pendingMaskCommands = false;
-        }
+        if (!renderScopeOpen) return;
+        ctx.renderQueue.popComposite(renderScopeDepth, this);
+        renderScopeOpen = false;
+        renderScopeDepth = size_t.max;
     }
 
     override

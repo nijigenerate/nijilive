@@ -481,7 +481,7 @@ public:
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
-        renderQueue.clear();
+        renderQueue.beginFrame();
         renderGraph.buildFrame(rootNode);
         renderGraph.execute(renderContext);
     }

@@ -2,7 +2,7 @@ module nijilive.core.render.tests.render_queue;
 
 version(unittest) {
 
-import std.algorithm : equal, map;
+import std.algorithm : equal, filter, map;
 import std.array : array;
 import std.conv : to;
 import std.range : iota;
@@ -172,6 +172,32 @@ unittest {
     auto records = executeFrame(puppet);
     auto kinds = records.map!(r => r.kind).array;
     assert(kinds == [RenderCommandKind.DrawPart], "Standalone part should enqueue exactly one DrawPart command.");
+}
+
+unittest {
+    auto puppet = new Puppet();
+    puppet.root.name = "Root";
+
+    auto quad = makeQuadMesh();
+    Texture[] textures;
+    textures.length = TextureUsage.COUNT;
+
+    auto back = new Part(quad, textures, inCreateUUID(), puppet.root);
+    back.name = "Background";
+    back.zSort = -0.5f;
+
+    auto front = new Part(quad, textures, inCreateUUID(), puppet.root);
+    front.name = "Foreground";
+    front.zSort = 0.5f;
+
+    puppet.rescanNodes();
+    auto records = executeFrame(puppet);
+    auto drawNames = records
+        .filter!(r => r.kind == RenderCommandKind.DrawPart)
+        .map!(r => r.nodeName)
+        .array;
+    assert(drawNames == ["Foreground", "Background"],
+        "Render tasks must be flushed in descending zSort order.");
 }
 
 } // version(unittest)

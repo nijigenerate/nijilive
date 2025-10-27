@@ -43,6 +43,15 @@ class DynamicComposite : Part {
 protected:
     bool initialized = false;
     bool forceResize = false;
+    bool renderScopeOpen = false;
+    size_t renderScopeDepth = size_t.max;
+    package(nijilive) void renderScopeClosed(bool autoClose) {
+        renderScopeOpen = false;
+        renderScopeDepth = size_t.max;
+        if (autoClose) {
+            endComposite();
+        }
+    }
 
 public:
     this(bool delegatedMode) { }
@@ -505,14 +514,12 @@ public:
         if (!prepareDynamicRenderState()) return false;
 
         selfSort();
-        ctx.renderQueue.enqueue(makeBeginDynamicCompositeCommand(this));
+        renderScopeDepth = ctx.renderQueue.pushDynamicComposite(this);
         withChildRenderTransform({
             foreach (Part child; subParts) {
                 child.enqueueRenderCommands(ctx);
             }
         });
-        ctx.renderQueue.enqueue(makeEndDynamicCompositeCommand(this));
-        endComposite();
         return true;
     }
 
@@ -534,12 +541,20 @@ public:
     }
 
     private void dynamicRenderBegin(RenderContext ctx) {
+        renderScopeOpen = false;
+        renderScopeDepth = size_t.max;
         if (!enabled || ctx.renderQueue is null) return;
-        enqueueDynamicComposite(ctx);
+        renderScopeOpen = enqueueDynamicComposite(ctx);
     }
 
     private void dynamicRenderEnd(RenderContext ctx) {
-        if (!enabled || ctx.renderQueue is null) return;
+        if (ctx.renderQueue is null) return;
+        if (renderScopeOpen) {
+            ctx.renderQueue.popDynamicComposite(renderScopeDepth, this);
+            renderScopeOpen = false;
+            renderScopeDepth = size_t.max;
+            endComposite();
+        }
         enqueueRenderCommands(ctx);
     }
 

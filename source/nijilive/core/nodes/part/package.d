@@ -11,6 +11,7 @@
 module nijilive.core.nodes.part;
 
 import nijilive.core.render.scheduler;
+import nijilive.core.render.queue : RenderCommandBuffer;
 import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket,
     makeBeginMaskCommand, makeApplyMaskCommand, makeBeginMaskContentCommand, makeEndMaskCommand,
     tryMakeMaskApplyPacket, MaskApplyPacket, MaskDrawableKind;
@@ -569,23 +570,29 @@ public:
         if (!enabled || ctx.renderQueue is null) return;
         auto packet = makePartDrawPacket(this);
         bool hasMasks = masks.length > 0;
-        if (hasMasks) {
-            ctx.renderQueue.enqueue(makeBeginMaskCommand(maskCount > 0));
-            foreach (ref mask; masks) {
-                if (mask.maskSrc !is null) {
-                    bool isDodge = mask.mode == MaskingMode.DodgeMask;
-                    MaskApplyPacket applyPacket;
-                    if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
-                        ctx.renderQueue.enqueue(makeApplyMaskCommand(applyPacket));
+        bool useStencil = hasMasks && maskCount > 0;
+
+        ctx.renderQueue.enqueueItem(zSort(), (ref RenderCommandBuffer buffer) {
+            if (hasMasks) {
+                buffer.add(makeBeginMaskCommand(useStencil));
+                foreach (ref mask; masks) {
+                    if (mask.maskSrc !is null) {
+                        bool isDodge = mask.mode == MaskingMode.DodgeMask;
+                        MaskApplyPacket applyPacket;
+                        if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
+                            buffer.add(makeApplyMaskCommand(applyPacket));
+                        }
                     }
                 }
+                buffer.add(makeBeginMaskContentCommand());
             }
-            ctx.renderQueue.enqueue(makeBeginMaskContentCommand());
-        }
-        ctx.renderQueue.enqueue(makeDrawPartCommand(packet));
-        if (hasMasks) {
-            ctx.renderQueue.enqueue(makeEndMaskCommand());
-        }
+
+            buffer.add(makeDrawPartCommand(packet));
+
+            if (hasMasks) {
+                buffer.add(makeEndMaskCommand());
+            }
+        });
     }
 
     override

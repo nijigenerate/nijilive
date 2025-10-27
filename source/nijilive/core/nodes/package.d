@@ -850,9 +850,11 @@ public:
         flushNotifyChange();
     }
 
-protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
-        ctx.renderQueue.enqueue(makeDrawNodeCommand(this));
+        ctx.renderQueue.enqueueItem(zSort(), (ref RenderCommandBuffer buffer) {
+            buffer.add(makeDrawNodeCommand(this));
+        });
     }
 
     protected void runRenderBeginTask(RenderContext ctx) {
@@ -871,7 +873,7 @@ protected void runRenderTask(RenderContext ctx) {
         scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
         scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
         scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
-    scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
 
         foreach(child; children) {
             child.registerRenderTasks(scheduler);
