@@ -31,6 +31,9 @@ public:
                 case RenderCommandKind.DrawPart:
                     backend.drawPartPacket(command.partPacket);
                     break;
+                case RenderCommandKind.DrawMask:
+                    backend.drawMaskPacket(command.maskDrawPacket);
+                    break;
                 case RenderCommandKind.BeginDynamicComposite:
                     if (command.dynamicComposite !is null) backend.beginDynamicComposite(command.dynamicComposite);
                     break;

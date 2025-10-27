@@ -194,3 +194,40 @@ classDiagram
 5. レガシーコードから直接 OpenGL を呼んでいる箇所を Backend API 呼び出しに移行。
 
 この設計により、どの処理がどこで実行されるかが `TaskQueue` / `orderId` / `GPUQueue` で明示され、デバッガやプロファイラでも追跡しやすくなる。また、処理の挿入・順序変更・非同期化の余地が広がり、バックエンド差し替えも容易になる。
+
+---
+
+## RenderBackend/API 実装ガイドライン
+
+実装段階で判明した注意点を以下にまとめる。新規 Backend を追加する際や Node を拡張する際は必ず確認すること。
+
+1. **Backend は `RenderCommandKind` を完全に網羅すること**  
+   - OpenGL 実装では `nijilive.core.render.backends.opengl.package` が `RenderBackend` を実装し、
+     `DrawPart` → `glDrawPartPacket`、`BeginMask` → `inBeginMask` 等へマッピングしている。
+   - 別 Backend を実装する場合は、同等のモジュール分割（`part_resources.d` / `mask_resources.d` など）を行い、
+     リソース初期化を `ensure...Initialized()` 形式で遅延実行にする。
+
+2. **Node 側から直接 OpenGL を呼ばない**  
+   - Part／Mask／Composite などのノードは `runRenderTask` / `runRenderBeginTask` / `runRenderEndTask` 内で
+     RenderQueue に CPU パラメータを詰めるだけとし、GL 呼び出しは行わない。
+   - 互換 API (`drawOneImmediate` など) を実装する場合も、新しい RenderQueue をその場で作成し、
+     `RenderBackend` へ flush して再利用する。
+
+3. **ユニットテスト向けのスタブ**  
+   - `version(unittest)` では OpenGL リソースを生成せずに済むスタブを提供する。
+     例：`nijilive.core.render.backends.opengl.texture_backend` は単体テスト時に GL ハンドルを 0 で返す。
+   - RenderQueue のスナップショットテストを追加する場合は、`RecordingBackend` のような
+     モック Backend を用意し、`RenderCommandKind` の列を検証する。
+
+4. **マスクとコンポジットの整合性**  
+   - `BeginMask` → `ApplyMask` → `BeginMaskContent` → `DrawXXX` → `EndMask` の並びを守る。
+     ノード側では `MaskBinding` の解決と `MaskDrawableKind` の指定だけを行い、
+     Backend でステンシル操作を完結させる。
+   - Composite／DynamicComposite は `BeginComposite`／`BeginDynamicComposite` と
+     `DrawCompositeQuad`／`EndDynamicComposite` を対にする。RenderQueue の順序保証を前提に実装すること。
+
+5. **CPU-only ノードの扱い**  
+   - MeshGroup／GridDeformer／PathDeformer などは GPU コマンドを出さない。
+     これらの Node が RenderQueue にコマンドを積んでいないか、スナップショットテストで確認する。
+
+以上を守ることで、RenderQueue ベースの新パイプラインを安全に拡張できる。

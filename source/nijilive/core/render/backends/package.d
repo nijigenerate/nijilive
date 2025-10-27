@@ -4,7 +4,8 @@ import nijilive.core.nodes : Node;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.nodes.drawable : Drawable;
-import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket;
+import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
+    MaskDrawPacket;
 
 /// GPU周りの共有状態を Backend がキャッシュするための構造体
 struct RenderGpuState {
@@ -19,6 +20,7 @@ struct RenderGpuState {
 interface RenderBackend {
     void drawNode(Node node);
     void drawPartPacket(ref PartDrawPacket packet);
+    void drawMaskPacket(ref MaskDrawPacket packet);
     void beginDynamicComposite(DynamicComposite composite);
     void endDynamicComposite(DynamicComposite composite);
     void beginMask(bool useStencil);

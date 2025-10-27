@@ -21,6 +21,7 @@ public import nijilive.core.param;
 public import nijilive.core.automation;
 public import nijilive.core.animation;
 public import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
+public import nijilive.core.texture_types;
 public import nijilive.integration;
 import nijilive.core.dbg;
 import nijilive.core.diff_collect;
@@ -473,6 +474,20 @@ Camera inGetCamera() {
 */
 void inSetCamera(Camera camera) {
     inCamera[$-1] = camera;
+}
+
+version(unittest)
+void inEnsureCameraStackForTests() {
+    if (inCamera.length == 0) {
+        inCamera ~= new Camera;
+    }
+}
+
+version(unittest)
+void inEnsureViewportForTests(int width = 640, int height = 480) {
+    if (inViewportWidth.length == 0) {
+        inPushViewport(width, height);
+    }
 }
 
 /**

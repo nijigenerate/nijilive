@@ -14,6 +14,7 @@ import std.algorithm : clamp;
 import nijilive.core.nodes : inCreateUUID;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.render.backends.opengl.texture_backend;
+import bindbc.opengl : GL_RED, GL_RG, GL_RGB, GL_RGBA;
 
 /**
     A texture which is not bound to an OpenGL context
@@ -253,6 +254,18 @@ public:
     }
 
     /**
+        Returns the OpenGL color mode for this texture
+    */
+    @property int colorMode() const {
+        switch (channels_) {
+            case 1: return GL_RED;
+            case 2: return GL_RG;
+            case 3: return GL_RGB;
+            default: return GL_RGBA;
+        }
+    }
+
+    /**
         Center of texture
     */
     vec2i center() {
@@ -294,12 +307,13 @@ public:
     /**
         Sets the data of the texture
     */
-    void setData(ubyte[] data, int inChannels) {
+    void setData(ubyte[] data, int inChannels = -1) {
+        int actualChannels = inChannels == -1 ? channels_ : inChannels;
         if (locked) {
             lockedData = data;
             modified = true;
         } else {
-            uploadTextureData(id, width_, height_, inChannels, channels_, stencil_, data);
+            uploadTextureData(id, width_, height_, actualChannels, channels_, stencil_, data);
             this.genMipmap();
         }
     }

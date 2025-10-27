@@ -1,10 +1,25 @@
 module nijilive.core.render.backends.opengl.drawable_buffers;
 
-version (InDoesRender):
+import nijilive.math : vec2;
+
+version (unittest) {
+    alias GLuint = uint;
+
+    void initDrawableBackend() {}
+    void bindDrawableVAO() {}
+    void createDrawableBuffers(ref GLuint vbo, ref GLuint ibo, ref GLuint dbo) {
+        vbo = 0;
+        ibo = 0;
+        dbo = 0;
+    }
+    void uploadDrawableIndices(GLuint, ushort[]) {}
+    void uploadDrawableVertices(GLuint, vec2[]) {}
+    void uploadDrawableDeform(GLuint, vec2[]) {}
+    void drawDrawableElements(GLuint, size_t) {}
+} else version (InDoesRender):
 
 import bindbc.opengl;
 import nijilive.core.meshdata : MeshData;
-import nijilive.math : vec2;
 
 private __gshared GLuint drawableVAO;
 private __gshared bool drawableBuffersInitialized = false;

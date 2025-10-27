@@ -14,6 +14,7 @@ import bindbc.opengl : GLuint;
 enum RenderCommandKind {
     DrawNode,
     DrawPart,
+    DrawMask,
     BeginDynamicComposite,
     EndDynamicComposite,
     BeginMask,
@@ -75,6 +76,7 @@ struct RenderCommandData {
     RenderCommandKind kind;
     Node node;
     PartDrawPacket partPacket;
+    MaskDrawPacket maskDrawPacket;
     DynamicComposite dynamicComposite;
     bool maskUsesStencil;
     MaskApplyPacket maskPacket;
@@ -107,6 +109,13 @@ RenderCommandData makeDrawPartCommand(PartDrawPacket packet) {
     RenderCommandData data;
     data.kind = RenderCommandKind.DrawPart;
     data.partPacket = packet;
+    return data;
+}
+
+RenderCommandData makeDrawMaskCommand(MaskDrawPacket packet) {
+    RenderCommandData data;
+    data.kind = RenderCommandKind.DrawMask;
+    data.maskDrawPacket = packet;
     return data;
 }
 

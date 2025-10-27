@@ -1,49 +1,119 @@
-# 現行レンダリングパイプライン（beginUpdate → update → endUpdate）
+# 新レンダリングパイプライン（TaskScheduler → RenderQueue）
 
-nijilive の描画は、従来どおりノードツリーを親→子へ再帰しながら `beginUpdate` → `update` → `endUpdate` を回す方式で実装されている。TaskQueue / RenderQueue の導入は計画中であり、実際の描画はすべて `Node.drawOne()` が直接 OpenGL を呼ぶ構造のままになっている。本ドキュメントでは現行挙動を正しく把握するため、旧来フローを詳述する。
+nijilive は `TaskScheduler` と `RenderQueue` を核としたパイプラインへ移行済みである。各ノードは
 
-## フレーム処理の流れ
+1. 親→子の DFS を 1 回だけ行って Task を登録し、
+2. Task を順番に実行して CPU 側処理を完了し、
+3. 描画は RenderQueue に積んだコマンドを Backend が解釈する
+
+という 3 段構成で動作する。本ドキュメントでは現行仕様を整理する。従来の再帰パイプラインは `doc/old_rendering.md` を参照。
 
 ```mermaid
 flowchart TD
-    A[Puppet.update] --> B(beginUpdate: 親→子)
-    B --> C(update: preProcess)
-    C --> D(endUpdate: postProcess Stage0/1/2)
-    D --> E(endUpdate Stage -1: flush)
-    E --> F(Puppet.draw: selfSort)
-    F --> G[rootParts.drawOne]
+    A[Puppet.update] --> B[RenderGraph.buildFrame<br/>(親→子 1pass)]
+    B --> C[TaskScheduler.execute<br/>TaskOrder 1..N]
+    C --> D[RenderQueue.enqueue<br/>GPUCommand Only]
+    D --> E[Puppet.draw<br/>RenderQueue.flush(Backend)]
 ```
 
+## フレーム処理
+
 1. **`Puppet.update()`**
-   - ルートノード (`actualRoot`) に対して `beginUpdate()` を呼び、以下を初期化する。
-     - `preProcessed`、`postProcessed` といった一時フラグ
-     - `offsetTransform`／`overrideTransformMatrix`
-   - パラメータ／ドライバを更新した後、`actualRoot.transformChanged()` で行列を汚す。
-   - `actualRoot.update()` が `preProcess()` を呼んでから子ノードへ `update()` を再帰し、`translateChildren` やデフォーマ適用をここで行う。
-   - `actualRoot.endUpdate(id)` を `id = 0, 1, 2, -1` の順に呼び、Stage 0/1/2 の `postProcess()` を経て最後に `flushNotifyChange()` を実行する。
+   - Transform／Driver 更新など従来の CPU 処理を行い、`RenderContext` を初期化する
+     (`renderQueue` をクリアし、`renderBackend` と `RenderGpuState` を設定)。
+   - `RenderGraph.buildFrame(actualRoot)` が親→子の DFS を 1 回だけ走らせ、
+     各ノードの `registerRenderTasks` が Task を `TaskScheduler` へ登録する。
+   - `RenderGraph.execute(ctx)` が TaskOrder 1..N の順で handler を実行する。
+     Node 側は `runBeginTask` / `runDynamicTask` / `runRenderTask` などのフックを通じて
+     CPU 処理を終え、描画が必要な場合のみ `ctx.renderQueue.enqueue(...)` を呼ぶ。
 
-2. **`Puppet.draw()`**  
-   - `selfSort()` で `rootParts` を Z ソートし、`rootPart.drawOne()` を親→子の順でそのまま呼ぶ。  
-   - Composite や Mask, MeshGroup なども各 `drawOne()` 内で OpenGL を直接呼び出し、Stencil/FBO 切り替え等の特殊処理を自前で行う。
+2. **`Puppet.draw()`**
+   - `renderQueue` が空でなければ `renderQueue.flush(renderBackend, renderContext.gpuState)` を呼び、
+     すべての描画コマンドを Backend で実行する。
+   - 何らかの理由で Queue が空（旧ルートや互換パス）であった場合のみ、
+     `rootParts.drawOne()` を後方互換として呼び出す。
 
-## Node のライフサイクル
+## TaskScheduler と Node フック
 
-| フェーズ        | 代表メソッド                          | 主な役割                                         |
-|-----------------|---------------------------------------|--------------------------------------------------|
-| 初期化           | `Node.beginUpdate()`                  | フラグ初期化、`offsetTransform` リセット               |
-| 前処理 (CPU)    | `Node.update()`→`preProcess()`        | `translateChildren`、`deformStack.update()` 等        |
-| 後処理 (CPU)    | `Node.endUpdate(id)`→`postProcess()` | Stage 0/1/2 の後処理、`postProcess(-1)` で通知 flush |
+`TaskScheduler` は固定の `TaskOrder` を持つ。Node は `registerRenderTasks` で親ノードの Task を先に登録し、子ノードを再帰的に登録、最後に `RenderEnd` を差し込む。これにより **RenderBegin → (子ども) → RenderEnd** の順序が保証される。
 
-- `Deformable` は `beginUpdate()` で `deformStack.preUpdate()`、`update()` で `deformStack.update()` を呼び、最後に `updateDeform()` で頂点配列を補正する。
-- `Composite` / `MeshGroup` なども同じライフサイクル上で `preProcessFilters` を登録し、派生クラス特有の処理を差し込んでいる。
+| TaskOrder        | 呼び出されるメソッド                    | 代表的な処理例                                             |
+|------------------|----------------------------------------|------------------------------------------------------------|
+| `Init`           | `runBeginTask()`                       | オフセット・フラグ初期化、変形キャッシュのリセット         |
+| `PreProcess`     | `runPreProcessTask()`                  | `translateChildren`、デフォーマ設定                       |
+| `Dynamic`        | `runDynamicTask()`                     | ドライバ／フィジックス更新、DynamicComposite の更新など    |
+| `Post0..2`       | `runPostTask(id)`                      | `postProcess` 各ステージ                                   |
+| `RenderBegin`    | `runRenderBeginTask(RenderContext)`    | Composite / Mask の Begin コマンド発行                    |
+| `Render`         | `runRenderTask(RenderContext)`         | Part 等が Draw コマンドを RenderQueue に積む               |
+| `RenderEnd`      | `runRenderEndTask(RenderContext)`      | Composite の End、Mask の片付け                            |
+| `Final`          | `runFinalTask()`                       | 通知フラッシュなど                                         |
 
-## 描画 (`drawOne`) の実態
+親ノードの RenderBegin が子ノードより先に、RenderEnd が子ノードより後に登録されるため、
+Composite の FBO 切り替えや Mask スタックの整合性が保たれる。
 
-- `Part.drawOne()` は Stencil マスク処理や `glBindBuffer` を直接呼び、マスクが無ければ `drawSelf()` でテクスチャ付きポリゴンを描画する。
-- `Composite.drawOne()` は内部 FBO へ描画した後、マスクがあれば `inBeginMask` / `inBeginMaskContent` / `inEndMask` の順で描画結果をブレンドする。
-- `MeshGroup`／`GridDeformer`／`PathDeformer` などは子ノードに `preProcessFilters` を仕込み、`preProcess()` 中に変形を適用した後、各 `drawOne()` で結果を描画している。
+## RenderQueue のコマンド
 
-## まとめ
+`nijilive.core.render.commands` では以下のコマンドを定義している。Node は CPU 側データのみを生成し、
+GPU 呼び出しは Backend に委ねる。
 
-- 現状は「CPU 側で親→子へ再帰する旧方式」が唯一の正しい実装であり、`doc/new_rendering.md` に記載された TaskQueue/RenderQueue 方式は今後の移行計画にすぎない。
-- そのため開発時は `beginUpdate → update → endUpdate → draw` の順序を前提に調査・修正すること。新方式を導入する際は、このドキュメントを差し替える前に実装を完了させる必要がある。
+| コマンド                 | 発行元の代表例                                   | Backend の役割                               |
+|--------------------------|--------------------------------------------------|----------------------------------------------|
+| `DrawPart`               | `Part.runRenderTask()`                            | VBO/IBO/テクスチャをバインドして描画         |
+| `DrawMask`               | `Mask.drawSelf()`（RenderQueue 経由）             | マスクジオメトリ描画                         |
+| `BeginMask` / `ApplyMask` / `BeginMaskContent` / `EndMask` | Part / Composite（マスク付きの場合） | ステンシル設定とマスク適用                   |
+| `BeginComposite` / `DrawCompositeQuad` / `EndComposite` | Composite                                        | FBO スイッチと合成結果の描画                 |
+| `BeginDynamicComposite` / `EndDynamicComposite` | DynamicComposite                                | RenderTarget スタックの push/pop             |
+| `DrawNode`               | 旧互換パス（未移行ノード）                        | `node.drawOne()` をバックエンド経由で呼ぶ    |
+
+マスクや Composite の Begin/End は `RenderCommandKind` として明示されるため、
+Backend はステートマシン的に処理を再構築できる。
+
+## OpenGL Backend の責務
+
+OpenGL 実装 (`nijilive.core.render.backends.opengl.*`) は、
+
+- `part_resources.d` / `mask_resources.d` / `drawable_buffers.d` などで GPU バッファやシェーダを初期化し、
+- `part.d` / `mask.d` / `composite.d` などで RenderQueue のコマンドを実際の `gl*` 呼び出しに変換する。
+
+Node 側から直接 OpenGL を呼ぶコードは撤去され、RenderBackend 経由でのみアクセスする。
+ユニットテストでは `version(unittest)` のスタブを用意し、GL コンテキスト無しでテストが実行できる。
+
+## 代表ノードの振る舞い
+
+- **Part**  
+  `runRenderTask` で `PartDrawPacket` を生成し、必要なら Mask コマンドを前後に挟む。
+  `renderMask` / `drawSelf` などの互換 API も内部で RenderQueue を新規作成し Backend を呼ぶ。
+
+- **Composite**  
+  `runRenderBeginTask` で `BeginMask`（必要な場合）→`BeginComposite` を積み、
+  `runRenderEndTask` で `DrawCompositeQuad` → `EndComposite` → `EndMask` を積む。
+  子 Part は同じ RenderQueue 上で描画されるため、FBO 切り替えが自動的に作用する。
+
+- **DynamicComposite**  
+  `BeginDynamicComposite` / `EndDynamicComposite` で RenderTarget スタックを制御し、
+  Composite の仕組みを拡張して動的な合成先を扱う。
+
+- **MeshGroup / GridDeformer / PathDeformer**  
+  `runRenderTask` を空実装とし、CPU 側で頂点変形のみを行う。GPU コマンドは一切発行しない。
+
+## 旧パイプラインとの関係
+
+- 旧 `drawOne()` 系 API は可能な限り RenderQueue を経由する形に書き換えてあるが、
+  互換目的で残っているコードパスも存在する。必要に応じて `doc/old_rendering.md` を参照して挙動を比較すること。
+- `RenderQueue` が空だった場合に限り、`Puppet.draw()` が旧 `rootPart.drawOne()` を呼ぶ。
+  移行漏れが無いか確認する際は RenderQueue の中身とこのフォールバックを併せて点検する。
+
+## 今後のメンテナンス指針
+
+1. 新しい Drawable／Deformer を追加するときは、
+   - `runRenderTask`（あるいは RenderBegin/End）で RenderQueue にコマンドを積むだけに留め、
+   - OpenGL 固有処理は `nijilive.core.render.backends` 配下の Backend 実装へ追加する。
+
+2. Backend を追加したい場合は `RenderBackend` インタフェースを実装し、`RenderCommandKind` のハンドリングを行う。
+   OpenGL 実装を参考に、モジュール分割（シェーダ初期化／バッファ管理／コマンド実行）を揃えると移植しやすい。
+
+3. 旧パイプラインに依存したドキュメントやテストを修正する場合は、
+   既存の Snapshot テスト（`source/nijilive/core/render/tests/render_queue.d`）を活用し、
+   RenderQueue に積まれるコマンド列を基準に検証する。
+
+以上が現行レンダリングパイプラインの仕様である。これを前提に Step5（仕様ドキュメント整備・自動テストの追加）を進めること。

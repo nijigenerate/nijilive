@@ -5,15 +5,18 @@ version (InDoesRender):
 import bindbc.opengl;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.backends.opengl.mask_resources : maskShader, maskOffsetUniform,
-    maskMvpUniform, initMaskBackendResources;
+    maskMvpUniform, initMaskBackendResources, maskBackendInitialized;
 import nijilive.core.render.backends.opengl.part : executePartPacket;
 import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind;
 
-static this() {
-    initMaskBackendResources();
+void ensureMaskBackendInitialized() {
+    if (!maskBackendInitialized) {
+        initMaskBackendResources();
+    }
 }
 
 void executeMaskPacket(ref MaskDrawPacket packet) {
+    ensureMaskBackendInitialized();
     if (packet.indexCount == 0) return;
 
     incDrawableBindVAO();
@@ -38,6 +41,7 @@ void executeMaskPacket(ref MaskDrawPacket packet) {
 }
 
 void executeMaskApplyPacket(ref MaskApplyPacket packet) {
+    ensureMaskBackendInitialized();
     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
     glStencilFunc(GL_ALWAYS, packet.isDodge ? 0 : 1, 0xFF);

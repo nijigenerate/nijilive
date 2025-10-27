@@ -238,7 +238,7 @@ private:
     */
     Animation[string] animations;
     RenderQueue renderQueue;
-    RenderBackend renderBackend;
+    package(nijilive) RenderBackend renderBackend;
     RenderGraph renderGraph;
     RenderContext renderContext;
 

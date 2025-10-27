@@ -44,7 +44,7 @@
 
 ## ステップ4 旧パイプライン削除
 - [x] `source/nijilive/core/nodes/package.d` から `beginUpdate` / `update` / `endUpdate` の残骸を削除し、関連呼び出しを含むテストを更新する。
-- [ ] Drawable の `drawOne()` / `drawOneImmediate()` をすべて削除 or 非公開化し、RenderQueue 経由以外の描画ルートが存在しないことを確認する。
+- [x] Drawable の `drawOne()` / `drawOneImmediate()` をすべて RenderQueue/Backend 経由に統一し、直接 OpenGL を呼ぶ描画ルートが存在しないことを確認する。
 
 ## ステップ5 最終チェック / ドキュメント更新
 - [ ] Part / Composite / MeshGroup / GridDeformer / PathDeformer / Mask の代表モデルを用意し、新旧パイプラインの描画結果を比較するための自動テスト or キャプチャスクリプトを実装する。

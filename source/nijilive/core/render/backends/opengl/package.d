@@ -1,7 +1,8 @@
 module nijilive.core.render.backends.opengl;
 
 import nijilive.core.render.backends;
-import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket;
+import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
+    MaskDrawPacket;
 import nijilive.core.nodes : Node;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
@@ -9,7 +10,7 @@ import nijilive.core.nodes.drawable : inBeginMask, inBeginMaskContent, inEndMask
 import nijilive.core : inBeginComposite, inEndComposite;
 import nijilive.core.render.backends.opengl.part : glDrawPartPacket;
 import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
-import nijilive.core.render.backends.opengl.mask : executeMaskApplyPacket;
+import nijilive.core.render.backends.opengl.mask : executeMaskApplyPacket, executeMaskPacket;
 import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
     endDynamicCompositeGL;
 
@@ -21,6 +22,10 @@ class GLRenderBackend : RenderBackend {
 
     override void drawPartPacket(ref PartDrawPacket packet) {
         glDrawPartPacket(packet);
+    }
+
+    override void drawMaskPacket(ref MaskDrawPacket packet) {
+        executeMaskPacket(packet);
     }
 
     override void beginDynamicComposite(DynamicComposite composite) {

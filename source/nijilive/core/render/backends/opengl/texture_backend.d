@@ -2,7 +2,25 @@ module nijilive.core.render.backends.opengl.texture_backend;
 
 import nijilive.core.texture_types : Filtering, Wrapping;
 
-version (InDoesRender) {
+mixin template TextureBackendStub() {
+    alias GLId = uint;
+
+    void createTextureHandle(ref GLId id) { id = 0; }
+    void deleteTextureHandle(ref GLId id) { id = 0; }
+    void bindTextureHandle(GLId, uint) { }
+    void uploadTextureData(GLId, int, int, int, int, bool, ubyte[]) { }
+    void updateTextureRegion(GLId, int, int, int, int, int, ubyte[]) { }
+    void generateTextureMipmap(GLId) { }
+    void applyTextureFiltering(GLId, Filtering) { }
+    void applyTextureWrapping(GLId, Wrapping) { }
+    void applyTextureAnisotropy(GLId, float) { }
+    float maxTextureAnisotropy() { return 1; }
+    void readTextureData(GLId, int, bool, ubyte[]) { }
+}
+
+version (unittest) {
+    mixin TextureBackendStub;
+} else version (InDoesRender) {
 
 import bindbc.opengl;
 import std.exception : enforce;
@@ -105,18 +123,6 @@ void readTextureData(GLId id, int channels, bool stencil, ubyte[] buffer) {
 
 } else {
 
-alias GLId = uint;
-
-void createTextureHandle(ref GLId id) { id = 0; }
-void deleteTextureHandle(ref GLId id) { id = 0; }
-void bindTextureHandle(GLId, uint) { }
-void uploadTextureData(GLId, int, int, int, int, bool, ubyte[]) { }
-void updateTextureRegion(GLId, int, int, int, int, int, ubyte[]) { }
-void generateTextureMipmap(GLId) { }
-void applyTextureFiltering(GLId, Filtering) { }
-void applyTextureWrapping(GLId, Wrapping) { }
-void applyTextureAnisotropy(GLId, float) { }
-float maxTextureAnisotropy() { return 1; }
-void readTextureData(GLId, int, bool, ubyte[]) { }
+mixin TextureBackendStub;
 
 }
