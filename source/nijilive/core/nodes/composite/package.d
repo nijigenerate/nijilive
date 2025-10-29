@@ -442,7 +442,7 @@ public:
 
     override
     protected void runRenderBeginTask(RenderContext ctx) {
-        if (!enabled || ctx.renderQueue is null) return;
+        if (!renderEnabled() || ctx.renderQueue is null) return;
         if (delegated) {
             delegated.delegatedRunRenderBeginTask(ctx);
             return;

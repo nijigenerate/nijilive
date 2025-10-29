@@ -566,7 +566,7 @@ public:
 
     package(nijilive)
     void enqueueRenderCommands(RenderContext ctx) {
-        if (!enabled || ctx.renderQueue is null) return;
+        if (!renderEnabled() || ctx.renderQueue is null) return;
         auto packet = makePartDrawPacket(this);
         bool hasMasks = masks.length > 0;
         bool useStencil = hasMasks && maskCount > 0;

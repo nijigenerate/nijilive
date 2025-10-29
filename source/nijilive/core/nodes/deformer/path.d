@@ -222,30 +222,35 @@ public:
         return _driver;
     }
 
-    vec2[] preDeformSnapshot;
-
     override
     protected void runPreProcessTask() {
-        preDeformSnapshot = deformation.dup;
+        auto origDeform = deformation.dup;
         super.runPreProcessTask();
+        applyPathDeform(origDeform);
     }
 
     override
     protected void runDynamicTask() {
+        super.runDynamicTask();
+    }
+
+    private void applyPathDeform(const vec2[] origDeform) {
+        // Ensure global transform is fresh before using cached matrix values.
+        this.transform();
+
         if (driver) {
-            vec2[] origDeform = preDeformSnapshot.length == deformation.length ? preDeformSnapshot.dup : deformation.dup;
+            vec2[] baseline = (origDeform.length == deformation.length) ? origDeform.dup : deformation.dup;
             if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
                 driver.setup();
                 driverInitialized = true;
             }
-            vec2[] diffDeform = zip(origDeform, deformation).map!((t) => t[1] - t[0]).array;
+            vec2[] diffDeform = zip(baseline, deformation).map!((t) => t[1] - t[0]).array;
 
             if (vertices.length >= 2) {
                 prevCurve = createCurve(zip(vertices(), diffDeform).map!((t) => t[0] + t[1] ).array);
                 clearCache();
                 if (driver !is null && puppet !is null && puppet.enableDrivers)
                     driver.updateDefaultShape();
-                super.runDynamicTask();
                 if (driver !is null && puppet !is null && puppet.enableDrivers) {
                     vec2 root;
                     if (deformation.length > 0)
@@ -275,7 +280,7 @@ public:
         } else {
 
             if (vertices.length >= 2) {
-                super.runDynamicTask();
+                // driver なしの場合は純粋に現在の変形を適用する。
                 deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
             }
             inverseMatrix = globalTransform.matrix.inverse;
@@ -283,7 +288,6 @@ public:
         }
 
         updateDeform();
-        preDeformSnapshot.length = 0;
     }
 
     override

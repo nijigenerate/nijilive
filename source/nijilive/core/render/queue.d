@@ -126,29 +126,31 @@ private:
         enforce(passStack.length > 1, "RenderQueue: cannot finalize composite scope without active pass. " ~ stackDebugString());
         auto pass = passStack[$ - 1];
         enforce(pass.kind == RenderPassKind.Composite, "RenderQueue: top scope is not composite. " ~ stackDebugString());
+        size_t parentIndex = parentPassIndexForComposite(pass.composite);
         passStack.length -= 1;
 
         auto childCommands = collectPassCommands(pass);
 
-        RenderCommandBuffer offscreen;
-        offscreen.add(makeBeginCompositeCommand());
-        offscreen.addAll(childCommands);
-        offscreen.add(makeEndCompositeCommand());
-        addItemToPass(currentPass(), pass.composite ? pass.composite.zSort() : 0, offscreen.commands.dup);
+        RenderCommandBuffer compositeBuffer;
+        compositeBuffer.add(makeBeginCompositeCommand());
+        compositeBuffer.addAll(childCommands);
+        compositeBuffer.add(makeEndCompositeCommand());
 
-        RenderCommandBuffer drawBuffer;
         if (pass.maskPackets.length > 0 || pass.maskUsesStencil) {
-            drawBuffer.add(makeBeginMaskCommand(pass.maskUsesStencil));
+            compositeBuffer.add(makeBeginMaskCommand(pass.maskUsesStencil));
             foreach (packet; pass.maskPackets) {
-                drawBuffer.add(makeApplyMaskCommand(packet));
+                compositeBuffer.add(makeApplyMaskCommand(packet));
             }
-            drawBuffer.add(makeBeginMaskContentCommand());
+            compositeBuffer.add(makeBeginMaskContentCommand());
         }
-        drawBuffer.add(makeDrawCompositeQuadCommand(makeCompositeDrawPacket(pass.composite)));
+
+        compositeBuffer.add(makeDrawCompositeQuadCommand(makeCompositeDrawPacket(pass.composite)));
+
         if (pass.maskPackets.length > 0 || pass.maskUsesStencil) {
-            drawBuffer.add(makeEndMaskCommand());
+            compositeBuffer.add(makeEndMaskCommand());
         }
-        addItemToPass(currentPass(), pass.composite ? pass.composite.zSort() : 0, drawBuffer.commands.dup);
+
+        addItemToPass(passStack[parentIndex], pass.composite ? pass.composite.zSort() : 0, compositeBuffer.commands.dup);
 
         if (autoClose && pass.composite !is null) {
             pass.composite.markCompositeScopeClosed();
@@ -162,6 +164,7 @@ private:
         enforce(passStack.length > 1, "RenderQueue: cannot finalize dynamic composite scope without active pass. " ~ stackDebugString());
         auto pass = passStack[$ - 1];
         enforce(pass.kind == RenderPassKind.DynamicComposite, "RenderQueue: top scope is not dynamic composite. " ~ stackDebugString());
+        size_t parentIndex = parentPassIndexForDynamic(pass.dynamicComposite);
         passStack.length -= 1;
 
         auto childCommands = collectPassCommands(pass);
@@ -171,7 +174,7 @@ private:
         buffer.addAll(childCommands);
         buffer.add(makeEndDynamicCompositeCommand(pass.dynamicComposite));
 
-        addItemToPass(currentPass(), pass.dynamicComposite ? pass.dynamicComposite.zSort() : 0, buffer.commands.dup);
+        addItemToPass(passStack[parentIndex], pass.dynamicComposite ? pass.dynamicComposite.zSort() : 0, buffer.commands.dup);
 
         if (autoClose && pass.dynamicComposite !is null) {
             pass.dynamicComposite.markDynamicScopeClosed(true);
@@ -247,6 +250,40 @@ private:
             if (pass.kind == kind && pass.dynamicComposite is composite) {
                 return idx - 1;
             }
+        }
+        return 0;
+    }
+
+    size_t parentPassIndexForComposite(Composite composite) {
+        if (composite is null || passStack.length == 0) return 0;
+        auto ancestor = composite.parent;
+        while (ancestor !is null) {
+            if (auto dyn = cast(DynamicComposite)ancestor) {
+                auto idx = findPassIndex(dyn, RenderPassKind.DynamicComposite);
+                if (idx > 0) return idx;
+            }
+            if (auto comp = cast(Composite)ancestor) {
+                auto idx = findPassIndex(comp, RenderPassKind.Composite);
+                if (idx > 0) return idx;
+            }
+            ancestor = ancestor.parent;
+        }
+        return 0; // root
+    }
+
+    size_t parentPassIndexForDynamic(DynamicComposite composite) {
+        if (composite is null || passStack.length == 0) return 0;
+        auto ancestor = composite.parent;
+        while (ancestor !is null) {
+            if (auto dyn = cast(DynamicComposite)ancestor) {
+                auto idx = findPassIndex(dyn, RenderPassKind.DynamicComposite);
+                if (idx > 0) return idx;
+            }
+            if (auto comp = cast(Composite)ancestor) {
+                auto idx = findPassIndex(comp, RenderPassKind.Composite);
+                if (idx > 0) return idx;
+            }
+            ancestor = ancestor.parent;
         }
         return 0;
     }

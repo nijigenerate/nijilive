@@ -95,8 +95,13 @@ public:
         Updates the drawable
     */
     override
-    protected void runDynamicTask() {
+    protected void runPreProcessTask() {
+        super.runPreProcessTask();
         deformStack.update();
+    }
+
+    override
+    protected void runDynamicTask() {
         super.runDynamicTask();
     }
 

@@ -528,7 +528,7 @@ public:
     private void dynamicRenderBegin(RenderContext ctx) {
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
-        if (!enabled || ctx.renderQueue is null) return;
+        if (!renderEnabled() || ctx.renderQueue is null) return;
         if (!prepareDynamicRenderState()) return;
 
         selfSort();

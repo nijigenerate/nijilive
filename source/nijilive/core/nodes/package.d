@@ -851,7 +851,7 @@ public:
     }
 
     protected void runRenderTask(RenderContext ctx) {
-        if (!enabled || ctx.renderQueue is null) return;
+        if (!renderEnabled() || ctx.renderQueue is null) return;
         auto scopeHint = determineRenderScopeHint();
         ctx.renderQueue.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
             buffer.add(makeDrawNodeCommand(this));
