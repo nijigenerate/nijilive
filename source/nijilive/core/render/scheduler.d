@@ -6,20 +6,22 @@ import std.range : iota;
 /// Execution order for node tasks.
 enum TaskOrder : int {
     Init = 1,
-    PreProcess = 2,
-    Dynamic = 3,
-    Post0 = 4,
-    Post1 = 5,
-    Post2 = 6,
-    RenderBegin = 7,
-    Render = 8,
-    RenderEnd = 9,
-    Final = 10,
+    Parameters = 2,
+    PreProcess = 3,
+    Dynamic = 4,
+    Post0 = 5,
+    Post1 = 6,
+    Post2 = 7,
+    RenderBegin = 8,
+    Render = 9,
+    RenderEnd = 10,
+    Final = 11,
 }
 
 /// Classification used mainly for debugging/logging.
 enum TaskKind {
     Init,
+    Parameters,
     PreProcess,
     Dynamic,
     PostProcess,
@@ -53,7 +55,8 @@ private:
 public:
 
     this() {
-        orderSequence = [TaskOrder.Init, TaskOrder.PreProcess, TaskOrder.Dynamic,
+        orderSequence = [TaskOrder.Init, TaskOrder.Parameters,
+                         TaskOrder.PreProcess, TaskOrder.Dynamic,
                          TaskOrder.Post0, TaskOrder.Post1, TaskOrder.Post2,
                          TaskOrder.RenderBegin, TaskOrder.Render, TaskOrder.RenderEnd,
                          TaskOrder.Final];

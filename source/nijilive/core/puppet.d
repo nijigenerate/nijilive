@@ -466,20 +466,23 @@ public:
         auto rootNode = actualRoot();
         if (rootNode is null) return;
 
-        if (renderParameters) {
-            foreach(parameter; parameters) {
-                if (!enableDrivers || parameter !in drivenParameters)
-                    parameter.update();
-            }
-        }
-
-        rootNode.transformChanged();
-
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
         renderQueue.beginFrame();
         renderGraph.buildFrame(rootNode);
+
+        auto rootForTasks = rootNode;
+        renderGraph.scheduler().addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
+            if (renderParameters) {
+                foreach(parameter; parameters) {
+                    if (!enableDrivers || parameter !in drivenParameters)
+                        parameter.update();
+                }
+            }
+            rootForTasks.transformChanged();
+        });
+
         renderGraph.execute(renderContext);
     }
 

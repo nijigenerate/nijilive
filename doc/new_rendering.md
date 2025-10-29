@@ -14,8 +14,10 @@ RenderQueue / GPUQueue を再設計するための方針を整理する。Compos
   `runBeginTask` / `runRenderTask` / `runRenderEndTask` 等のデリゲートを登録する。
 - `Puppet.update()` はルートノードから DFS しながら Task を登録。登録時に子ノードを
   **zSort 降順**（大きい値ほど手前）に並べ替える。
-- `TaskScheduler.execute(ctx)` が `TaskOrder.Init` → `...` → `TaskOrder.RenderEnd` まで
-  順番に TaskQueue[N] を処理する。
+- `TaskScheduler.execute(ctx)` が `TaskOrder.Init` → `TaskOrder.Parameters` → `...` →
+  `TaskOrder.RenderEnd` まで順番に TaskQueue[N] を処理する。`Parameters` フェーズでは
+  パラメータ更新とそれに伴う deformStack の再評価が行われ、続く `PreProcess` 以降で
+  各ノードが最新状態を前提に処理できる。
 
 ### 1-2. GPUQueue（旧 RenderQueue）
 
