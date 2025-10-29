@@ -17,6 +17,7 @@ import nijilive.core.nodes.meshgroup;
 import nijilive.core.nodes.part;
 import nijilive.core.nodes.deformer.grid;
 import nijilive.core.nodes.deformer.path;
+import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.render.queue;
 import nijilive.core.render.graph;
 import nijilive.core.render.commands : RenderCommandKind, MaskApplyPacket, PartDrawPacket,
@@ -257,9 +258,106 @@ unittest {
     assert(kinds == [
         RenderCommandKind.BeginComposite,
         RenderCommandKind.DrawPart,
+        RenderCommandKind.EndComposite,
+        RenderCommandKind.DrawCompositeQuad
+    ], "Composite should render children into its offscreen target before drawing the quad.");
+}
+
+unittest {
+    auto puppet = new Puppet();
+    puppet.root.name = "Root";
+
+    auto quad = makeQuadMesh();
+    Texture[] textures;
+    textures.length = TextureUsage.COUNT;
+
+    auto composite = new Composite(puppet.root);
+    composite.name = "MaskedComposite";
+
+    auto child = new Part(quad, textures, inCreateUUID(), composite);
+    child.name = "ChildPart";
+
+    auto maskNode = new Mask(quad, inCreateUUID(), composite);
+    maskNode.name = "CompositeMask";
+
+    MaskBinding binding;
+    binding.maskSrcUUID = maskNode.uuid;
+    binding.mode = MaskingMode.Mask;
+    binding.maskSrc = maskNode;
+    composite.masks = [binding];
+
+    puppet.rescanNodes();
+    auto records = executeFrame(puppet);
+    auto kinds = records.map!(r => r.kind).array;
+    assert(kinds == [
+        RenderCommandKind.BeginComposite,
+        RenderCommandKind.DrawPart,
+        RenderCommandKind.EndComposite,
+        RenderCommandKind.BeginMask,
+        RenderCommandKind.ApplyMask,
+        RenderCommandKind.BeginMaskContent,
         RenderCommandKind.DrawCompositeQuad,
-        RenderCommandKind.EndComposite
-    ], "Composite should wrap child draw between Begin/DrawCompositeQuad/End commands.");
+        RenderCommandKind.EndMask
+    ], "Composite masks must wrap the transfer step, not child rendering.");
+}
+
+unittest {
+    auto puppet = new Puppet();
+    puppet.root.name = "Root";
+
+    auto quad = makeQuadMesh();
+    Texture[] textures;
+    textures.length = TextureUsage.COUNT;
+
+    auto outer = new Composite(puppet.root);
+    outer.name = "OuterComposite";
+
+    auto inner = new Composite(outer);
+    inner.name = "InnerComposite";
+
+    auto innerPart = new Part(quad, textures, inCreateUUID(), inner);
+    innerPart.name = "InnerPart";
+
+    puppet.rescanNodes();
+    auto records = executeFrame(puppet);
+    auto kinds = records.map!(r => r.kind).array;
+    assert(kinds == [
+        RenderCommandKind.BeginComposite,      // outer begin
+        RenderCommandKind.BeginComposite,      // inner begin
+        RenderCommandKind.DrawPart,            // inner child
+        RenderCommandKind.EndComposite,        // inner end
+        RenderCommandKind.DrawCompositeQuad,   // inner transfer to outer FBO
+        RenderCommandKind.EndComposite,        // outer end
+        RenderCommandKind.DrawCompositeQuad    // outer transfer to parent
+    ], "Nested composites should finalize inner scopes before closing the outer scope.");
+}
+
+unittest {
+    auto puppet = new Puppet();
+    puppet.root.name = "Root";
+
+    auto quad = makeQuadMesh();
+    Texture[] textures;
+    textures.length = TextureUsage.COUNT;
+
+    auto dynamic = new DynamicComposite(false);
+    dynamic.name = "Dynamic";
+    dynamic.textures = [null, null, null];
+    dynamic.invalidate();
+    dynamic.parent = puppet.root;
+
+    auto child = new Part(quad, textures, inCreateUUID(), dynamic);
+    child.name = "DynamicChild";
+
+    puppet.rescanNodes();
+    auto records = executeFrame(puppet);
+    auto kinds = records.map!(r => r.kind).array;
+    assert(kinds == [
+        RenderCommandKind.BeginDynamicComposite,
+        RenderCommandKind.DrawPart,
+        RenderCommandKind.EndDynamicComposite,
+        RenderCommandKind.DrawPart
+    ], "DynamicComposite should render into its target before emitting its draw command.");
 }
 
 unittest {

@@ -1,198 +1,167 @@
-# 新レンダリングパイプライン再設計（RenderQueue Layered Model）
+# 新レンダリングパイプライン再設計案（TaskQueue / RenderQueue / GPUQueue）
 
-## 目的と背景
-
-既存の TaskScheduler ベースのパイプラインは CPU 側の更新順序を明示できるものの、
-GPUQueue へ積まれる描画コマンドの順序制御が弱く、以下の問題が残っていた。
-
-- Composite / DynamicComposite などが「子ノードを先にターゲットへ描画し、その結果を親が利用する」
-  という流れを保証できない。
-- 同じレンダーターゲットを共有する描画オブジェクト間で zSort を正しく解決できず、
-  マスクや半透明描画の順序が乱れる。
-
-この再設計では **RenderQueue を「ターゲットごとのレイヤ構造」で構築し、各レイヤ内を zSort 降順でソート** してから
-GPU へ流すモデルへ切り替える。これにより「ターゲットの切り替え → 子ノード描画 → 親ノードの合成」という流れを
-強制しつつ、同一ターゲットを共有する描画アイテムの前後関係を一貫して管理できる。
+本ドキュメントは 2025-03 時点の課題を踏まえ、TaskScheduler（TaskQueue[N]）と
+RenderQueue / GPUQueue を再設計するための方針を整理する。Composite のターゲット
+切り替えや zSort・マスクの整合性を維持しつつ、既存のパイプライン構造を明確化する。
 
 ---
 
-## フレーム処理の全体像
+## 1. 既存パイプラインの分解
 
-```mermaid
+### 1-1. TaskScheduler と TaskQueue[N]
+
+- `TaskScheduler` は固定順の `TaskOrder` を持ち、それぞれ `TaskQueue[TaskOrder]` に
+  `runBeginTask` / `runRenderTask` / `runRenderEndTask` 等のデリゲートを登録する。
+- `Puppet.update()` はルートノードから DFS しながら Task を登録。登録時に子ノードを
+  **zSort 降順**（大きい値ほど手前）に並べ替える。
+- `TaskScheduler.execute(ctx)` が `TaskOrder.Init` → `...` → `TaskOrder.RenderEnd` まで
+  順番に TaskQueue[N] を処理する。
+
+### 1-2. GPUQueue（旧 RenderQueue）
+
+- TaskQueue の各フェーズでノードが `RenderQueue`（旧称 GPUQueue）へ GPU コマンドを
+  積む。`RenderQueue.flush()` が Backend（OpenGL 実装）にコマンドを渡して描画を実行。
+- 課題：Composite の子描画が親ターゲットに直接流れる／zSort が維持されない／マスクの
+  適用タイミングが崩れる。
+
+---
+
+## 2. 再設計のゴール
+
+1. **Composite / DynamicComposite の子ノードが専用 FBO に描かれ、その結果だけを
+   親ターゲットへブリット** する。ターゲット切替は RenderQueue が集中管理する。
+2. **同じターゲット（Root / Composite / DynamicComposite）を共有するノードは、
+   TaskQueue での親→子順を維持したまま RenderQueue 内で zSort 降順に再整列** される。
+   これにより DFS の構造を壊さず、同一ターゲット内で「奥→手前」の描画順が保証される。
+3. **マスク（ClipToLower 等）は転送時のみ適用** され、子描画時には混ざらない。
+4. **スコープ（push/pop）が必ず対応** し、ネスト時に崩壊しない。
+
+---
+
+## 3. RenderQueue の再設計
+
+### 3-1. RenderPass と RenderItem
+
+- RenderQueue は `RenderPass` をスタックで管理。パス種別は `Root / Composite / DynamicComposite`。
+- 各パスは `RenderItem[]` を持ち、RenderItem は `(float zSort, size_t sequence, RenderCommandData[] cmds)` を保持。
+- `enqueueItem(zSort, builder)` で「現在のスタックトップの RenderPass」に RenderItem を追加する。
+  Composite/DynamicComposite が `push*` を呼んでいる間はそのパスがトップに居続けるため、
+  子 Part はヒント無しで適切なターゲットへ enqueue される。
+
+### 3-2. スコープ API
+
+```d
+size_t pushComposite(Composite comp, bool useStencil, MaskApplyPacket[] packets);
+void   popComposite(size_t token, Composite comp);
+size_t pushDynamicComposite(DynamicComposite comp);
+void   popDynamicComposite(size_t token, DynamicComposite comp);
+```
+
+- `push*` は新しい RenderPass を生成しスタックに積む。戻り値のトークンで対応関係を管理。
+- `pop*` はスタック上を上から調べ、目的トークンに到達するまで `finalizeTopPass(true)` で
+  内側スコープを順に畳む。目的トークンを見つけたら `finalizeCompositePass(false)` を実行。
+
+### 3-3. finalizeCompositePass
+
+1. パス内の RenderItem を **zSort 降順 + sequence 安定**で整列。
+2. `BeginComposite → 子 RenderItem を展開 → EndComposite` を親パスへ追加。
+3. マスクがあれば `BeginMask → ApplyMask* → BeginMaskContent → DrawCompositeQuad → EndMask` を挿入。
+4. Composite 側に「閉じた」ことを通知（フラグ／トークンをリセット）。
+   ネストした Composite の場合でも、RenderQueue が親スコープを再開できるよう
+   OpenGL 側では FBO のスタックを管理する。
+
+DynamicComposite の `finalizeDynamicCompositePass` も同様に `BeginDynamicComposite → 子 → EndDynamicComposite` を構築し、親パスへ追加する。
+
+### 3-4. flush
+
+- Root パスの RenderItem を zSort 降順＋登録順で整列し、平坦化したコマンド列を Backend に渡す。
+- Backend は `RenderCommandKind` ごとに FBO 切替・マスク・描画を行う。
+- CommandKind 例：`BeginComposite` / `EndComposite` / `DrawPart` / `DrawCompositeQuad` / `BeginMask` / `EndMask` 等。
+
+---
+
+## 4. ノード側の修正
+
+| ノード             | runRenderBeginTask                     | runRenderTask                               | runRenderEndTask                         |
+|--------------------|----------------------------------------|---------------------------------------------|------------------------------------------|
+| Part               | なし                                   | `enqueueItem(zSort)` でマスク＋描画まとめ | なし                                     |
+| Composite          | `pushComposite(token)`                 | 子ノードのみ                                | `popComposite(token)`                    |
+| DynamicComposite   | `pushDynamicComposite(token)`          | 子ノードのみ                                | `popDynamicComposite(token)`             |
+
+- 子ノード配列 (`children` や `subParts`) は `selfSort()` で **zSort 降順**に整列してから登録・描画を行う。
+- Part は自分の RenderItem 内でマスクコマンドを完結させる。
+
+---
+
+## 5. TaskQueue / RenderQueue / GPUQueue の連携
+
+1. **TaskQueue (TaskOrder)**
+   - `runRenderBeginTask` で `pushComposite` / `pushDynamicComposite` を呼ぶ。
+   - `runRenderTask` で Part が `enqueueItem` を追加。Composite は子に処理を委譲。
+   - `runRenderEndTask` で `popComposite` / `popDynamicComposite` を呼び、RenderQueue にまとめて描画命令を登録。
+2. **RenderQueue**
+   - RenderPass スタックを維持。各パスの RenderItem を zSort 降順で整列し、親パスに吸い上げる。
+3. **GPUQueue（Backend 実行）**
+   - `flush()` で Root パスのコマンド列を生成し、Backend（OpenGL）が実際に FBO 切替・マスク・描画を行う。
+
+
+~~~mermaid
 flowchart TD
-    A[Puppet.update] --> B[RenderGraph.buildFrame]
-    B --> C[TaskScheduler.execute<br/>CPU Task Order]
-    C --> D[RenderQueue Layered Collect]
-    D --> E[RenderQueue.flush<br/>per-target sort + GPU]
-    E --> F[Puppet.draw (fallback if empty)]
-```
-
-1. `RenderGraph.buildFrame()` が DFS でノードを巡り、TaskScheduler に各フェーズのタスクを登録する。
-2. `TaskScheduler.execute()` が CPU タスクを実行する。描画フェーズでノードは **RenderQueue へ直接コマンドを押し込む代わりに、
-   レイヤへアイテムとして登録** する。
-3. `RenderQueue.flush()` が「ルートターゲット → 子ターゲット …」の順でレイヤを展開し、
-   各レイヤ内のアイテムを **zSort 降順 (stable)** で整列してから GPU Backend に適用する。
-4. Queue が空の場合は従来通り `rootParts.drawOne()` を呼ぶフォールバックが働く。
+    A[Puppet.update / TaskQueue] --> B[RenderQueue push/pop]
+    B --> C[RenderQueue 総合並び替え]
+    C --> D[GPUQueue / Backend 実行]
+~~~
 
 ---
 
-## RenderQueue のレイヤモデル
+## 6. モジュールごとの対応内容
 
-### RenderPass
+### 6-1. TaskScheduler (`source/nijilive/core/render/scheduler.d`)
+- 子ノード登録時に zSort 降順で並べ替える。
+- TaskQueue の実行順は従来どおりだが、Composite の `runRenderBeginTask` / `runRenderEndTask` が
+  push/pop を呼ぶことを前提にデバッグログを整備する。
 
-- RenderQueue は `RenderPass` のスタックを管理する。スタックの底（root）はフレームバッファへの描画を表す。
-- `RenderPass` には **RenderItem の配列** と、Composite / DynamicComposite 専用のメタデータを持たせる。
+### 6-2. RenderQueue (`source/nijilive/core/render/queue.d`)
+- 現状の FIFO 実装を廃し、RenderPass スタック＋安定ソート構造に置き換える。
+- `pushComposite` / `popComposite` ではトークン付きスコープ管理と zSort 整列を実行。
+- `finalizeTopPass(true)` でトークン未一致時でも安全に自動クローズできるようにする。
 
-```d
-enum RenderPassKind { Root, Composite, DynamicComposite }
+### 6-3. Node 実装
+- Part (`source/nijilive/core/nodes/part/package.d`) は `enqueueItem` を通じてマスク＋描画を登録。
+- Composite (`source/nijilive/core/nodes/composite/package.d`) は `pushComposite`/`popComposite` の呼び出しと子 `subParts` の zSort 降順整列を徹底。
+- DynamicComposite (`source/nijilive/core/nodes/composite/dcomposite.d`) は `pushDynamicComposite`/`popDynamicComposite` に置き換える。
 
-struct RenderItem {
-    float zSort;            // 描画アイテムの zSort
-    size_t sequence;        // 安定ソート用のインクリメント ID
-    RenderCommandData[] commands; // 実行時にそのまま backend へ渡すコマンド列
-}
-
-struct RenderPass {
-    RenderPassKind kind;
-    Composite composite;              // kind == Composite のとき
-    DynamicComposite dynamicComposite; // kind == DynamicComposite のとき
-    bool maskUsesStencil;
-    MaskApplyPacket[] maskPackets;    // Composite 専用：BeginMask 前に発行する
-    RenderItem[] items;
-    size_t nextSequence;
-}
-```
-
-### 基本操作
-
-| 操作                          | 役割 |
-|-------------------------------|------|
-| `beginFrame()`                | ルートパスを初期化 (`RenderPassKind.Root`) |
-| `enqueueItem(zSort, builder)` | 現在のパスに RenderItem を追加。builder は `RenderCommandData` の列を構築する |
-| `pushComposite(...)`          | Composite 描画用パスをプッシュし、スコープトークンを返す |
-| `pushDynamicComposite(...)`   | DynamicComposite 描画用パスをプッシュし、スコープトークンを返す |
-| `popScope(token)`             | 指定トークンのパスを閉じ、子アイテムをソートして親に登録 |
-
-### 処理フロー
-
-1. ノードが描画フェーズに入ると、`RenderQueue` は自動で root パスを用意する。
-2. Part / Mask 等の Drawable は `enqueueItem(zSort, builder)` を呼び、マスクコマンド込みのコマンド列を組み立てる。
-3. Composite / DynamicComposite は `pushComposite` / `pushDynamicComposite` で子パスを開始し、
-   返されたトークンをノード側で保持する。子ノードは同じパス上に RenderItem を積む。
-4. Composite / DynamicComposite の `runRenderEndTask` で対応するトークンを `popScope(token)` に渡し、子パス内の RenderItem を **zSort 降順の安定ソート**
-   した後で以下のコマンド列を生成する：
-
-   ```
-   [BeginMask?, ApplyMask*?, BeginMaskContent?]
-   BeginComposite / BeginDynamicComposite
-       (子 RenderItem たちの commands を順序通りに展開)
-   EndComposite? + DrawCompositeQuad? / EndDynamicComposite
-   [EndMask?]
-   ```
-
-   生成した列は親パスへ **1 アイテムとして zSort = 親 Composite の zSort** で登録される。
-   これにより「子を描画 → 親で合成」という流れが保証される。
-   また、`popComposite` / `popDynamicComposite` はスタック上に未処理の子スコープが残っている場合に自動で順次閉じるため、
-   スケジューラの実行順序に関わらず常に **子ノード → 親ノード** の順でターゲット描画が確定する。
-   自動クローズされたノードには通知が飛び、DynamicComposite の場合は `endComposite()` 相当の後処理も即座に実行される。
-   スコープはトークンで識別され、トークンが一致しない場合は `RenderQueue` 側で即座に検知・エラーを報告する。
-
-5. `flush()` 時に root パスの RenderItem を zSort 降順で整列し、順に Backend へ渡す。
-   子 Composite / DynamicComposite の描画は、前段で生成した “合成済みのコマンド列” として展開される。
-
-### zSort の扱い
-
-- `RenderItem` 追加時は `Node.zSort()` の結果を渡す。
-- ソートは `item.zSort` の降順で行い、同値の場合は `sequence`（挿入順）で安定ソートする。
-- これにより **同じターゲット内では zSort の値が大きい描画ほど後段に残り、アルファブレンド前提の back-to-front 描画** が保証される。
+### 6-4. Backend（OpenGL 実装）
+- `BeginComposite` / `EndComposite` が FBO 切替（`glBindFramebuffer(cfBuffer)` / `fBuffer`）を行う。
+- `DrawCompositeQuad` が Composite の結果を親ターゲットに転送。ClipToLower 等はここで適用される。
 
 ---
 
-## ノード別の負担
+## 7. テスト計画
 
-### Part / Mask / Drawable
+1. **ユニットテスト更新**
+   - Part 単独 / マスク付き Part。
+   - Composite + 子 Part（マスクなし）→ コマンド列が `BeginComposite → DrawPart → EndComposite → DrawCompositeQuad` になるか確認。
+   - Composite + ClipToLower（マスク付き）→ 転送時にのみ `BeginMask` が挿入されるか確認。
+   - Composite ネスト（意図的に pop 順序を崩して finalizeTopPass が働くケース）。
+   - DynamicComposite。
 
-- 既存の `enqueueRenderCommands` を `RenderQueue.enqueueItem` を用いた実装へ書き換える。
-- マスクなど複数コマンドを伴う場合も builder 経由で一つの RenderItem にまとめる。
-- Run-time で OpenGL を直接触る処理は引き続き Backend 側に閉じ込める。
+2. **手動検証**
+   - 高 zSort（フォアグラウンド）→ 低 zSort（バックグラウンド）の重なり確認。
+   - ClipToLower のマスク領域が Composite 結果にのみ適用されるか確認。
 
-### Composite
-
-- `runRenderBeginTask` で `ctx.renderQueue.pushComposite(this, maskInfo)` を呼び、返されたトークンを保持しつつ子ノードが同一ターゲットに描画するパスを開始する。
-- マスクに必要な `MaskApplyPacket` はこのタイミングで組み立てて渡す。
-- `runRenderEndTask` で `ctx.renderQueue.popComposite(this)` を呼び、子 RenderItem をまとめたコマンド列を生成し、
-  親パスへ `zSort = this.zSort()` のアイテムとして登録する。
-
-### DynamicComposite
-
-- `runRenderBeginTask` で `pushDynamicComposite(this)` を呼び、返されたトークンを保持したうえで RenderTarget スタックを push するコマンド列を組み立てる。
-- `runRenderEndTask` で `popDynamicComposite(token, this)` を呼び、子アイテムを並べ替えた上で
-  `[BeginDynamicComposite → 子コマンド列 → EndDynamicComposite]` を親パスに登録する。
-
-### その他
-
-- Fallback `runRenderTask`（未移行ノード向け）は `enqueueItem(zSort, builder)` を使って `DrawNode` コマンドを生成するだけの単位を作る。
-- 将来的に新ノードを追加する場合も **「ターゲットを開く → 子を描画 → ターゲットを閉じて親に登録」** という枠組みに従えば良い。
+3. **自動テスト/CI**
+   - `dub test` に RenderQueue のコマンド列比較を追加し、期待シーケンスと一致するか検証。
+   - GPU パスを含む integration テストが整備できれば、RenderQueue の平坦化結果をスナップショット化する。
 
 ---
 
-## RenderQueue API の概要（案）
+## 8. 今後の課題
 
-```d
-class RenderQueue {
-    void beginFrame();
-    bool empty() const;
-    void clear(); // beginFrame と同義
-
-    void enqueueItem(float zSort, scope void delegate(ref RenderCommandBuffer) build);
-
-    void pushComposite(Composite comp,
-                       bool maskUsesStencil,
-                       const MaskApplyPacket[] maskPackets);
-    void popComposite(Composite comp);
-
-    void pushDynamicComposite(DynamicComposite comp);
-    void popDynamicComposite(DynamicComposite comp);
-
-    void flush(RenderBackend backend, ref RenderGpuState state);
-}
-```
-
-`RenderCommandBuffer` は単に `RenderCommandData[]` を保持し、`add(RenderCommandData)` で追記できる軽量ユーティリティ。
+- RenderQueue のログ出力（debug ビルド時）を強化し、Composite の push/pop 対応や自動クローズを視覚化する。
+- ClipToLower 等を含むサンプルシーンを作成し、回帰テストの一部に組み込む。
+- 他 Backend（Vulkan など）を追加する際にも同じ RenderQueue 構造を再利用できるよう、コマンド列と Backend 実装の責務を明確に分離する。
 
 ---
 
-## 実装指針
-
-1. **RenderQueue の刷新**
-   - RenderPass / RenderItem / RenderCommandBuffer を導入。
-   - 既存の `enqueue(RenderCommandData)` API は内部的に `enqueueItem` に委譲するラッパを残すか、完全に廃止する。
-   - `clear()` 時に root パスを再生成し、スタックが空で flush に到達することがないようにする。
-
-2. **Composite / DynamicComposite の改修**
-   - `runRenderBeginTask` / `runRenderEndTask` を `push*/pop*` API 呼び出しに置き換え、個別に行っていたマスク・FBO 切り替えコマンドを RenderQueue に委譲する。
-   - `selfSort()` や `subParts` の管理は引き続き Composite 側で行うが、実際の描画順序は RenderQueue のソート結果に従う。
-
-3. **Part / Mask / その他 Drawable の更新**
-   - `enqueueRenderCommands` を `enqueueItem` ベースへ書き換え、zSort を必ず渡す。
-   - 同一ターゲットの描画順制御を queue に任せるため、呼び出し側での zSort 並べ替えロジック（例: `selfSort` のみで完結していた箇所）との整合を確認する。
-
-4. **動作確認**
-   - `dub build` / `dub test` によるコンパイル確認。
-   - RenderQueue のユニットテストを追加し、Composite / DynamicComposite / Mask が期待通りの並びで Flush されることを検証する。
-   - 既存の `render_queue.d` テストも新レイヤモデルに合わせて更新する。
-
----
-
-## 期待される効果
-
-- **Composite / DynamicComposite の親子関係が自動で保証される。**
-  子ノードはターゲット設定後に確実に描画され、親はその結果テクスチャを使って最後に合成される。
-- **同一ターゲット内での描画順序が zSort に基づき一貫性を持つ。**
-  Stable ソートによりアーティストが定義した順序も失われない。
-- **描画パスの可視化・デバッグが容易になる。**
-  RenderPass と RenderItem をログ化することで、どのノードがどのターゲットへどう描画されたか追跡しやすい。
-- **Backend 依存の処理をさらに抽象化できる。**
-  ターゲットの push/pop やマスクコマンドの挿入は RenderQueue が一元管理できるため、新 Backend 追加時のコストが小さくなる。
-
-以上の設計をもとに、次章の実装タスク（`doc/task.md`）を更新し、順次コードへ反映する。
+以上が TaskQueue[N] と RenderQueue/GPUQueue の連携を再構築し、Composite のターゲット切り替え・zSort・マスクを確実に制御するための再設計案である。実装フェーズではこの設計を基にコードを更新し、ユニットテストと手動検証で挙動を確認する。

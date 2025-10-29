@@ -33,7 +33,6 @@ import std.math : isNaN;
 
 public import nijilive.core.meshdata;
 
-
 package(nijilive) {
     void inInitPart() {
         inRegisterNodeType!Part;
@@ -376,7 +375,7 @@ public:
         return textures[0];
     }
 
-    /** 
+    /**
         Ignore puppet.transform if set to true.
      */
     bool ignorePuppet = false;
@@ -572,7 +571,8 @@ public:
         bool hasMasks = masks.length > 0;
         bool useStencil = hasMasks && maskCount > 0;
 
-        ctx.renderQueue.enqueueItem(zSort(), (ref RenderCommandBuffer buffer) {
+        auto scopeHint = determineRenderScopeHint();
+        ctx.renderQueue.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
             if (hasMasks) {
                 buffer.add(makeBeginMaskCommand(useStencil));
                 foreach (ref mask; masks) {

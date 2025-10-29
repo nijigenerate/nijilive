@@ -852,7 +852,8 @@ public:
 
     protected void runRenderTask(RenderContext ctx) {
         if (!enabled || ctx.renderQueue is null) return;
-        ctx.renderQueue.enqueueItem(zSort(), (ref RenderCommandBuffer buffer) {
+        auto scopeHint = determineRenderScopeHint();
+        ctx.renderQueue.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
             buffer.add(makeDrawNodeCommand(this));
         });
     }
@@ -865,6 +866,11 @@ public:
 
     void registerRenderTasks(TaskScheduler scheduler) {
         if (scheduler is null) return;
+        debug(RenderQueueLog) {
+            import std.stdio : writeln;
+            writeln("[TaskRegister] node=", name, " zSort=", zSort());
+        }
+
         scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
         scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
         scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
@@ -875,11 +881,35 @@ public:
         scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
         scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
 
-        foreach(child; children) {
+        auto orderedChildren = children.dup;
+        if (orderedChildren.length > 1) {
+            import std.algorithm.sorting : sort;
+            orderedChildren.sort!((a, b) => a.zSort > b.zSort);
+        }
+
+        foreach(child; orderedChildren) {
             child.registerRenderTasks(scheduler);
         }
 
         scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
+    }
+
+    protected RenderScopeHint determineRenderScopeHint() {
+        Node current = parent;
+        while (current !is null) {
+            if (auto dyn = cast(DynamicComposite)current) {
+                if (dyn.isDynamicScopeActive()) {
+                    return RenderScopeHint.forDynamic(dyn);
+                }
+            }
+            if (auto comp = cast(Composite)current) {
+                if (comp.isCompositeScopeActive()) {
+                    return RenderScopeHint.forComposite(comp);
+                }
+            }
+            current = current.parent;
+        }
+        return RenderScopeHint.root();
     }
 
     public

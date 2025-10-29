@@ -108,6 +108,11 @@ private {
     Camera[] inCamera;
 
     bool isCompositing;
+    struct CompositeFrameState {
+        GLint framebuffer;
+        GLint[4] viewport;
+    }
+    CompositeFrameState[] compositeScopeStack;
 
     void renderScene(vec4 area, PostProcessingShader shaderToUse, GLuint albedo, GLuint emissive, GLuint bump) {
         glViewport(0, 0, cast(int)area.z, cast(int)area.w);
@@ -321,16 +326,18 @@ void inBeginScene() {
 */
 void inBeginComposite() {
 
-    // We don't allow recursive compositing
-    if (isCompositing) return;
+    CompositeFrameState frameState;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &frameState.framebuffer);
+    glGetIntegerv(GL_VIEWPORT, frameState.viewport.ptr);
+    compositeScopeStack ~= frameState;
     isCompositing = true;
 
+    immutable(GLenum[3]) attachments = [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2];
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cfBuffer);
-    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+    glDrawBuffers(cast(GLsizei)attachments.length, attachments.ptr);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Everything else is the actual texture used by the meshes at id 0
     glActiveTexture(GL_TEXTURE0);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
@@ -339,14 +346,20 @@ void inBeginComposite() {
     Ends a composition step, re-binding the internal framebuffer
 */
 void inEndComposite() {
+    if (compositeScopeStack.length == 0) return;
 
-    // We don't allow recursive compositing
-    if (!isCompositing) return;
-    isCompositing = false;
+    auto frameState = compositeScopeStack[$ - 1];
+    compositeScopeStack.length -= 1;
 
-    glBindFramebuffer(GL_FRAMEBUFFER, fBuffer);
-    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-    glFlush();
+    immutable(GLenum[3]) attachments = [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2];
+    glBindFramebuffer(GL_FRAMEBUFFER, frameState.framebuffer);
+    glViewport(frameState.viewport[0], frameState.viewport[1], frameState.viewport[2], frameState.viewport[3]);
+    glDrawBuffers(cast(GLsizei)attachments.length, attachments.ptr);
+
+    if (compositeScopeStack.length == 0) {
+        glFlush();
+        isCompositing = false;
+    }
 }
 
 /**

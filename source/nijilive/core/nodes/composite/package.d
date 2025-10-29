@@ -10,10 +10,7 @@
 */
 module nijilive.core.nodes.composite;
 import nijilive.core.nodes.common;
-import nijilive.core.render.commands : RenderCommandData, RenderCommandKind, makeBeginCompositeCommand,
-    makeBeginMaskCommand, makeApplyMaskCommand,
-    makeBeginMaskContentCommand, makeEndMaskCommand, makeEndCompositeCommand,
-    makeCompositeDrawPacket, makeDrawCompositeQuadCommand, tryMakeMaskApplyPacket,
+import nijilive.core.render.commands : makeCompositeDrawPacket, tryMakeMaskApplyPacket,
     MaskApplyPacket;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes;
@@ -40,11 +37,15 @@ class Composite : Node {
 public:
     DynamicComposite delegated = null;
 private:
-    bool renderScopeOpen = false;
-    size_t renderScopeDepth = size_t.max;
-    package(nijilive) void renderScopeClosed(bool /*autoClose*/) {
-        renderScopeOpen = false;
-        renderScopeDepth = size_t.max;
+    bool compositeScopeActive = false;
+    size_t compositeScopeToken = size_t.max;
+    package(nijilive) void markCompositeScopeClosed() {
+        compositeScopeActive = false;
+        compositeScopeToken = size_t.max;
+    }
+
+    package(nijilive) bool isCompositeScopeActive() const {
+        return compositeScopeActive;
     }
 
     this() { }
@@ -107,10 +108,7 @@ private:
             return;
         }
 
-        import std.math : cmp;
-        sort!((a, b) => cmp(
-            a.zSort, 
-            b.zSort) > 0)(subParts);
+        sort!((a, b) => a.zSort > b.zSort)(subParts);
     }
 
     void scanPartsRecurse(ref Node node) {
@@ -132,6 +130,13 @@ private:
                 scanPartsRecurse(child);
             }
             
+        } else if (auto innerComp = cast(Composite)node) {
+            if (innerComp is this) return;
+            // Nested composites manage their own parts.
+            return;
+        } else if (auto innerDynamic = cast(DynamicComposite)node) {
+            // Dynamic composites manage their own parts.
+            return;
         } else {
 
             // Non-part nodes just need to be recursed through,
@@ -437,8 +442,6 @@ public:
 
     override
     protected void runRenderBeginTask(RenderContext ctx) {
-        renderScopeOpen = false;
-        renderScopeDepth = size_t.max;
         if (!enabled || ctx.renderQueue is null) return;
         if (delegated) {
             delegated.delegatedRunRenderBeginTask(ctx);
@@ -447,10 +450,9 @@ public:
         selfSort();
         if (subParts.length == 0) return;
 
-        bool hasMasks = masks.length > 0;
         MaskApplyPacket[] maskPackets;
         bool useStencil = false;
-        if (hasMasks) {
+        if (masks.length > 0) {
             useStencil = maskCount() > 0;
             foreach (ref mask; masks) {
                 if (mask.maskSrc !is null) {
@@ -463,8 +465,8 @@ public:
             }
         }
 
-        renderScopeDepth = ctx.renderQueue.pushComposite(this, useStencil, maskPackets);
-        renderScopeOpen = true;
+        compositeScopeToken = ctx.renderQueue.pushComposite(this, useStencil, maskPackets);
+        compositeScopeActive = true;
     }
 
     override
@@ -482,10 +484,10 @@ public:
             return;
         }
 
-        if (!renderScopeOpen) return;
-        ctx.renderQueue.popComposite(renderScopeDepth, this);
-        renderScopeOpen = false;
-        renderScopeDepth = size_t.max;
+        if (!compositeScopeActive) return;
+
+        ctx.renderQueue.popComposite(compositeScopeToken, this);
+        markCompositeScopeClosed();
     }
 
     override
@@ -561,8 +563,8 @@ public:
             return;
         }
         subParts.length = 0;
-        if (children.length > 0) {
-            scanPartsRecurse(children[0].parent);
+        foreach (child; children) {
+            scanPartsRecurse(child);
         }
     }
 

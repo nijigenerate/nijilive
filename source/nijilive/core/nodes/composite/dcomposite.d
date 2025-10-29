@@ -21,8 +21,7 @@ import std.algorithm.sorting;
 import std.array;
 import std.format;
 import std.range;
-import nijilive.core.render.commands : makeBeginDynamicCompositeCommand,
-    makeEndDynamicCompositeCommand;
+import nijilive.core.render.commands;
 import nijilive.core.render.scheduler : RenderContext;
 version (InDoesRender) {
     import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
@@ -43,24 +42,24 @@ class DynamicComposite : Part {
 protected:
     bool initialized = false;
     bool forceResize = false;
-    bool renderScopeOpen = false;
-    size_t renderScopeDepth = size_t.max;
-    package(nijilive) void renderScopeClosed(bool autoClose) {
-        renderScopeOpen = false;
-        renderScopeDepth = size_t.max;
-        if (autoClose) {
+    bool dynamicScopeActive = false;
+    size_t dynamicScopeToken = size_t.max;
+    package(nijilive) void markDynamicScopeClosed(bool invokeEndComposite) {
+        dynamicScopeActive = false;
+        dynamicScopeToken = size_t.max;
+        if (invokeEndComposite) {
             endComposite();
         }
     }
 
+    package(nijilive) bool isDynamicScopeActive() const {
+        return dynamicScopeActive;
+    }
 public:
     this(bool delegatedMode) { }
 
     void selfSort() {
-        import std.math : cmp;
-        sort!((a, b) => cmp(
-            a.zSort, 
-            b.zSort) > 0)(subParts);
+        sort!((a, b) => a.zSort > b.zSort)(subParts);
     }
 
     void scanPartsRecurse(ref Node node) {
@@ -509,20 +508,6 @@ public:
         endComposite();
     }
 
-    bool enqueueDynamicComposite(RenderContext ctx) {
-        if (ctx.renderQueue is null) return false;
-        if (!prepareDynamicRenderState()) return false;
-
-        selfSort();
-        renderScopeDepth = ctx.renderQueue.pushDynamicComposite(this);
-        withChildRenderTransform({
-            foreach (Part child; subParts) {
-                child.enqueueRenderCommands(ctx);
-            }
-        });
-        return true;
-    }
-
     override
     void drawOne() {
 //        writefln("%s: drawOne", name);
@@ -541,19 +526,26 @@ public:
     }
 
     private void dynamicRenderBegin(RenderContext ctx) {
-        renderScopeOpen = false;
-        renderScopeDepth = size_t.max;
+        dynamicScopeActive = false;
+        dynamicScopeToken = size_t.max;
         if (!enabled || ctx.renderQueue is null) return;
-        renderScopeOpen = enqueueDynamicComposite(ctx);
+        if (!prepareDynamicRenderState()) return;
+
+        selfSort();
+        dynamicScopeToken = ctx.renderQueue.pushDynamicComposite(this);
+        dynamicScopeActive = true;
+
+        withChildRenderTransform({
+            foreach (Part child; subParts) {
+                child.enqueueRenderCommands(ctx);
+            }
+        });
     }
 
     private void dynamicRenderEnd(RenderContext ctx) {
         if (ctx.renderQueue is null) return;
-        if (renderScopeOpen) {
-            ctx.renderQueue.popDynamicComposite(renderScopeDepth, this);
-            renderScopeOpen = false;
-            renderScopeDepth = size_t.max;
-            endComposite();
+        if (dynamicScopeActive) {
+            ctx.renderQueue.popDynamicComposite(dynamicScopeToken, this);
         }
         enqueueRenderCommands(ctx);
     }
@@ -592,8 +584,8 @@ public:
     */
     void scanParts() {
         subParts.length = 0;
-        if (children.length > 0) {
-            scanPartsRecurse(children[0].parent);
+        foreach (child; children) {
+            scanPartsRecurse(child);
         }
     }
 

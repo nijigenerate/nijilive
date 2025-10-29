@@ -307,10 +307,7 @@ private:
     }
 
     void selfSort() {
-        import std.math : cmp;
-        sort!((a, b) => cmp(
-            a.zSort, 
-            b.zSort) > 0, SwapStrategy.stable)(rootParts);
+        sort!((a, b) => a.zSort > b.zSort, SwapStrategy.stable)(rootParts);
     }
 
     package(nijilive)

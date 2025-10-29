@@ -25,7 +25,8 @@ flowchart TD
      各ノードの `registerRenderTasks` が Task を `TaskScheduler` へ登録する。
    - `RenderGraph.execute(ctx)` が TaskOrder 1..N の順で handler を実行する。
      Node 側は `runBeginTask` / `runDynamicTask` / `runRenderTask` などのフックを通じて
-     CPU 処理を終え、描画が必要な場合のみ `ctx.renderQueue.enqueue(...)` を呼ぶ。
+    CPU 処理を終え、描画が必要な場合のみ `ctx.renderQueue.enqueueItem(...)` あるいは
+    `pushComposite` / `pushDynamicComposite` を通じて RenderQueue へ登録する。
 
 2. **`Puppet.draw()`**
    - `renderQueue` が空でなければ `renderQueue.flush(renderBackend, renderContext.gpuState)` を呼び、
@@ -51,22 +52,33 @@ flowchart TD
 親ノードの RenderBegin が子ノードより先に、RenderEnd が子ノードより後に登録されるため、
 Composite の FBO 切り替えや Mask スタックの整合性が保たれる。
 
-## RenderQueue のコマンド
+## RenderQueue と GPUQueue
 
-`nijilive.core.render.commands` では以下のコマンドを定義している。Node は CPU 側データのみを生成し、
-GPU 呼び出しは Backend に委ねる。
+`RenderQueue` は RenderPass（Root / Composite / DynamicComposite）をスタック管理し、
+各パス内に `RenderItem`（`zSort`・追加順・コマンド列）を保持する。ノードは
+`enqueueItem(zSort, builder)` で現在のパスにコマンドを追加し、Composite / DynamicComposite は
+`push*` / `pop*` を用いて専用スコープを開閉する。
 
-| コマンド                 | 発行元の代表例                                   | Backend の役割                               |
-|--------------------------|--------------------------------------------------|----------------------------------------------|
-| `DrawPart`               | `Part.runRenderTask()`                            | VBO/IBO/テクスチャをバインドして描画         |
-| `DrawMask`               | `Mask.drawSelf()`（RenderQueue 経由）             | マスクジオメトリ描画                         |
-| `BeginMask` / `ApplyMask` / `BeginMaskContent` / `EndMask` | Part / Composite（マスク付きの場合） | ステンシル設定とマスク適用                   |
-| `BeginComposite` / `DrawCompositeQuad` / `EndComposite` | Composite                                        | FBO スイッチと合成結果の描画                 |
-| `BeginDynamicComposite` / `EndDynamicComposite` | DynamicComposite                                | RenderTarget スタックの push/pop             |
-| `DrawNode`               | 旧互換パス（未移行ノード）                        | `node.drawOne()` をバックエンド経由で呼ぶ    |
+- Root: ルートターゲット (fBuffer)。Part や最終 `DrawCompositeQuad` がここに積まれる。
+- Composite: `BeginComposite → 子 Part → EndComposite` を組み立て、必要なら
+  `BeginMask → ApplyMask* → BeginMaskContent → DrawCompositeQuad → EndMask` を挿入して親へ返す。
+- DynamicComposite: `BeginDynamicComposite → 子 Part → EndDynamicComposite` を構築し、その後
+  DynamicComposite 自身が Part と同じ `DrawPart` を発行する。
 
-マスクや Composite の Begin/End は `RenderCommandKind` として明示されるため、
-Backend はステートマシン的に処理を再構築できる。
+各パスの RenderItem は **zSort 降順（手前→奥）＋追加順**で安定ソートされてから親パスへ展開される。
+`flush()` は Root パスを同様に整列し、平坦化したコマンド列（GPUQueue）を Backend へ渡す。
+
+`nijilive.core.render.commands` に定義される主な `RenderCommandKind` と Backend の役割は以下の通り。
+
+| コマンド                                         | 主な発行元                         | Backend の役割                            |
+|--------------------------------------------------|------------------------------------|-------------------------------------------|
+| `BeginMask` / `ApplyMask` / `BeginMaskContent` / `EndMask` | Part / Composite                 | ステンシル設定とマスク適用                |
+| `DrawPart`                                       | Part / DynamicComposite            | VBO/IBO/テクスチャをバインドして描画      |
+| `BeginComposite` / `EndComposite`                | Composite                          | Composite 用 FBO の切り替え               |
+| `DrawCompositeQuad`                              | Composite                          | Composite 結果を親ターゲットへ転送        |
+| `BeginDynamicComposite` / `EndDynamicComposite`  | DynamicComposite                   | 動的ターゲット用 FBO の切り替え           |
+| `DrawMask`                                       | Mask                               | マスクジオメトリ描画                      |
+| `DrawNode`                                       | 互換パス                           | 旧 `node.drawOne()` 呼び出し               |
 
 ## OpenGL Backend の責務
 
