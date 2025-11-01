@@ -33,6 +33,7 @@ import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
 import nijilive.core.render.scheduler;
 import std.string;
+import std.math : isFinite;
 
 // Flags to control which Node properties get serialized
 enum SerializeNodeFlags : uint {
@@ -699,39 +700,69 @@ public:
         Sets offset value
     */
     bool setValue(string key, float value) {
+        if (!value.isFinite) {
+            return false;
+        }
         switch(key) {
             case "zSort":
+                if (!offsetSort.isFinite) {
+                    offsetSort = 0;
+                }
                 offsetSort += value;
                 return true;
             case "transform.t.x":
+                if (!offsetTransform.translation.x.isFinite) {
+                    offsetTransform.translation.x = 0;
+                }
                 offsetTransform.translation.x += value;
                 transformChanged();
                 return true;
             case "transform.t.y":
+                if (!offsetTransform.translation.y.isFinite) {
+                    offsetTransform.translation.y = 0;
+                }
                 offsetTransform.translation.y += value;
                 transformChanged();
                 return true;
             case "transform.t.z":
+                if (!offsetTransform.translation.z.isFinite) {
+                    offsetTransform.translation.z = 0;
+                }
                 offsetTransform.translation.z += value;
                 transformChanged();
                 return true;
             case "transform.r.x":
+                if (!offsetTransform.rotation.x.isFinite) {
+                    offsetTransform.rotation.x = 0;
+                }
                 offsetTransform.rotation.x += value;
                 transformChanged();
                 return true;
             case "transform.r.y":
+                if (!offsetTransform.rotation.y.isFinite) {
+                    offsetTransform.rotation.y = 0;
+                }
                 offsetTransform.rotation.y += value;
                 transformChanged();
                 return true;
             case "transform.r.z":
+                if (!offsetTransform.rotation.z.isFinite) {
+                    offsetTransform.rotation.z = 0;
+                }
                 offsetTransform.rotation.z += value;
                 transformChanged();
                 return true;
             case "transform.s.x":
+                if (!offsetTransform.scale.x.isFinite || offsetTransform.scale.x == 0) {
+                    offsetTransform.scale.x = 1;
+                }
                 offsetTransform.scale.x *= value;
                 transformChanged();
                 return true;
             case "transform.s.y":
+                if (!offsetTransform.scale.y.isFinite || offsetTransform.scale.y == 0) {
+                    offsetTransform.scale.y = 1;
+                }
                 offsetTransform.scale.y *= value;
                 transformChanged();
                 return true;
