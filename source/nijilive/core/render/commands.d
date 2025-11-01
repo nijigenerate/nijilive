@@ -36,6 +36,7 @@ struct PartDrawPacket {
     bool isMask;
     mat4 modelMatrix;
     mat4 mvp;
+    bool ignoreCamera;
     vec3 clampedTint;
     vec3 clampedScreen;
     float opacity;

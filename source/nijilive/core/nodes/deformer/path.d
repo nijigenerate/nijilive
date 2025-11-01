@@ -141,9 +141,12 @@ protected:
             case "Pendulum":
                 auto phys = new ConnectedPendulumDriver(this);
                 data["physics"].deserializeValue(phys);
-                _driver = phys;
+                driver = phys;
                 break;
             case "SpringPendulum":
+                auto spring = new ConnectedSpringPendulumDriver(this);
+                data["physics"].deserializeValue(spring);
+                driver = spring;
                 break;
             default:
                 break;
@@ -213,10 +216,19 @@ public:
     }
 
     void driver(PhysicsDriver d) {
+        if (_driver is d) {
+            if (_driver !is null) {
+                _driver.retarget(this);
+            }
+            return;
+        }
         _driver = d;
+        driverInitialized = false;
+        prevRootSet = false;
         if (_driver !is null) {
             _driver.retarget(this);
         }
+        clearCache();
     }
     auto driver() {
         return _driver;

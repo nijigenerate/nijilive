@@ -14,6 +14,7 @@ import nijilive.core;
 import nijilive.math;
 import nijilive;
 import nijilive.core.nodes.utils;
+import bindbc.opengl;
 import std.exception;
 import std.algorithm;
 import std.algorithm.sorting;
@@ -21,7 +22,9 @@ import std.algorithm.sorting;
 import std.array;
 import std.format;
 import std.range;
+import std.algorithm.comparison : min, max;
 import nijilive.core.render.commands;
+import nijilive.core.render.queue : RenderCommandBuffer;
 import nijilive.core.render.scheduler : RenderContext;
 version (InDoesRender) {
     import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
@@ -42,19 +45,11 @@ class DynamicComposite : Part {
 protected:
     bool initialized = false;
     bool forceResize = false;
-    bool dynamicScopeActive = false;
-    size_t dynamicScopeToken = size_t.max;
-    package(nijilive) void markDynamicScopeClosed(bool invokeEndComposite) {
-        dynamicScopeActive = false;
-        dynamicScopeToken = size_t.max;
-        if (invokeEndComposite) {
-            endComposite();
-        }
-    }
-
-    package(nijilive) bool isDynamicScopeActive() const {
-        return dynamicScopeActive;
-    }
+    package(nijilive) bool dynamicScopeActive = false;
+    package(nijilive) size_t dynamicScopeToken = size_t.max;
+    package(nijilive) bool reuseCachedTextureThisFrame = false;
+    bool hasValidOffscreenContent = false;
+    bool loggedFirstRenderAttempt = false;
 public:
     this(bool delegatedMode) { }
 
@@ -172,34 +167,35 @@ protected:
     vec3 prevRotation;
     vec2 prevScale;
     bool deferredChanged = false;
+    Part[] queuedOffscreenParts;
 
     bool initTarget() {
         auto prevTexture = textures[0];
         auto prevStencil = stencil;
-        bool doUpdate = inGetUpdateBounds();
-        inSetUpdateBounds(true);
-        updateBounds();
-        inSetUpdateBounds(doUpdate);
-        auto bounds = this.bounds;
-        /*
-        uint width = cast(uint)((bounds.z-bounds.x) / transform.scale.x);
-        uint height = cast(uint)((bounds.w-bounds.y) / transform.scale.y);
-        */
-        vec2[] deformVerts = zip(vertices, deformation).map!(p=>p[0]+p[1]).array;
-        auto xs = deformVerts.map!(p=>p.x);
-        auto ys = deformVerts.map!(p=>p.y);
-        auto localBounds = vec4(xs.minElement, ys.minElement, xs.maxElement, ys.maxElement);
-        uint width  = cast(uint)(localBounds.z - localBounds.x);
-        uint height = cast(uint)(localBounds.w - localBounds.y);
-        if (width == 0 || height == 0) return false;
-        
-        texWidth = width + 1;
-        texHeight = height + 1;
-        textureOffset = (bounds.zw + bounds.xy) / 2 - transform.translation.xy;
+        auto localBounds = getChildrenBounds(true);
+        vec2 size = localBounds.zw - localBounds.xy;
+        if (size.x <= 0 || size.y <= 0) {
+            return false;
+        }
+
+        texWidth = cast(uint)ceil(size.x) + 1;
+        texHeight = cast(uint)ceil(size.y) + 1;
+        textureOffset = (localBounds.xy + localBounds.zw) / 2;
         setIgnorePuppet(true);
 
         textures = [new Texture(texWidth, texHeight), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true);
+        if (cfBuffer == 0) {
+            glGenFramebuffers(1, &cfBuffer);
+        }
+        int prevFbo;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0].getTextureId(), 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
+        glClear(GL_STENCIL_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
         if (prevTexture !is null) {
             prevTexture.dispose();
         }
@@ -209,6 +205,26 @@ protected:
 
         initialized = true;
         textureInvalidated = true;
+        hasValidOffscreenContent = false;
+        loggedFirstRenderAttempt = false;
+        return true;
+    }
+
+    bool updateDynamicRenderStateFlags() {
+        if (deferredChanged) {
+            if (autoResizedMesh) {
+                if (createSimpleMesh()) initialized = false;
+            }
+            deferredChanged = false;
+            textureInvalidated = true;
+            hasValidOffscreenContent = false;
+            loggedFirstRenderAttempt = false;
+        }
+        if (!initialized) {
+            if (!initTarget()) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -222,15 +238,44 @@ protected:
                 return false;
             }
         }
+        if (textureInvalidated || deferred > 0) {
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
+            glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
+            glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+            inPushViewport(textures[0].width, textures[0].height);
+            glViewport(0, 0, textures[0].width, textures[0].height);
+
+            glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+            glClearColor(0, 0, 0, 0);
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            glActiveTexture(GL_TEXTURE0);
+            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        }
         return textureInvalidated || deferred > 0;
     }
     void endComposite() {
         if (textureInvalidated) {
             textureInvalidated = false;
-//            deferred = 3;  // continue rendering without any conditions for `deferred` frames by enabling this code.
         }
-        if (deferred > 0)
-            deferred --;
+        if (deferred > 0) {
+            deferred--;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+        inPopViewport();
+        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
+        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+        glFlush();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+        inPopViewport();
+        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
+        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+        glFlush();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
+        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
     }
 
     Part[] subParts;
@@ -278,78 +323,88 @@ protected:
         }
     }
 
-    vec4 getChildrenBounds(bool forceUpdate = true)() {
-        if (forceUpdate)
+    vec4 getChildrenBounds(bool forceUpdate = true) {
+        if (forceUpdate) {
             foreach (p; subParts) p.updateBounds();
-        return mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
+        }
+        if (subParts.length == 0) {
+            return vec4(0, 0, 0, 0);
+        }
+
+        auto inv = transform.matrix.inverse;
+        bool first = true;
+        vec4 bounds;
+
+        foreach (child; subParts) {
+            auto childMatrix = inv * child.transform.matrix();
+            auto verts = child.vertices;
+            auto deform = child.deformation;
+            auto origin = child.data.origin;
+            size_t count = verts.length;
+            for (size_t i = 0; i < count; ++i) {
+                vec2 pos = verts[i] - origin;
+                if (i < deform.length) {
+                    pos += deform[i];
+                }
+                auto local = childMatrix * vec4(pos, 0, 1);
+                if (first) {
+                    bounds = vec4(local.x, local.y, local.x, local.y);
+                    first = false;
+                } else {
+                    bounds.x = min(bounds.x, local.x);
+                    bounds.y = min(bounds.y, local.y);
+                    bounds.z = max(bounds.z, local.x);
+                    bounds.w = max(bounds.w, local.y);
+                }
+            }
+        }
+
+        if (first) {
+            return vec4(0, 0, 0, 0);
+        }
+        return bounds;
     }
 
     bool createSimpleMesh() {
-        auto newBounds = getChildrenBounds();
-        vec2 origSize = shouldUpdateVertices? autoResizedSize: textures[0] !is null? vec2(textures[0].width, textures[0].height): vec2(0, 0);
-        vec2 size = newBounds.zw - newBounds.xy;
-        bool resizing = false;
-        if (forceResize) {
-            resizing = true;
-            forceResize = false;
-        } else {
-            if (cast(int)origSize.x > cast(int)size.x) {
-                float diff = (origSize.x - size.x) / 2;
-                newBounds.z += diff;
-                newBounds.x -= diff;
-            } else if (cast(int)size.x > cast(int)origSize.x) {
-                resizing = true;
-            }
-            if (cast(int)origSize.y > cast(int)size.y) {
-                float diff = (origSize.y - size.y) / 2;
-                newBounds.w += diff;
-                newBounds.y -= diff;
-            } else if (cast(int)size.y > cast(int)origSize.y) {
-                resizing = true;
-            }
+        auto bounds = getChildrenBounds();
+        vec2 size = bounds.zw - bounds.xy;
+        if (size.x <= 0 || size.y <= 0) {
+            return false;
         }
+
+        auto newTextureOffset = (bounds.xy + bounds.zw) / 2;
+        uint desiredWidth = cast(uint)ceil(size.x) + 1;
+        uint desiredHeight = cast(uint)ceil(size.y) + 1;
+        bool resizing = forceResize || textures[0] is null || textures[0].width != desiredWidth || textures[0].height != desiredHeight;
+        forceResize = false;
+
+        vec2[4] vertices = [
+            vec2(bounds.x, bounds.y),
+            vec2(bounds.x, bounds.w),
+            vec2(bounds.z, bounds.y),
+            vec2(bounds.z, bounds.w)
+        ];
+
         if (resizing) {
-            MeshData newData = MeshData([
-                vec2(newBounds.x, newBounds.y) - transform.translation.xy,
-                vec2(newBounds.x, newBounds.w) - transform.translation.xy,
-                vec2(newBounds.z, newBounds.y) - transform.translation.xy,
-                vec2(newBounds.z, newBounds.w) - transform.translation.xy
-            ], data.uvs = [
+            MeshData newData = MeshData(vertices, data.uvs = [
                 vec2(0, 0),
                 vec2(0, 1),
                 vec2(1, 0),
-                vec2(1, 1),
+                vec2(1, 1)
             ], data.indices = [
                 0, 1, 2,
                 2, 1, 3
-            ], vec2(0, 0),[]);
+            ], vec2(0, 0), []);
             super.rebuffer(newData);
             shouldUpdateVertices = true;
-            autoResizedSize = newBounds.zw - newBounds.xy;
-            textureOffset = (newBounds.xy + newBounds.zw) / 2 - transform.translation.xy;
         } else {
-            auto newTextureOffset = (newBounds.xy + newBounds.zw) / 2 - transform.translation.xy;
-            if (newTextureOffset.x != textureOffset.x || newTextureOffset.y != textureOffset.y) {
-                textureInvalidated = true;
-                data.vertices = [
-                    vec2(newBounds.x, newBounds.y) - transform.translation.xy,
-                    vec2(newBounds.x, newBounds.w) - transform.translation.xy,
-                    vec2(newBounds.z, newBounds.y) - transform.translation.xy,
-                    vec2(newBounds.z, newBounds.w) - transform.translation.xy
-                ];
-                data.indices = [
-                    0, 1, 2,
-                    2, 1, 3
-                ];
-                shouldUpdateVertices = true;
-                autoResizedSize = newBounds.zw - newBounds.xy;
-                // FIXME!: This updateVertices call is relatively slow, and createSimpleMesh is called everytime notifyChange is called.
-                // To optimize performance, we should call updateVertices to a series of changes per parameters.
-                // Currently, it produces nasty result when update vertices only once in every rendering loop. 
-                updateVertices();
-                textureOffset = newTextureOffset;
-            }
+            data.vertices = vertices;
+            shouldUpdateVertices = true;
+            updateVertices();
         }
+
+        autoResizedSize = size;
+        textureOffset = newTextureOffset;
         return resizing;
     }
 
@@ -442,53 +497,9 @@ public:
         }
     }
 
-    bool prepareDynamicRenderState() {
-        if (deferredChanged) {
-            if (autoResizedMesh) {
-                if (createSimpleMesh()) initialized = false;
-            }
-            deferredChanged = false;
-            textureInvalidated = true;
-        }
-        return beginComposite();
-    }
-
-    void withChildRenderTransform(scope void delegate() drawChildren) {
-        auto targetTexture = textures[0];
-        if (targetTexture is null) {
-            drawChildren();
-            return;
-        }
-
-        inPushViewport(cast(int)targetTexture.width, cast(int)targetTexture.height);
-        Camera camera = inGetCamera();
-        camera.scale = vec2(1, -1);
-        camera.position = (
-            mat4.identity.scaling(
-                transform.scale.x == 0 ? 0 : 1 / transform.scale.x,
-                transform.scale.y == 0 ? 0 : 1 / transform.scale.y,
-                1
-            ) *
-            mat4.identity.rotateZ(-transform.rotation.z) *
-            -vec4(0, 0, 0, 1)
-        ).xy;
-
-        mat4* origTransform = oneTimeTransform;
-        mat4 tmpTransform = transform.matrix.inverse;
-        tmpTransform[0][3] -= textureOffset.x;
-        tmpTransform[1][3] -= textureOffset.y;
-        setOneTimeTransform(&tmpTransform);
-
-        scope(exit) {
-            setOneTimeTransform(origTransform);
-            inPopViewport();
-        }
-
-        drawChildren();
-    }
-
     void drawContents() {
-        if (!prepareDynamicRenderState()) return;
+        if (!updateDynamicRenderStateFlags()) return;
+        if (!beginComposite()) return;
 
         selfSort();
 
@@ -496,11 +507,15 @@ public:
             beginDynamicCompositeGL(this);
         }
 
-        withChildRenderTransform({
-            foreach(Part child; subParts) {
-                child.drawOne();
-            }
-        });
+        auto original = oneTimeTransform;
+        mat4 tmp = transform.matrix.inverse;
+        tmp[0][3] -= textureOffset.x;
+        tmp[1][3] -= textureOffset.y;
+        setOneTimeTransform(&tmp);
+        foreach (Part child; subParts) {
+            child.drawOne();
+        }
+        setOneTimeTransform(original);
 
         version (InDoesRender) {
             endDynamicCompositeGL(this);
@@ -528,26 +543,89 @@ public:
     private void dynamicRenderBegin(RenderContext ctx) {
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
+        reuseCachedTextureThisFrame = false;
+        if (!hasValidOffscreenContent) {
+            textureInvalidated = true;
+        }
+        if (autoResizedMesh) {
+            if (createSimpleMesh()) {
+                textureInvalidated = true;
+            }
+        }
+        queuedOffscreenParts.length = 0;
         if (!renderEnabled() || ctx.renderQueue is null) return;
-        if (!prepareDynamicRenderState()) return;
+        if (!updateDynamicRenderStateFlags()) {
+            return;
+        }
+        bool needsRedraw = textureInvalidated || deferred > 0;
+        if (!needsRedraw) {
+            reuseCachedTextureThisFrame = true;
+            loggedFirstRenderAttempt = true;
+            return;
+        }
 
         selfSort();
         dynamicScopeToken = ctx.renderQueue.pushDynamicComposite(this);
         dynamicScopeActive = true;
 
-        withChildRenderTransform({
-            foreach (Part child; subParts) {
-                child.enqueueRenderCommands(ctx);
-            }
-        });
+        queuedOffscreenParts.length = 0;
+        auto basis = transform.matrix.inverse;
+        auto translate = mat4.translation(-textureOffset.x, -textureOffset.y, 0);
+        auto childBasis = translate * basis;
+
+        foreach (Part child; subParts) {
+            auto finalMatrix = childBasis * child.transform.matrix();
+            child.setOffscreenModelMatrix(finalMatrix);
+            child.enqueueRenderCommands(ctx);
+            queuedOffscreenParts ~= child;
+        }
+
+
     }
 
     private void dynamicRenderEnd(RenderContext ctx) {
         if (ctx.renderQueue is null) return;
+        bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
-            ctx.renderQueue.popDynamicComposite(dynamicScopeToken, this);
+            ctx.renderQueue.popDynamicComposite(dynamicScopeToken, this, (ref RenderCommandBuffer buffer) {
+                auto packet = makePartDrawPacket(this);
+                bool hasMasks = masks.length > 0;
+                bool useStencil = hasMasks && maskCount > 0;
+
+                if (hasMasks) {
+                    buffer.add(makeBeginMaskCommand(useStencil));
+                    foreach (ref mask; masks) {
+                        if (mask.maskSrc !is null) {
+                            bool isDodge = mask.mode == MaskingMode.DodgeMask;
+                            MaskApplyPacket applyPacket;
+                            if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
+                                buffer.add(makeApplyMaskCommand(applyPacket));
+                            }
+                        }
+                    }
+                    buffer.add(makeBeginMaskContentCommand());
+                }
+
+                buffer.add(makeDrawPartCommand(packet));
+
+                if (hasMasks) {
+                    buffer.add(makeEndMaskCommand());
+                }
+            });
+        } else {
+            enqueueRenderCommands(ctx);
         }
-        enqueueRenderCommands(ctx);
+        reuseCachedTextureThisFrame = false;
+        foreach (part; queuedOffscreenParts) {
+            part.clearOffscreenModelMatrix();
+        }
+        queuedOffscreenParts.length = 0;
+        if (redrew) {
+            hasValidOffscreenContent = true;
+        }
+        loggedFirstRenderAttempt = true;
+        dynamicScopeActive = false;
+        dynamicScopeToken = size_t.max;
     }
 
     package(nijilive)
@@ -623,6 +701,7 @@ public:
         if (autoResizedMesh) {
             if (createSimpleMesh()) initialized = false;
         }
+        textureInvalidated = true;
         for (Node c = this; c !is null; c = c.parent) {
             c.addNotifyListener(&onAncestorChanged);
         }
@@ -688,6 +767,8 @@ public:
                 scanSubParts(children);
             }
             textureInvalidated = true;
+            hasValidOffscreenContent = false;
+            loggedFirstRenderAttempt = false;
         }
         if (autoResizedMesh) {
             if (createSimpleMesh()) {

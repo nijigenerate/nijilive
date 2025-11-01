@@ -41,11 +41,19 @@ void executePartPacket(ref PartDrawPacket packet) {
     }
 
     auto matrix = packet.modelMatrix;
+    mat4 puppetMatrix = mat4.identity;
+    if (!part.ignorePuppet && part.puppet !is null) {
+        puppetMatrix = part.puppet.transform.matrix;
+    }
+    mat4 cameraMatrix = packet.ignoreCamera ? mat4.identity : inGetCamera().matrix;
+    // no logging
 
     if (packet.isMask) {
+        mat4 mvpMatrix = cameraMatrix * puppetMatrix * matrix;
+
         partMaskShader.use();
         partMaskShader.setUniform(offset, packet.origin);
-        partMaskShader.setUniform(mmvp, packet.mvp);
+        partMaskShader.setUniform(mmvp, mvpMatrix);
         partMaskShader.setUniform(mthreshold, packet.maskThreshold);
 
         glBlendEquation(GL_FUNC_ADD);
@@ -54,11 +62,11 @@ void executePartPacket(ref PartDrawPacket packet) {
         renderStage(packet, false);
     } else {
         if (packet.useMultistageBlend) {
-            setupShaderStage(packet, 0, matrix);
+            setupShaderStage(packet, 0, matrix, cameraMatrix, puppetMatrix);
             renderStage(packet, true);
 
             if (packet.hasEmissionOrBumpmap) {
-                setupShaderStage(packet, 1, matrix);
+                setupShaderStage(packet, 1, matrix, cameraMatrix, puppetMatrix);
                 renderStage(packet, false);
             }
         } else {
@@ -76,7 +84,7 @@ void executePartPacket(ref PartDrawPacket packet) {
                     bool drawingCompositeBuffer = previous_draw_fbo == inGetCompositeFramebuffer();
 
                     if (!drawingMainBuffer && !drawingCompositeBuffer) {
-                        setupShaderStage(packet, 2, matrix);
+                        setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
                         renderStage(packet, false);
                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
                         glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
@@ -95,7 +103,7 @@ void executePartPacket(ref PartDrawPacket packet) {
                     glViewport(0, 0, viewportWidth, viewportHeight);
                     glClearColor(0f, 0f, 0f, 0f);
                     glClear(GL_COLOR_BUFFER_BIT);
-                    setupShaderStage(packet, 2, matrix);
+                    setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
                     renderStage(packet, false);
 
                     GLuint bgAlbedo = drawingMainBuffer ? inGetMainAlbedo() : inGetCompositeImage();
@@ -126,7 +134,7 @@ void executePartPacket(ref PartDrawPacket packet) {
                 }
             }
 
-            setupShaderStage(packet, 2, matrix);
+            setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
             renderStage(packet, false);
         }
     }
@@ -135,10 +143,9 @@ void executePartPacket(ref PartDrawPacket packet) {
     glBlendEquation(GL_FUNC_ADD);
 }
 
-private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix) {
+private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix, mat4 cameraMatrix, mat4 puppetMatrix) {
     auto part = packet.part;
-    auto puppetMatrix = (part !is null && part.ignorePuppet) ? mat4.identity : (part ? part.puppet.transform.matrix : mat4.identity);
-    mat4 mvpMatrix = inGetCamera().matrix * puppetMatrix * matrix;
+    mat4 mvpMatrix = cameraMatrix * puppetMatrix * matrix;
 
     switch (stage) {
         case 0:

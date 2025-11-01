@@ -3,7 +3,6 @@ module nijilive.core.render.queue;
 import std.algorithm.sorting : sort;
 import std.conv : to;
 import std.exception : enforce;
-debug(RenderQueueLog) import std.stdio : writeln;
 
 import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 import nijilive.core.render.commands;
@@ -21,10 +20,12 @@ struct RenderScopeHint {
     RenderPassKind kind = RenderPassKind.Root;
     Composite composite;
     DynamicComposite dynamicComposite;
+    bool skip;
 
     static RenderScopeHint root() {
         RenderScopeHint hint;
         hint.kind = RenderPassKind.Root;
+        hint.skip = false;
         return hint;
     }
 
@@ -33,6 +34,7 @@ struct RenderScopeHint {
         RenderScopeHint hint;
         hint.kind = RenderPassKind.Composite;
         hint.composite = composite;
+        hint.skip = false;
         return hint;
     }
 
@@ -41,6 +43,14 @@ struct RenderScopeHint {
         RenderScopeHint hint;
         hint.kind = RenderPassKind.DynamicComposite;
         hint.dynamicComposite = composite;
+        hint.skip = false;
+        return hint;
+    }
+
+    static RenderScopeHint skipHint() {
+        RenderScopeHint hint;
+        hint.kind = RenderPassKind.Root;
+        hint.skip = true;
         return hint;
     }
 }
@@ -73,6 +83,8 @@ private struct RenderPass {
     RenderItem[] items;
     size_t nextSequence;
     size_t token;
+    void delegate(ref RenderCommandBuffer) dynamicPostCommands;
+    bool enqueueImmediate;
 }
 
 /// Layered render queue that groups commands per render target scope.
@@ -155,12 +167,9 @@ private:
         if (autoClose && pass.composite !is null) {
             pass.composite.markCompositeScopeClosed();
         }
-        debug(RenderQueueLog) {
-            writeln("[finalizeCompositePass] autoClose=", autoClose, " node=", pass.composite ? pass.composite.name : "(null)");
-        }
     }
 
-    void finalizeDynamicCompositePass(bool autoClose) {
+    void finalizeDynamicCompositePass(bool autoClose, scope void delegate(ref RenderCommandBuffer) postCommands = null) {
         enforce(passStack.length > 1, "RenderQueue: cannot finalize dynamic composite scope without active pass. " ~ stackDebugString());
         auto pass = passStack[$ - 1];
         enforce(pass.kind == RenderPassKind.DynamicComposite, "RenderQueue: top scope is not dynamic composite. " ~ stackDebugString());
@@ -174,14 +183,18 @@ private:
         buffer.addAll(childCommands);
         buffer.add(makeEndDynamicCompositeCommand(pass.dynamicComposite));
 
+        auto finalizer = postCommands is null ? pass.dynamicPostCommands : postCommands;
+        if (finalizer !is null) {
+            finalizer(buffer);
+        }
+
         addItemToPass(passStack[parentIndex], pass.dynamicComposite ? pass.dynamicComposite.zSort() : 0, buffer.commands.dup);
 
-        if (autoClose && pass.dynamicComposite !is null) {
-            pass.dynamicComposite.markDynamicScopeClosed(true);
+        if (pass.dynamicComposite !is null) {
+            pass.dynamicComposite.dynamicScopeActive = false;
+            pass.dynamicComposite.dynamicScopeToken = size_t.max;
         }
-        debug(RenderQueueLog) {
-            writeln("[finalizeDynamicCompositePass] autoClose=", autoClose, " node=", pass.dynamicComposite ? pass.dynamicComposite.name : "(null)");
-        }
+        pass.dynamicPostCommands = null;
     }
 
     void finalizeTopPass(bool autoClose) {
@@ -192,13 +205,10 @@ private:
                 finalizeCompositePass(autoClose);
                 break;
             case RenderPassKind.DynamicComposite:
-                finalizeDynamicCompositePass(autoClose);
+                finalizeDynamicCompositePass(autoClose, null);
                 break;
             case RenderPassKind.Root:
                 enforce(false, "RenderQueue: cannot finalize root pass.");
-        }
-        debug(RenderQueueLog) {
-            writeln("[finalizeTopPass] autoClose=", autoClose, " kind=", pass.kind);
         }
     }
 
@@ -268,7 +278,7 @@ private:
             }
             ancestor = ancestor.parent;
         }
-        return 0; // root
+        return 0;
     }
 
     size_t parentPassIndexForDynamic(DynamicComposite composite) {
@@ -356,10 +366,8 @@ public:
         pass.maskPackets = maskPackets.dup;
         pass.token = ++nextToken;
         pass.nextSequence = 0;
+        pass.dynamicPostCommands = null;
         passStack ~= pass;
-        debug(RenderQueueLog) {
-            writeln("[pushComposite] token=", pass.token, " node=", composite ? composite.name : "(null)", " zSort=", composite ? composite.zSort() : 0);
-        }
         return pass.token;
     }
 
@@ -377,10 +385,6 @@ public:
             "RenderQueue.popComposite scope mismatch (ptr=" ~ (cast(void*)pass.composite).to!string ~ ", expected=" ~ (cast(void*)composite).to!string ~ ") " ~ stackDebugString());
 
         finalizeCompositePass(false);
-        if (composite !is null) composite.markCompositeScopeClosed();
-        debug(RenderQueueLog) {
-            writeln("[popComposite] token=", token, " node=", composite ? composite.name : "(null)", " done");
-        }
     }
 
     size_t pushDynamicComposite(DynamicComposite composite) {
@@ -390,17 +394,19 @@ public:
         pass.dynamicComposite = composite;
         pass.token = ++nextToken;
         pass.nextSequence = 0;
+        pass.dynamicPostCommands = null;
         passStack ~= pass;
-        debug(RenderQueueLog) {
-            writeln("[pushDynamicComposite] token=", pass.token, " node=", composite ? composite.name : "(null)", " zSort=", composite ? composite.zSort() : 0);
-        }
         return pass.token;
     }
 
-    void popDynamicComposite(size_t token, DynamicComposite composite) {
+    void popDynamicComposite(size_t token, DynamicComposite composite, scope void delegate(ref RenderCommandBuffer) postCommands = null) {
         enforce(passStack.length > 1, "RenderQueue.popDynamicComposite called without matching push. " ~ stackDebugString());
         auto targetIndex = findPassIndex(token, RenderPassKind.DynamicComposite);
         enforce(targetIndex > 0, "RenderQueue.popDynamicComposite scope mismatch (token=" ~ token.to!string ~ ") " ~ stackDebugString());
+
+        if (postCommands !is null) {
+            passStack[targetIndex].dynamicPostCommands = postCommands;
+        }
 
         while (passStack.length - 1 > targetIndex) {
             finalizeTopPass(true);
@@ -410,10 +416,10 @@ public:
         enforce(pass.dynamicComposite is composite,
             "RenderQueue.popDynamicComposite scope mismatch (ptr=" ~ (cast(void*)pass.dynamicComposite).to!string ~ ", expected=" ~ (cast(void*)composite).to!string ~ ") " ~ stackDebugString());
 
-        finalizeDynamicCompositePass(false);
-        if (composite !is null) composite.markDynamicScopeClosed(false);
-        debug(RenderQueueLog) {
-            writeln("[popDynamicComposite] token=", token, " node=", composite ? composite.name : "(null)", " done");
+        finalizeDynamicCompositePass(false, postCommands);
+        if (composite !is null) {
+            composite.dynamicScopeActive = false;
+            composite.dynamicScopeToken = size_t.max;
         }
     }
 

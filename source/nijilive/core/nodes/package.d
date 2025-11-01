@@ -853,6 +853,7 @@ public:
     protected void runRenderTask(RenderContext ctx) {
         if (!renderEnabled() || ctx.renderQueue is null) return;
         auto scopeHint = determineRenderScopeHint();
+        if (scopeHint.skip) return;
         ctx.renderQueue.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
             buffer.add(makeDrawNodeCommand(this));
         });
@@ -866,11 +867,6 @@ public:
 
     void registerRenderTasks(TaskScheduler scheduler) {
         if (scheduler is null) return;
-        debug(RenderQueueLog) {
-            import std.stdio : writeln;
-            writeln("[TaskRegister] node=", name, " zSort=", zSort());
-        }
-
         scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
         scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
         scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
@@ -898,8 +894,11 @@ public:
         Node current = parent;
         while (current !is null) {
             if (auto dyn = cast(DynamicComposite)current) {
-                if (dyn.isDynamicScopeActive()) {
+                if (dyn.dynamicScopeActive) {
                     return RenderScopeHint.forDynamic(dyn);
+                }
+                if (dyn.reuseCachedTextureThisFrame) {
+                    return RenderScopeHint.skipHint();
                 }
             }
             if (auto comp = cast(Composite)current) {

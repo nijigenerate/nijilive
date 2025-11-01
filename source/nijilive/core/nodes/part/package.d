@@ -30,6 +30,7 @@ import std.exception;
 import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
 import std.math : isNaN;
+import std.algorithm.comparison : min, max;
 
 public import nijilive.core.meshdata;
 
@@ -375,10 +376,16 @@ public:
         return textures[0];
     }
 
-    /**
+    /** 
         Ignore puppet.transform if set to true.
      */
     bool ignorePuppet = false;
+
+private:
+    bool hasOffscreenModelMatrix = false;
+    mat4 offscreenModelMatrix;
+
+public:
 
 
     /**
@@ -568,10 +575,14 @@ public:
     void enqueueRenderCommands(RenderContext ctx) {
         if (!renderEnabled() || ctx.renderQueue is null) return;
         auto packet = makePartDrawPacket(this);
+
+        debug(RenderQueueLog) {
+        }
         bool hasMasks = masks.length > 0;
         bool useStencil = hasMasks && maskCount > 0;
 
         auto scopeHint = determineRenderScopeHint();
+        if (scopeHint.skip) return;
         ctx.renderQueue.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
             if (hasMasks) {
                 buffer.add(makeBeginMaskCommand(useStencil));
@@ -587,11 +598,11 @@ public:
                 buffer.add(makeBeginMaskContentCommand());
             }
 
-            buffer.add(makeDrawPartCommand(packet));
+                buffer.add(makeDrawPartCommand(packet));
 
-            if (hasMasks) {
-                buffer.add(makeEndMaskCommand());
-            }
+                if (hasMasks) {
+                    buffer.add(makeEndMaskCommand());
+                }
         });
     }
 
@@ -636,15 +647,13 @@ public:
         packet.part = this;
         packet.isMask = isMask;
 
-        mat4 modelMatrix = transform.matrix();
+        mat4 modelMatrix = hasOffscreenModelMatrix ? offscreenModelMatrix : transform.matrix();
         if (overrideTransformMatrix !is null)
             modelMatrix = overrideTransformMatrix.matrix;
         if (oneTimeTransform !is null)
             modelMatrix = (*oneTimeTransform) * modelMatrix;
         packet.modelMatrix = modelMatrix;
-
-        mat4 puppetMatrix = ignorePuppet ? mat4.identity : puppet.transform.matrix;
-        packet.mvp = inGetCamera().matrix * puppetMatrix * modelMatrix;
+        packet.ignoreCamera = ignorePuppet || hasOffscreenModelMatrix;
 
         packet.opacity = clamp(offsetOpacity * opacity, 0, 1);
         packet.emissionStrength = emissionStrength * offsetEmissionStrength;
@@ -668,14 +677,23 @@ public:
         packet.origin = data.origin;
         packet.vertexBuffer = vbo;
         packet.uvBuffer = uvbo;
-        packet.deformBuffer = dbo;
-        packet.indexBuffer = ibo;
-        packet.indexCount = cast(uint)data.indices.length;
-    }
+    packet.deformBuffer = dbo;
+    packet.indexBuffer = ibo;
+    packet.indexCount = cast(uint)data.indices.length;
+}
 
-    package(nijilive) bool backendRenderable() {
-        return enabled && data.isReady();
-    }
+package(nijilive) void setOffscreenModelMatrix(const mat4 matrix) {
+    offscreenModelMatrix = matrix;
+    hasOffscreenModelMatrix = true;
+}
+
+package(nijilive) void clearOffscreenModelMatrix() {
+    hasOffscreenModelMatrix = false;
+}
+
+package(nijilive) bool backendRenderable() {
+    return enabled && data.isReady();
+}
 
     package(nijilive) size_t backendMaskCount() {
         return maskCount();
@@ -718,7 +736,6 @@ public:
 
     override
     void normalizeUV(MeshData* data) {
-        // Texture 0 is always albedo texture
         auto tex = textures[0];
         foreach (i; 0..data.uvs.length) {
             data.uvs[i].x /= cast(float)tex.width;
