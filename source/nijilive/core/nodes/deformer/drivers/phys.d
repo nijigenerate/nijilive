@@ -17,9 +17,6 @@ private bool isFiniteVec(vec2 v) {
 
 bool guardFinite(PathDeformer deformer, string context, float value) {
     if (!value.isFinite) {
-        if (deformer !is null) {
-            deformer.reportPhysicsDegeneracy(context);
-        }
         return false;
     }
     return true;
@@ -27,13 +24,6 @@ bool guardFinite(PathDeformer deformer, string context, float value) {
 
 bool guardFinite(PathDeformer deformer, string context, vec2 value, size_t index = size_t.max) {
     if (!isFiniteVec(value)) {
-        if (deformer !is null) {
-            string ctx = context ~ (index == size_t.max ? "" : ":" ~ index.to!string);
-            deformer.reportPhysicsDegeneracy(ctx);
-            if (index != size_t.max) {
-                deformer.reportDriverInvalid(context, index, value);
-            }
-        }
         return false;
     }
     return true;
