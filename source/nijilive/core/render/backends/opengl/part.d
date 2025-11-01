@@ -45,7 +45,7 @@ void executePartPacket(ref PartDrawPacket packet) {
     if (!part.ignorePuppet && part.puppet !is null) {
         puppetMatrix = part.puppet.transform.matrix;
     }
-    mat4 cameraMatrix = packet.ignoreCamera ? mat4.identity : inGetCamera().matrix;
+    mat4 cameraMatrix = inGetCamera().matrix;
     // no logging
 
     if (packet.isMask) {

@@ -4,7 +4,8 @@ version (InDoesRender):
 
 import bindbc.opengl;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
-import nijilive.core : inPushViewport, inPopViewport;
+import nijilive.core : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
+import nijilive.math : mat4, vec2, vec4;
 
 void beginDynamicCompositeGL(DynamicComposite composite) {
     if (composite is null) return;
@@ -50,6 +51,18 @@ void beginDynamicCompositeGL(DynamicComposite composite) {
 
     inPushViewport(tex.width, tex.height);
 
+    auto camera = inGetCamera();
+    camera.scale = vec2(1, -1);
+
+    auto transform = composite.transform;
+    float invScaleX = transform.scale.x == 0 ? 0 : 1 / transform.scale.x;
+    float invScaleY = transform.scale.y == 0 ? 0 : 1 / transform.scale.y;
+    auto scaling = mat4.identity.scaling(invScaleX, invScaleY, 1);
+    auto rotation = mat4.identity.rotateZ(-transform.rotation.z);
+    auto offsetMatrix = scaling * rotation;
+    camera.position = (offsetMatrix * -vec4(0, 0, 0, 1)).xy;
+    inSetCamera(camera);
+
     glDrawBuffers(cast(int)bufferCount, drawBuffers.ptr);
     glViewport(0, 0, tex.width, tex.height);
     glClearColor(0, 0, 0, 0);
@@ -71,5 +84,14 @@ void endDynamicCompositeGL(DynamicComposite composite) {
     auto tex = composite.textures[0];
     if (tex !is null) {
         tex.genMipmap();
+    }
+}
+
+void destroyDynamicCompositeGL(DynamicComposite composite) {
+    if (composite is null) return;
+    if (composite.cfBuffer != 0) {
+        uint buffer = composite.cfBuffer;
+        glDeleteFramebuffers(1, &buffer);
+        composite.cfBuffer = 0;
     }
 }

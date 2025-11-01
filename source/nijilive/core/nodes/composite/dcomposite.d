@@ -28,7 +28,7 @@ import nijilive.core.render.queue : RenderCommandBuffer;
 import nijilive.core.render.scheduler : RenderContext;
 version (InDoesRender) {
     import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
-        endDynamicCompositeGL;
+        endDynamicCompositeGL, destroyDynamicCompositeGL;
 }
 
 package(nijilive) {
@@ -185,22 +185,14 @@ protected:
 
         textures = [new Texture(texWidth, texHeight), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true);
-        if (cfBuffer == 0) {
-            glGenFramebuffers(1, &cfBuffer);
-        }
-        int prevFbo;
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0].getTextureId(), 0);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, stencil.getTextureId(), 0);
-        glClear(GL_STENCIL_BUFFER_BIT);
-        glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
         if (prevTexture !is null) {
             prevTexture.dispose();
         }
         if (prevStencil !is null) {
             prevStencil.dispose();
+        }
+        version (InDoesRender) {
+            destroyDynamicCompositeGL(this);
         }
 
         initialized = true;
@@ -225,59 +217,11 @@ protected:
                 return false;
             }
         }
-        return true;
-    }
-
-    bool beginComposite() {
         if (shouldUpdateVertices) {
             shouldUpdateVertices = false;
         }
-
-        if (!initialized) {
-            if (!initTarget()) {
-                return false;
-            }
-        }
-        if (textureInvalidated || deferred > 0) {
-            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origBuffer);
-            glGetIntegerv(GL_VIEWPORT, cast(GLint*)origViewport);
-            glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
-            inPushViewport(textures[0].width, textures[0].height);
-            glViewport(0, 0, textures[0].width, textures[0].height);
-
-            glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-            glClearColor(0, 0, 0, 0);
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            glActiveTexture(GL_TEXTURE0);
-            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        }
-        return textureInvalidated || deferred > 0;
+        return true;
     }
-    void endComposite() {
-        if (textureInvalidated) {
-            textureInvalidated = false;
-        }
-        if (deferred > 0) {
-            deferred--;
-        }
-
-        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-        inPopViewport();
-        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glFlush();
-
-        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-        inPopViewport();
-        glViewport(origViewport[0], origViewport[1], origViewport[2], origViewport[3]);
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glFlush();
-
-        glBindFramebuffer(GL_FRAMEBUFFER, origBuffer);
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-    }
-
     Part[] subParts;
     
     override
@@ -499,7 +443,12 @@ public:
 
     void drawContents() {
         if (!updateDynamicRenderStateFlags()) return;
-        if (!beginComposite()) return;
+
+        bool needsRedraw = textureInvalidated || deferred > 0;
+        if (!needsRedraw) {
+            reuseCachedTextureThisFrame = true;
+            return;
+        }
 
         selfSort();
 
@@ -520,7 +469,12 @@ public:
         version (InDoesRender) {
             endDynamicCompositeGL(this);
         }
-        endComposite();
+
+        textureInvalidated = false;
+        if (deferred > 0) deferred--;
+        hasValidOffscreenContent = true;
+        reuseCachedTextureThisFrame = false;
+        loggedFirstRenderAttempt = true;
     }
 
     override
@@ -621,6 +575,8 @@ public:
         }
         queuedOffscreenParts.length = 0;
         if (redrew) {
+            textureInvalidated = false;
+            if (deferred > 0) deferred--;
             hasValidOffscreenContent = true;
         }
         loggedFirstRenderAttempt = true;
