@@ -17,6 +17,9 @@ import nijilive.fmt;
 import nijilive.core.dbg;
 //import nijilive.core;
 import nijilive.math;
+import std.conv : text;
+import std.math : isFinite, isNaN, fabs;
+import std.stdio : writeln;
 import nijilive.phys;
 import nijilive;
 import std.exception;
@@ -397,12 +400,22 @@ public:
         system.updateAnchor();
     }
 
+    private string physicsLogPrefix(string context) {
+        return text("[SimplePhysics][", context, "] node=", name, " uuid=", uuid(), " ");
+    }
+
     void updateInputs() {
         if (prevAnchorSet) {
         } else {
             auto anchorPos = localOnly ? 
                 (vec4(transformLocal.translation, 1)) : 
                 (transform.matrix * vec4(0, 0, 0, 1));
+            if (!isFinite(anchorPos.x) || !isFinite(anchorPos.y)) {
+                writeln(physicsLogPrefix("updateInputs:anchorNonFinite"),
+                        "anchorPos=", anchorPos,
+                        " localOnly=", localOnly);
+                return;
+            }
             anchor = vec2(anchorPos.x, anchorPos.y);
         }
     }
@@ -442,7 +455,20 @@ public:
     void updateOutputs() {
         if (param is null) return;
 
+        if (!isFinite(output.x) || !isFinite(output.y)) {
+            writeln(physicsLogPrefix("updateOutputs:outputNonFinite"), "output=", output);
+            return;
+        }
+        if (!isFinite(anchor.x) || !isFinite(anchor.y)) {
+            writeln(physicsLogPrefix("updateOutputs:anchorNonFinite"), "anchor=", anchor);
+            return;
+        }
+
         vec2 oscale = getOutputScale();
+        if (!isFinite(oscale.x) || !isFinite(oscale.y)) {
+            writeln(physicsLogPrefix("updateOutputs:scaleNonFinite"), "outputScale=", oscale);
+            return;
+        }
 
         // Okay, so this is confusing. We want to translate the angle back to local space,
         // but not the coordinates.
@@ -454,10 +480,45 @@ public:
         vec4(output.x, output.y, 0, 1) : 
         ((prevAnchorSet? prevTransMat: transform.matrix.inverse) * vec4(output.x, output.y, 0, 1));
         vec2 localAngle = vec2(localPos4.x, localPos4.y);
-        localAngle.normalize();
+        if (!isFinite(localPos4.x) || !isFinite(localPos4.y)) {
+            writeln(physicsLogPrefix("updateOutputs:localPosNonFinite"),
+                    "localPos=", vec2(localPos4.x, localPos4.y),
+                    " prevAnchorSet=", prevAnchorSet);
+            return;
+        }
+
+        float localAngleLen = localAngle.length;
+        if (!isFinite(localAngleLen) || fabs(localAngleLen) <= float.epsilon) {
+            writeln(physicsLogPrefix("updateOutputs:angleLengthInvalid"),
+                    "localAngle=", localAngle,
+                    " length=", localAngleLen);
+            return;
+        }
+        localAngle /= localAngleLen;
 
         // Figure out the relative length. We can work this out directly in global space.
-        auto relLength = output.distance(anchor) / getLength();
+        float lengthVal = getLength();
+        if (!isFinite(lengthVal) || fabs(lengthVal) <= float.epsilon) {
+            writeln(physicsLogPrefix("updateOutputs:lengthInvalid"),
+                    "length=", lengthVal);
+            return;
+        }
+        float distanceVal = output.distance(anchor);
+        if (!isFinite(distanceVal)) {
+            writeln(physicsLogPrefix("updateOutputs:distanceInvalid"),
+                    "distance=", distanceVal,
+                    " output=", output,
+                    " anchor=", anchor);
+            return;
+        }
+        auto relLength = distanceVal / lengthVal;
+        if (!isFinite(relLength)) {
+            writeln(physicsLogPrefix("updateOutputs:relLengthInvalid"),
+                    "relLength=", relLength,
+                    " distance=", distanceVal,
+                    " length=", lengthVal);
+            return;
+        }
 
         vec2 paramVal;
         switch (mapMode) {
@@ -483,7 +544,25 @@ public:
             default: assert(0);
         }
 
-        param.pushIOffset(vec2(paramVal.x * oscale.x, paramVal.y * oscale.y), ParamMergeMode.Forced);
+        if (!isFinite(paramVal.x) || !isFinite(paramVal.y)) {
+            writeln(physicsLogPrefix("updateOutputs:paramValInvalid"),
+                    "paramVal=", paramVal,
+                    " mapMode=", mapMode,
+                    " localAngle=", localAngle,
+                    " relLength=", relLength);
+            return;
+        }
+
+        vec2 paramOffset = vec2(paramVal.x * oscale.x, paramVal.y * oscale.y);
+        if (!isFinite(paramOffset.x) || !isFinite(paramOffset.y)) {
+            writeln(physicsLogPrefix("updateOutputs:paramOffsetNonFinite"),
+                    "paramOffset=", paramOffset,
+                    " paramVal=", paramVal,
+                    " outputScale=", oscale);
+            return;
+        }
+
+        param.pushIOffset(paramOffset, ParamMergeMode.Forced);
         param.update();
     }
 

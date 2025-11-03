@@ -474,21 +474,23 @@ public:
 
         auto rootForTasks = rootNode;
         renderGraph.scheduler().addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
-            if (!renderParameters) return;
-            foreach (parameter; parameters) {
-                if (!enableDrivers || parameter !in drivenParameters) {
-                    parameter.update();
+            if (renderParameters) {
+                foreach(parameter; parameters) {
+                    if (!enableDrivers || parameter !in drivenParameters) {
+                        parameter.update();
+                    }
                 }
             }
+
             rootForTasks.transformChanged();
-            /*
-            if (!renderParameters || !enableDrivers) return;
-            foreach (driver; drivers) {
-                if (driver is null) continue;
-                if (!driver.renderEnabled()) continue;
-                driver.updateDriver();
+
+            if (renderParameters && enableDrivers) {
+                foreach (driver; drivers) {
+                    if (driver is null) continue;
+                    if (!driver.renderEnabled()) continue;
+                    driver.updateDriver();
+                }
             }
-            */
         });
 
         renderGraph.execute(renderContext);
@@ -750,7 +752,8 @@ public:
 
             string iden = getLineSet();
 
-            string s = "%s[%s] %s <%s>\n".format(n.children.length > 0 ? "╭─" : "", n.typeId, n.name, n.uuid);
+            string s = "%s[%s] %s <%s>
+".format(n.children.length > 0 ? "╭─" : "", n.typeId, n.name, n.uuid);
             foreach(i, child; n.children) {
                 string term = "├→";
                 if (i == n.children.length-1) {
