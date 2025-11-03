@@ -36,24 +36,6 @@ public:
         super.runBeginTask();
     }
 
-    override
-    void runManualTick() {
-        runPreProcessTask();
-        runDynamicTask();
-        if (!enabled) return;
-        foreach(child; children) {
-            child.runManualTick();
-        }
-    }
-
-    override
-    protected void runDynamicTask() {
-        if (puppet !is null && puppet.renderParameters && puppet.enableDrivers) {
-            updateDriver();
-        }
-        super.runDynamicTask();
-    }
-
     Parameter[] getAffectedParameters() {
         return [];
     }

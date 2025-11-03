@@ -25,7 +25,7 @@ import std.range;
 import std.algorithm.comparison : min, max;
 import nijilive.core.render.commands;
 import nijilive.core.render.queue : RenderCommandBuffer;
-import nijilive.core.render.scheduler : RenderContext;
+import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 version (InDoesRender) {
     import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
         endDynamicCompositeGL, destroyDynamicCompositeGL;
@@ -398,19 +398,6 @@ public:
         }
     }
 
-
-    override
-    void runManualTick() {
-        if (autoResizedMesh) {
-            runPreProcessTask();
-            runDynamicTask();
-            if (!enabled) return;
-            foreach(child; children) child.runManualTick();
-        } else {
-            super.runManualTick();
-        }
-    }
-
     override
     protected void runDynamicTask() {
         if (autoResizedMesh) {
@@ -596,6 +583,19 @@ public:
     package(nijilive)
     void delegatedRunRenderEndTask(RenderContext ctx) {
         dynamicRenderEnd(ctx);
+    }
+
+    package(nijilive)
+    void registerDelegatedTasks(TaskScheduler scheduler) {
+        if (scheduler is null) return;
+
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
     }
 
     override

@@ -474,13 +474,21 @@ public:
 
         auto rootForTasks = rootNode;
         renderGraph.scheduler().addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
-            if (renderParameters) {
-                foreach(parameter; parameters) {
-                    if (!enableDrivers || parameter !in drivenParameters)
-                        parameter.update();
+            if (!renderParameters) return;
+            foreach (parameter; parameters) {
+                if (!enableDrivers || parameter !in drivenParameters) {
+                    parameter.update();
                 }
             }
             rootForTasks.transformChanged();
+            /*
+            if (!renderParameters || !enableDrivers) return;
+            foreach (driver; drivers) {
+                if (driver is null) continue;
+                if (!driver.renderEnabled()) continue;
+                driver.updateDriver();
+            }
+            */
         });
 
         renderGraph.execute(renderContext);

@@ -942,16 +942,6 @@ public:
         return RenderScopeHint.root();
     }
 
-    public
-    void runManualTick() {
-        runPreProcessTask();
-        runDynamicTask();
-        if (!enabled) return;
-        foreach(child; children) {
-            child.runManualTick();
-        }
-    }
-
     /**
         Marks this node's transform (and its descendents') as dirty
     */

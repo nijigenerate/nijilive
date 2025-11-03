@@ -20,7 +20,7 @@ import nijilive.math;
 version(InDoesRender) import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
 import std.exception;
 import std.algorithm.sorting;
-import nijilive.core.render.scheduler : RenderContext;
+import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 //import std.stdio;
 package(nijilive) {
     void inInitComposite() {
@@ -428,18 +428,6 @@ public:
         super.runBeginTask();
     }
 
-    void updateDelegated() {
-        if (delegated) {
-            delegated.runManualTick();
-        }
-    }
-
-    override
-    protected void runDynamicTask() {
-        super.runDynamicTask();
-        updateDelegated();
-    }
-
     override
     protected void runRenderBeginTask(RenderContext ctx) {
         if (!renderEnabled() || ctx.renderQueue is null) return;
@@ -488,6 +476,37 @@ public:
 
         ctx.renderQueue.popComposite(compositeScopeToken, this);
         markCompositeScopeClosed();
+    }
+
+    override
+    void registerRenderTasks(TaskScheduler scheduler) {
+        if (scheduler is null) return;
+
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+        scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
+        scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+
+        if (delegated !is null) {
+            delegated.registerDelegatedTasks(scheduler);
+        }
+
+        auto orderedChildren = children.dup;
+        if (orderedChildren.length > 1) {
+            import std.algorithm.sorting : sort;
+            orderedChildren.sort!((a, b) => a.zSort > b.zSort);
+        }
+
+        foreach (child; orderedChildren) {
+            child.registerRenderTasks(scheduler);
+        }
+
+        scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
     }
 
     override
