@@ -27,6 +27,10 @@ import std.algorithm.sorting;
 //import std.stdio;
 }
 
+private bool isFiniteVec(vec2 value) {
+    return isFinite(value.x) && isFinite(value.y);
+}
+
 /**
     Physics model to use for simple physics
 */
@@ -61,10 +65,60 @@ protected:
     override
     void eval(float t) {
         setD(angle, dAngle);
-        float lengthRatio = driver.getGravity() / driver.getLength();
+        float gravityVal = driver.getGravity();
+        float lengthVal = driver.getLength();
+        if (!isFinite(gravityVal) || !isFinite(lengthVal) || fabs(lengthVal) <= float.epsilon) {
+            driver.logPhysicsState("Pendulum:invalidParams",
+                text("gravity=", gravityVal,
+                     " length=", lengthVal));
+            setD(dAngle, 0);
+            return;
+        }
+
+        float lengthRatio = gravityVal / lengthVal;
+        if (!isFinite(lengthRatio) || lengthRatio < 0) {
+            driver.logPhysicsState("Pendulum:lengthRatioInvalid",
+                text("gravity=", gravityVal,
+                     " length=", lengthVal,
+                     " lengthRatio=", lengthRatio));
+            setD(dAngle, 0);
+            return;
+        }
+
         float critDamp = 2 * sqrt(lengthRatio);
+        if (!isFinite(critDamp)) {
+            driver.logPhysicsState("Pendulum:critDampInvalid",
+                text("lengthRatio=", lengthRatio,
+                     " critDamp=", critDamp));
+            setD(dAngle, 0);
+            return;
+        }
+
+        float angleDampingVal = driver.getAngleDamping();
+        if (!isFinite(angleDampingVal)) {
+            driver.logPhysicsState("Pendulum:angleDampingInvalid",
+                text("angleDamping=", angleDampingVal));
+            setD(dAngle, 0);
+            return;
+        }
+
         float dd = -lengthRatio * sin(angle);
-        dd -= dAngle * driver.getAngleDamping() * critDamp;
+        if (!isFinite(dd)) {
+            driver.logPhysicsState("Pendulum:ddInitialInvalid",
+                text("lengthRatio=", lengthRatio,
+                     " angle=", angle,
+                     " dd=", dd));
+            dd = 0;
+        }
+        dd -= dAngle * angleDampingVal * critDamp;
+        if (!isFinite(dd)) {
+            driver.logPhysicsState("Pendulum:ddDampedInvalid",
+                text("dAngle=", dAngle,
+                     " angleDamping=", angleDampingVal,
+                     " critDamp=", critDamp,
+                     " dd=", dd));
+            dd = 0;
+        }
         setD(dAngle, dd);
     }
 
@@ -83,14 +137,54 @@ public:
     void tick(float h) {
         // Compute the angle against the updated anchor position
         vec2 dBob = bob - driver.anchor;
+        if (!isFiniteVec(dBob)) {
+            driver.logPhysicsState("Pendulum:dBobNonFinite",
+                text("bob=", bob,
+                     " anchor=", driver.anchor,
+                     " dBob=", dBob));
+            return;
+        }
         angle = atan2(-dBob.x, dBob.y);
+        if (!isFinite(angle)) {
+            driver.logPhysicsState("Pendulum:angleNonFinite",
+                text("dBob=", dBob,
+                     " angle=", angle));
+            return;
+        }
 
         // Run the pendulum simulation in terms of angle
         super.tick(h);
+        if (!isFinite(angle) || !isFinite(dAngle)) {
+            driver.logPhysicsState("Pendulum:stateAfterTickNonFinite",
+                text("angle=", angle,
+                     " dAngle=", dAngle,
+                     " step=", h));
+            return;
+        }
 
         // Update the bob position at the new angle
         dBob = vec2(-sin(angle), cos(angle));
-        bob = driver.anchor + dBob * driver.getLength();
+        if (!isFiniteVec(dBob)) {
+            driver.logPhysicsState("Pendulum:unitVectorNonFinite",
+                text("angle=", angle,
+                     " dBob=", dBob));
+            return;
+        }
+        float lengthVal = driver.getLength();
+        if (!isFinite(lengthVal) || fabs(lengthVal) <= float.epsilon) {
+            driver.logPhysicsState("Pendulum:lengthInvalidInTick",
+                text("length=", lengthVal));
+            return;
+        }
+        bob = driver.anchor + dBob * lengthVal;
+        if (!isFiniteVec(bob)) {
+            driver.logPhysicsState("Pendulum:bobNonFinite",
+                text("anchor=", driver.anchor,
+                     " dBob=", dBob,
+                     " length=", lengthVal,
+                     " bob=", bob));
+            return;
+        }
 
         driver.output = bob;
     }
@@ -126,40 +220,174 @@ protected:
         setD(bob, dBob);
 
         // These are normalized vs. mass
-        float springKsqrt = driver.getFrequency() * 2 * PI;
+        float frequencyVal = driver.getFrequency();
+        if (!isFinite(frequencyVal) || fabs(frequencyVal) <= float.epsilon) {
+            driver.logPhysicsState("SpringPendulum:frequencyInvalid",
+                text("frequency=", frequencyVal));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
+
+        float springKsqrt = frequencyVal * 2 * PI;
+        if (!isFinite(springKsqrt)) {
+            driver.logPhysicsState("SpringPendulum:springKsqrtInvalid",
+                text("springKsqrt=", springKsqrt,
+                     " frequency=", frequencyVal));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
+
         float springK = springKsqrt ^^ 2;
+        if (!isFinite(springK) || fabs(springK) <= float.epsilon) {
+            driver.logPhysicsState("SpringPendulum:springKInvalid",
+                text("springK=", springK,
+                     " springKsqrt=", springKsqrt));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
 
         float g = driver.getGravity();
-        float restLength = driver.getLength() - g / springK;
+        if (!isFinite(g)) {
+            driver.logPhysicsState("SpringPendulum:gravityInvalid",
+                text("gravity=", g));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
+
+        float lengthVal = driver.getLength();
+        if (!isFinite(lengthVal) || fabs(lengthVal) <= float.epsilon) {
+            driver.logPhysicsState("SpringPendulum:lengthInvalid",
+                text("length=", lengthVal));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
+
+        float restLength = lengthVal - g / springK;
+        if (!isFinite(restLength)) {
+            driver.logPhysicsState("SpringPendulum:restLengthInvalid",
+                text("length=", lengthVal,
+                     " gravity=", g,
+                     " springK=", springK,
+                     " restLength=", restLength));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
 
         vec2 offPos = bob - driver.anchor;
+        if (!isFiniteVec(offPos)) {
+            driver.logPhysicsState("SpringPendulum:offPosNonFinite",
+                text("bob=", bob,
+                     " anchor=", driver.anchor,
+                     " offPos=", offPos));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
         vec2 offPosNorm = offPos.normalized;
+        if (!isFiniteVec(offPosNorm)) {
+            driver.logPhysicsState("SpringPendulum:offPosNormNonFinite",
+                text("offPos=", offPos,
+                     " offPosNorm=", offPosNorm));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
 
-        float lengthRatio = driver.getGravity() / driver.getLength();
+        float lengthRatio = g / lengthVal;
+        if (!isFinite(lengthRatio) || lengthRatio < 0) {
+            driver.logPhysicsState("SpringPendulum:lengthRatioInvalid",
+                text("gravity=", g,
+                     " length=", lengthVal,
+                     " lengthRatio=", lengthRatio));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
+
         float critDampAngle = 2 * sqrt(lengthRatio);
         float critDampLength = 2 * springKsqrt;
+        if (!isFinite(critDampAngle) || !isFinite(critDampLength)) {
+            driver.logPhysicsState("SpringPendulum:critDampInvalid",
+                text("critDampAngle=", critDampAngle,
+                     " critDampLength=", critDampLength,
+                     " lengthRatio=", lengthRatio,
+                     " springKsqrt=", springKsqrt));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
 
         float dist = abs(driver.anchor.distance(bob));
+        if (!isFinite(dist)) {
+            driver.logPhysicsState("SpringPendulum:distanceInvalid",
+                text("anchor=", driver.anchor,
+                     " bob=", bob,
+                     " dist=", dist));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
         vec2 force = vec2(0, g);
         force -= offPosNorm * (dist - restLength) * springK;
         vec2 ddBob = force;
+        if (!isFiniteVec(ddBob)) {
+            vec2 invalidForce = ddBob;
+            driver.logPhysicsState("SpringPendulum:ddBobInvalid",
+                text("force=", invalidForce,
+                     " offPosNorm=", offPosNorm,
+                     " dist=", dist,
+                     " restLength=", restLength,
+                     " springK=", springK));
+            ddBob = vec2(0, 0);
+        }
 
         vec2 dBobRot = vec2(
             dBob.x * offPosNorm.y + dBob.y * offPosNorm.x,
             dBob.y * offPosNorm.y - dBob.x * offPosNorm.x,
         );
 
+        float angleDampingVal = driver.getAngleDamping();
+        float lengthDampingVal = driver.getLengthDamping();
+        if (!isFinite(angleDampingVal) || !isFinite(lengthDampingVal)) {
+            driver.logPhysicsState("SpringPendulum:dampingInvalid",
+                text("angleDamping=", angleDampingVal,
+                     " lengthDamping=", lengthDampingVal));
+            setD(dBob, vec2(0, 0));
+            return;
+        }
+
         vec2 ddBobRot = -vec2(
-            dBobRot.x * driver.getAngleDamping() * critDampAngle,
-            dBobRot.y * driver.getLengthDamping() * critDampLength,
+            dBobRot.x * angleDampingVal * critDampAngle,
+            dBobRot.y * lengthDampingVal * critDampLength,
         );
+        if (!isFiniteVec(ddBobRot)) {
+            vec2 invalidDdBobRot = ddBobRot;
+            driver.logPhysicsState("SpringPendulum:ddBobRotInvalid",
+                text("dBobRot=", dBobRot,
+                     " angleDamping=", angleDampingVal,
+                     " lengthDamping=", lengthDampingVal,
+                     " critDampAngle=", critDampAngle,
+                     " critDampLength=", critDampLength,
+                     " ddBobRot=", invalidDdBobRot));
+            ddBobRot = vec2(0, 0);
+        }
 
         vec2 ddBobDamping = vec2(
             ddBobRot.x * offPosNorm.y - dBobRot.y * offPosNorm.x,
             ddBobRot.y * offPosNorm.y + dBobRot.x * offPosNorm.x,
         );
+        if (!isFiniteVec(ddBobDamping)) {
+            vec2 invalidDdBobDamping = ddBobDamping;
+            driver.logPhysicsState("SpringPendulum:ddBobDampingInvalid",
+                text("ddBobRot=", ddBobRot,
+                     " dBobRot=", dBobRot,
+                     " offPosNorm=", offPosNorm,
+                     " ddBobDamping=", invalidDdBobDamping));
+            ddBobDamping = vec2(0, 0);
+        }
 
         ddBob += ddBobDamping;
+        if (!isFiniteVec(ddBob)) {
+            vec2 invalidDdBob = ddBob;
+            driver.logPhysicsState("SpringPendulum:ddBobAfterDampingInvalid",
+                text("ddBob=", invalidDdBob));
+            ddBob = vec2(0, 0);
+        }
 
         setD(dBob, ddBob);
     }
@@ -179,6 +407,20 @@ public:
     void tick(float h) {
         // Run the spring pendulum simulation
         super.tick(h);
+
+        if (!isFiniteVec(bob) || !isFiniteVec(dBob)) {
+            driver.logPhysicsState("SpringPendulum:stateAfterTickNonFinite",
+                text("bob=", bob,
+                     " dBob=", dBob,
+                     " step=", h));
+            return;
+        }
+
+        if (!isFiniteVec(driver.anchor)) {
+            driver.logPhysicsState("SpringPendulum:anchorNonFinite",
+                text("anchor=", driver.anchor));
+            return;
+        }
 
         driver.output = bob;
     }
@@ -404,6 +646,46 @@ public:
         return text("[SimplePhysics][", context, "] node=", name, " uuid=", uuid(), " ");
     }
 
+    private string physicsStateSummary() {
+        string systemName = system is null ? "null" : system.classinfo.name;
+        auto puppetRef = puppet;
+        float puppetGravityValue = float.nan;
+        float puppetScaleValue = float.nan;
+        if (puppetRef !is null && puppetRef.physics !is null) {
+            puppetGravityValue = puppetRef.physics.gravity;
+            puppetScaleValue = puppetRef.physics.pixelsPerMeter;
+        }
+        return text("system=", systemName,
+                    " output=", output,
+                    " anchor=", anchor,
+                    " prevAnchorSet=", prevAnchorSet,
+                    " localOnly=", localOnly,
+                    " gravity=", getGravity(),
+                    " length=", getLength(),
+                    " frequency=", getFrequency(),
+                    " angleDamping=", getAngleDamping(),
+                    " lengthDamping=", getLengthDamping(),
+                    " outputScale=", getOutputScale(),
+                    " offsetGravity=", offsetGravity,
+                    " offsetLength=", offsetLength,
+                    " offsetFrequency=", offsetFrequency,
+                    " offsetAngleDamping=", offsetAngleDamping,
+                    " offsetLengthDamping=", offsetLengthDamping,
+                    " offsetOutputScale=", offsetOutputScale,
+                    " puppetGravity=", puppetGravityValue,
+                    " puppetPixelsPerMeter=", puppetScaleValue,
+                    " prevTransMat=", prevTransMat);
+    }
+
+    private void logPhysicsState(string context, string extra = "") {
+        auto baseInfo = physicsStateSummary();
+        if (extra.length) {
+            writeln(physicsLogPrefix(context), baseInfo, " ", extra);
+        } else {
+            writeln(physicsLogPrefix(context), baseInfo);
+        }
+    }
+
     void updateInputs() {
         if (prevAnchorSet) {
         } else {
@@ -411,9 +693,11 @@ public:
                 (vec4(transformLocal.translation, 1)) : 
                 (transform.matrix * vec4(0, 0, 0, 1));
             if (!isFinite(anchorPos.x) || !isFinite(anchorPos.y)) {
-                writeln(physicsLogPrefix("updateInputs:anchorNonFinite"),
-                        "anchorPos=", anchorPos,
-                        " localOnly=", localOnly);
+                logPhysicsState("updateInputs:anchorNonFinite",
+                    text("anchorPos=", anchorPos,
+                         " localOnly=", localOnly,
+                         " transformLocal.translation=", transformLocal.translation,
+                         " transform.matrix=", transform.matrix));
                 return;
             }
             anchor = vec2(anchorPos.x, anchorPos.y);
@@ -429,6 +713,13 @@ public:
         auto anchorPos = (localOnly ? 
             (vec4(transformLocal.translation, 1)) : 
             (transform.matrix * vec4(0, 0, 0, 1))).xy;
+        if (!isFinite(anchorPos.x) || !isFinite(anchorPos.y)) {
+            logPhysicsState("preProcess:anchorNonFinite",
+                text("anchorPos=", anchorPos,
+                     " transformLocal.translation=", transformLocal.translation,
+                     " transform.matrix=", transform.matrix));
+            return;
+        }
         if (anchorPos != prevPos) {
             anchor = anchorPos;
             prevTransMat = transform.matrix.inverse;
@@ -445,6 +736,13 @@ public:
         auto anchorPos = (localOnly ? 
             (vec4(transformLocal.translation, 1)) : 
             (transform.matrix * vec4(0, 0, 0, 1))).xy;
+        if (!isFinite(anchorPos.x) || !isFinite(anchorPos.y)) {
+            logPhysicsState("postProcess:anchorNonFinite",
+                text("anchorPos=", anchorPos,
+                     " transformLocal.translation=", transformLocal.translation,
+                     " transform.matrix=", transform.matrix));
+            return;
+        }
         if (anchorPos != prevPos) {
             anchor = anchorPos;
             prevTransMat = transform.matrix.inverse;
@@ -456,17 +754,18 @@ public:
         if (param is null) return;
 
         if (!isFinite(output.x) || !isFinite(output.y)) {
-            writeln(physicsLogPrefix("updateOutputs:outputNonFinite"), "output=", output);
+            logPhysicsState("updateOutputs:outputNonFinite");
             return;
         }
         if (!isFinite(anchor.x) || !isFinite(anchor.y)) {
-            writeln(physicsLogPrefix("updateOutputs:anchorNonFinite"), "anchor=", anchor);
+            logPhysicsState("updateOutputs:anchorNonFinite");
             return;
         }
 
         vec2 oscale = getOutputScale();
         if (!isFinite(oscale.x) || !isFinite(oscale.y)) {
-            writeln(physicsLogPrefix("updateOutputs:scaleNonFinite"), "outputScale=", oscale);
+            logPhysicsState("updateOutputs:scaleNonFinite",
+                text("outputScale=", oscale));
             return;
         }
 
@@ -481,17 +780,18 @@ public:
         ((prevAnchorSet? prevTransMat: transform.matrix.inverse) * vec4(output.x, output.y, 0, 1));
         vec2 localAngle = vec2(localPos4.x, localPos4.y);
         if (!isFinite(localPos4.x) || !isFinite(localPos4.y)) {
-            writeln(physicsLogPrefix("updateOutputs:localPosNonFinite"),
-                    "localPos=", vec2(localPos4.x, localPos4.y),
-                    " prevAnchorSet=", prevAnchorSet);
+            logPhysicsState("updateOutputs:localPosNonFinite",
+                text("localPos=", vec2(localPos4.x, localPos4.y),
+                     " prevAnchorSet=", prevAnchorSet,
+                     " prevTransMat=", prevAnchorSet ? prevTransMat : transform.matrix.inverse));
             return;
         }
 
         float localAngleLen = localAngle.length;
         if (!isFinite(localAngleLen) || fabs(localAngleLen) <= float.epsilon) {
-            writeln(physicsLogPrefix("updateOutputs:angleLengthInvalid"),
-                    "localAngle=", localAngle,
-                    " length=", localAngleLen);
+            logPhysicsState("updateOutputs:angleLengthInvalid",
+                text("localAngle=", localAngle,
+                     " length=", localAngleLen));
             return;
         }
         localAngle /= localAngleLen;
@@ -499,24 +799,22 @@ public:
         // Figure out the relative length. We can work this out directly in global space.
         float lengthVal = getLength();
         if (!isFinite(lengthVal) || fabs(lengthVal) <= float.epsilon) {
-            writeln(physicsLogPrefix("updateOutputs:lengthInvalid"),
-                    "length=", lengthVal);
+            logPhysicsState("updateOutputs:lengthInvalid",
+                text("length=", lengthVal));
             return;
         }
         float distanceVal = output.distance(anchor);
         if (!isFinite(distanceVal)) {
-            writeln(physicsLogPrefix("updateOutputs:distanceInvalid"),
-                    "distance=", distanceVal,
-                    " output=", output,
-                    " anchor=", anchor);
+            logPhysicsState("updateOutputs:distanceInvalid",
+                text("distance=", distanceVal));
             return;
         }
         auto relLength = distanceVal / lengthVal;
         if (!isFinite(relLength)) {
-            writeln(physicsLogPrefix("updateOutputs:relLengthInvalid"),
-                    "relLength=", relLength,
-                    " distance=", distanceVal,
-                    " length=", lengthVal);
+            logPhysicsState("updateOutputs:relLengthInvalid",
+                text("relLength=", relLength,
+                     " distance=", distanceVal,
+                     " length=", lengthVal));
             return;
         }
 
@@ -545,20 +843,20 @@ public:
         }
 
         if (!isFinite(paramVal.x) || !isFinite(paramVal.y)) {
-            writeln(physicsLogPrefix("updateOutputs:paramValInvalid"),
-                    "paramVal=", paramVal,
-                    " mapMode=", mapMode,
-                    " localAngle=", localAngle,
-                    " relLength=", relLength);
+            logPhysicsState("updateOutputs:paramValInvalid",
+                text("paramVal=", paramVal,
+                     " mapMode=", mapMode,
+                     " localAngle=", localAngle,
+                     " relLength=", relLength));
             return;
         }
 
         vec2 paramOffset = vec2(paramVal.x * oscale.x, paramVal.y * oscale.y);
         if (!isFinite(paramOffset.x) || !isFinite(paramOffset.y)) {
-            writeln(physicsLogPrefix("updateOutputs:paramOffsetNonFinite"),
-                    "paramOffset=", paramOffset,
-                    " paramVal=", paramVal,
-                    " outputScale=", oscale);
+            logPhysicsState("updateOutputs:paramOffsetNonFinite",
+                text("paramOffset=", paramOffset,
+                     " paramVal=", paramVal,
+                     " outputScale=", oscale));
             return;
         }
 
