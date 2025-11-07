@@ -10,8 +10,10 @@ import nijilive.core;
 import nijilive.fmt.serialize;
 import nijilive.math;
 import std.algorithm : sort;
-import std.math : isClose;
+import std.math : isClose, isFinite, fabs;
 import std.typecons : tuple, Tuple;
+import std.conv : text;
+import std.stdio : writeln;
 import nijilive.core.render.scheduler : RenderContext;
 
 enum GridFormation {
@@ -42,8 +44,23 @@ private:
     float[] axisY;
     GridFormation formation = GridFormation.Bilinear;
     mat4 inverseMatrix;
+    size_t diagLogCount = 0;
 
     enum DefaultAxis = [-0.5f, 0.5f];
+    enum float BoundaryTolerance = 1e-4f;
+    enum float ClampLogThreshold = 1.0f;
+    enum size_t DiagLogLimit = 200;
+
+    void gridDiag(string context, string extra = "")
+    {
+        if (diagLogCount >= DiagLogLimit) return;
+        diagLogCount++;
+        auto nodeName = this.name;
+        if (extra.length)
+            writeln("[GridDeformer][Diag] node=", nodeName, " context=", context, " ", extra);
+        else
+            writeln("[GridDeformer][Diag] node=", nodeName, " context=", context);
+    }
 
 public:
     bool dynamic = false;
@@ -89,8 +106,9 @@ public:
     override
     protected void runDynamicTask() {
         super.runDynamicTask();
-        auto worldMatrix = transform.matrix; // ensure translateChildren updates are applied
-        inverseMatrix = worldMatrix.inverse;
+        localTransform.update();
+        transform();
+        inverseMatrix = globalTransform.matrix.inverse;
         updateDeform();
     }
 
@@ -170,14 +188,40 @@ public:
             }
         }
 
+        auto targetName = target is null ? "(null)" : target.name;
+        if (!matrixIsFinite(inverseMatrix)) {
+            gridDiag("inverse.invalid", text("target=", targetName,
+                    " inverseMatrix=", inverseMatrix,
+                    " globalMatrix=", globalTransform.matrix));
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+        if (origTransform is null) {
+            gridDiag("origTransform.null", text("target=", targetName));
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+        if (!matrixIsFinite(*origTransform)) {
+            gridDiag("origTransform.invalid", text("target=", targetName,
+                    " transform=", *origTransform));
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+
         mat4 centerMatrix = inverseMatrix * (*origTransform);
         bool anyChanged = false;
 
         GridCellCache[] caches;
         caches.length = origVertices.length;
-        vec2[] baseLocals;
-        baseLocals.length = origVertices.length;
+        vec2[] samplePoints;
+        samplePoints.length = origVertices.length;
 
+        if (!matrixIsFinite(centerMatrix)) {
+            gridDiag("matrix.invalid", text("target=", targetName,
+                    " centerMatrix=", centerMatrix,
+                    " inverseMatrix=", inverseMatrix,
+                    " origTransform=", *origTransform));
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+
+        bool invalidSamples = false;
         foreach (i, vertex; origVertices) {
             vec2 samplePoint;
             if (dynamic && i < origDeformation.length) {
@@ -185,8 +229,26 @@ public:
             } else {
                 samplePoint = vec2(centerMatrix * vec4(vertex, 0, 1));
             }
-            baseLocals[i] = samplePoint;
-            caches[i] = computeCache(samplePoint);
+            if (!isFinite(samplePoint.x) || !isFinite(samplePoint.y)) {
+                auto deformationValue = (i < origDeformation.length) ? origDeformation[i] : vec2(0, 0);
+                gridDiag("sample.nonFinite", text("target=", targetName,
+                        " index=", i,
+                        " vertex=", formatVec(vertex),
+                        " deformation=", formatVec(deformationValue),
+                        " centerMatrix=", centerMatrix));
+                invalidSamples = true;
+                break;
+            }
+            samplePoints[i] = samplePoint;
+            caches[i] = computeCache(samplePoint, targetName);
+            if (!caches[i].valid) {
+                gridDiag("sample.invalidCache", text("target=", targetName,
+                        " index=", i,
+                        " sample=", formatVec(samplePoint)));
+            }
+        }
+        if (invalidSamples) {
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
         }
 
         foreach (i, vertex; origVertices) {
@@ -194,7 +256,16 @@ public:
             if (!cache.valid) continue;
 
             vec2 targetPos = sampleDeformed(cache);
-            vec2 offsetLocal = targetPos - baseLocals[i];
+            vec2 originalPos = sampleOriginal(cache);
+            vec2 offsetLocal = targetPos - originalPos;
+            if (!isFinite(offsetLocal.x) || !isFinite(offsetLocal.y)) {
+                gridDiag("offset.invalid", text("target=", targetName,
+                        " index=", i,
+                        " targetPos=", formatVec(targetPos),
+                        " original=", formatVec(originalPos),
+                        " sample=", formatVec(samplePoints[i])));
+                continue;
+            }
             if (offsetLocal == vec2(0, 0)) continue;
 
             mat4 inv = centerMatrix.inverse;
@@ -215,10 +286,13 @@ public:
             foreach (i, value; deformationValues) {
                 deformation[i] = value;
             }
-            inverseMatrix = globalTransform.matrix.inverse;
         }
 
         bool transfer() { return translateChildren; }
+
+        localTransform.update();
+        transform();
+        inverseMatrix = globalTransform.matrix.inverse;
 
         _applyDeformToChildren(tuple(1, &deformChildren), &update, &transfer, params, recursive);
     }
@@ -476,24 +550,85 @@ private:
         return true;
     }
 
-    GridCellCache computeCache(vec2 localPoint) const {
+    string formatVec(vec2 value) const {
+        return text("[", value.x, ", ", value.y, "]");
+    }
+
+    bool matrixIsFinite(const mat4 matrix) const {
+        foreach (row; matrix.matrix) {
+            foreach (val; row) {
+                if (!isFinite(val)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    GridCellCache computeCache(vec2 localPoint, string targetName) {
         GridCellCache cache;
         cache.valid = false;
         if (!hasValidGrid()) {
             return cache;
         }
 
-        auto resultX = locateInterval(axisX, localPoint.x);
-        auto resultY = locateInterval(axisY, localPoint.y);
+        if (!isFinite(localPoint.x) || !isFinite(localPoint.y)) {
+            gridDiag("cache.nonFiniteSample", text("target=", targetName,
+                    " sample=", formatVec(localPoint)));
+            return cache;
+        }
+
+        float clampedX = localPoint.x;
+        bool clamped = false;
+        if (clampedX < axisX[0]) {
+            clampedX = axisX[0];
+            clamped = true;
+        } else if (clampedX > axisX[$ - 1]) {
+            clampedX = axisX[$ - 1];
+            clamped = true;
+        }
+
+        float clampedY = localPoint.y;
+        if (clampedY < axisY[0]) {
+            clampedY = axisY[0];
+            clamped = true;
+        } else if (clampedY > axisY[$ - 1]) {
+            clampedY = axisY[$ - 1];
+            clamped = true;
+        }
+
+        auto resultX = locateInterval(axisX, clampedX);
+        auto resultY = locateInterval(axisY, clampedY);
 
         if (resultX.valid && resultY.valid) {
             cache.cellX = cast(ushort)resultX.index;
             cache.cellY = cast(ushort)resultY.index;
-            cache.u = resultX.weight;
-            cache.v = resultY.weight;
+            float u = resultX.weight;
+            float v = resultY.weight;
+            if (u <= BoundaryTolerance) u = 0;
+            else if (u >= 1 - BoundaryTolerance) u = 1;
+            if (v <= BoundaryTolerance) v = 0;
+            else if (v >= 1 - BoundaryTolerance) v = 1;
+            cache.u = u;
+            cache.v = v;
             cache.valid = true;
+            if (clamped) {
+                float deltaX = fabs(localPoint.x - clampedX);
+                float deltaY = fabs(localPoint.y - clampedY);
+                if (deltaX >= ClampLogThreshold || deltaY >= ClampLogThreshold) {
+                    gridDiag("cache.clamped", text("target=", targetName,
+                            " sample=", formatVec(localPoint),
+                            " delta=", text("[", deltaX, ", ", deltaY, "]"),
+                            " axisX=[", axisX[0], ", ", axisX[$-1], "]",
+                            " axisY=[", axisY[0], ", ", axisY[$-1], "]"));
+                }
+            }
         } else {
             cache.valid = false;
+            gridDiag("cache.invalid", text("target=", targetName,
+                    " sample=", formatVec(localPoint),
+                    " axisX=[", axisX[0], ", ", axisX[$-1], "]",
+                    " axisY=[", axisY[0], ", ", axisY[$-1], "]"));
         }
         return cache;
     }

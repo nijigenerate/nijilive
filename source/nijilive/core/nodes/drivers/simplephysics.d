@@ -475,6 +475,72 @@ private:
     @Ignore
     vec2 offsetOutputScale = vec2(1, 1);
 
+    enum float FlipDiagClusterTolerance = 5.0f;
+    enum size_t FlipDiagLogStart = 4;
+    enum size_t FlipDiagLogRepeat = 32;
+
+    struct FlipCluster {
+        vec2 min;
+        vec2 max;
+        vec2 reference;
+        bool initialized;
+
+        void reset(vec2 value) {
+            min = value;
+            max = value;
+            reference = value;
+            initialized = true;
+        }
+
+        void include(vec2 value) {
+            if (!initialized) {
+                reset(value);
+                return;
+            }
+            if (value.x < min.x) min.x = value.x;
+            if (value.x > max.x) max.x = value.x;
+            if (value.y < min.y) min.y = value.y;
+            if (value.y > max.y) max.y = value.y;
+            reference = value;
+        }
+
+        float distanceTo(vec2 value) const {
+            if (!initialized) {
+                return float.infinity;
+            }
+            return reference.distance(value);
+        }
+
+        string valueSummary() const {
+            if (!initialized) return "[]";
+            return text("[", reference.x, ", ", reference.y, "]");
+        }
+
+        string rangeSummary() const {
+            if (!initialized) return "[[nan, nan] .. [nan, nan]]";
+            return text("[[", min.x, ", ", min.y, "] .. [", max.x, ", ", max.y, "]]");
+        }
+    }
+
+    struct FlipDetector2D {
+        FlipCluster clusterA;
+        FlipCluster clusterB;
+        bool lastIsA = true;
+        bool stateInitialized = false;
+        size_t toggleCount = 0;
+
+        void reset() {
+            clusterA = FlipCluster.init;
+            clusterB = FlipCluster.init;
+            lastIsA = true;
+            stateInitialized = false;
+            toggleCount = 0;
+        }
+    }
+
+    FlipDetector2D outputFlipDiag;
+    FlipDetector2D anchorFlipDiag;
+
 protected:
     override
     string typeId() { return "SimplePhysics"; }
@@ -686,6 +752,80 @@ public:
         }
     }
 
+    void trackFlipState(string label, ref FlipDetector2D detector, vec2 value) {
+        if (!isFinite(value.x) || !isFinite(value.y)) return;
+
+        bool matchesA = detector.clusterA.initialized &&
+                        detector.clusterA.distanceTo(value) <= FlipDiagClusterTolerance;
+        bool matchesB = detector.clusterB.initialized &&
+                        detector.clusterB.distanceTo(value) <= FlipDiagClusterTolerance;
+
+        if (!matchesA && !matchesB) {
+            if (!detector.clusterA.initialized) {
+                detector.clusterA.reset(value);
+                detector.lastIsA = true;
+                detector.stateInitialized = false;
+                detector.toggleCount = 0;
+                return;
+            }
+            if (!detector.clusterB.initialized) {
+                detector.clusterB.reset(value);
+                detector.lastIsA = false;
+                detector.stateInitialized = detector.clusterA.initialized && detector.clusterB.initialized;
+                detector.toggleCount = 0;
+                return;
+            }
+            detector.clusterA.reset(value);
+            detector.clusterB = FlipCluster.init;
+            detector.lastIsA = true;
+            detector.stateInitialized = false;
+            detector.toggleCount = 0;
+            return;
+        }
+
+        bool currentIsA;
+        if (matchesA && (!matchesB || detector.clusterA.distanceTo(value) <= detector.clusterB.distanceTo(value))) {
+            detector.clusterA.include(value);
+            currentIsA = true;
+        } else {
+            detector.clusterB.include(value);
+            currentIsA = false;
+        }
+
+        bool emitLog = false;
+        if (detector.stateInitialized) {
+            if (currentIsA != detector.lastIsA) {
+                detector.toggleCount++;
+                size_t toggles = detector.toggleCount;
+                if (toggles >= FlipDiagLogStart &&
+                    (toggles == FlipDiagLogStart ||
+                     ((toggles - FlipDiagLogStart) % FlipDiagLogRepeat == 0))) {
+                    emitLog = detector.clusterA.initialized && detector.clusterB.initialized;
+                }
+            }
+        } else if (detector.clusterA.initialized && detector.clusterB.initialized) {
+            detector.stateInitialized = true;
+            detector.toggleCount = 0;
+        }
+
+        detector.lastIsA = currentIsA;
+        if (!detector.stateInitialized && detector.clusterA.initialized && detector.clusterB.initialized) {
+            detector.stateInitialized = true;
+            detector.toggleCount = 0;
+        }
+
+        if (emitLog) {
+            float distance = detector.clusterA.reference.distance(detector.clusterB.reference);
+            logPhysicsState("flipDiag:" ~ label,
+                text("toggles=", detector.toggleCount,
+                     " valueA=", detector.clusterA.valueSummary(),
+                     " valueB=", detector.clusterB.valueSummary(),
+                     " rangeA=", detector.clusterA.rangeSummary(),
+                     " rangeB=", detector.clusterB.rangeSummary(),
+                     " distance=", distance));
+        }
+    }
+
     void updateInputs() {
         if (prevAnchorSet) {
         } else {
@@ -761,6 +901,9 @@ public:
             logPhysicsState("updateOutputs:anchorNonFinite");
             return;
         }
+
+        trackFlipState("output", outputFlipDiag, output);
+        trackFlipState("anchor", anchorFlipDiag, anchor);
 
         vec2 oscale = getOutputScale();
         if (!isFinite(oscale.x) || !isFinite(oscale.y)) {
