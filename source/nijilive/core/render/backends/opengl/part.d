@@ -7,10 +7,25 @@ import nijilive.core.render.backends.opengl.part_resources : boundAlbedo, partSh
     gScreenColor, gEmissionStrength, gs1offset, gs1mvp, gs1opacity, gs1MultColor,
     gs1ScreenColor, gs2offset, gs2mvp, gs2opacity, gs2EmissionStrength, gs2MultColor,
     gs2ScreenColor, mmvp, mthreshold;
-import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFallbackEnabled;
+import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFallbackEnabled,
+    inSetBlendMode, inBlendModeBarrier;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.commands : PartDrawPacket;
-import nijilive.core;
+import nijilive.core.runtime_state : inGetCamera, inGetViewport;
+import nijilive.core.render.backends.opengl.runtime :
+    inGetFramebuffer,
+    inGetCompositeFramebuffer,
+    inGetBlendFramebuffer,
+    inGetMainAlbedo,
+    inGetCompositeImage,
+    inGetMainEmissive,
+    inGetCompositeEmissive,
+    inGetMainBump,
+    inGetCompositeBump,
+    inGetBlendAlbedo,
+    inGetBlendEmissive,
+    inGetBlendBump,
+    inSwapMainCompositeBuffers;
 import nijilive.core.render.backends.opengl.blend_resources : getBlendShader, blendToBuffer;
 import nijilive.math : mat4;
 

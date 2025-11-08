@@ -20,12 +20,7 @@ import nijilive.fmt;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
-version(InDoesRender) {
-    import nijilive.core.render.backends.opengl.part : executePartPacket;
-    import nijilive.core.render.backends.opengl.part_resources : initPartBackendResources,
-        createPartUVBuffer, updatePartUVBuffer;
-    import nijilive.core.render.backends.opengl.mask : executeMaskApplyPacket;
-}
+version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
 import std.exception;
 import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
@@ -33,13 +28,12 @@ import std.math : isNaN;
 import std.algorithm.comparison : min, max;
 
 public import nijilive.core.meshdata;
+public import nijilive.core.render.immediate : inDrawTextureAtPart, inDrawTextureAtPosition,
+    inDrawTextureAtRect;
 
 package(nijilive) {
     void inInitPart() {
         inRegisterNodeType!Part;
-        version(InDoesRender) {
-            initPartBackendResources();
-        }
     }
 }
 
@@ -113,8 +107,10 @@ private:
 
     void updateUVs() {
         version(InDoesRender) {
-            if (uvbo == 0) uvbo = createPartUVBuffer();
-            updatePartUVBuffer(uvbo, data);
+            auto backend = puppet ? puppet.renderBackend : currentRenderBackend();
+            if (backend is null) return;
+            if (uvbo == 0) uvbo = backend.createPartUvBuffer();
+            backend.updatePartUvBuffer(uvbo, data);
         }
     }
 
@@ -124,8 +120,10 @@ protected:
     */
     void drawSelf(bool isMask = false)() {
         version (InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
             auto packet = makePartDrawPacket(this, isMask);
-            executePartPacket(packet);
+            backend.drawPartPacket(packet);
         }
     }
 
@@ -136,7 +134,10 @@ protected:
         super(data, uuid, parent);
 
         version(InDoesRender) {
-            uvbo = createPartUVBuffer();
+            auto backend = puppet ? puppet.renderBackend : currentRenderBackend();
+            if (backend !is null) {
+                uvbo = backend.createPartUvBuffer();
+            }
         }
 
         this.updateUVs();
@@ -401,7 +402,12 @@ public:
     this(Node parent = null) {
         super(parent);
         
-        version(InDoesRender) uvbo = createPartUVBuffer();
+        version(InDoesRender) {
+            auto backend = currentRenderBackend();
+            if (backend !is null) {
+                uvbo = backend.createPartUvBuffer();
+            }
+        }
     }
 
     /**
@@ -415,7 +421,10 @@ public:
         }
 
         version(InDoesRender) {
-            uvbo = createPartUVBuffer();
+            auto backend = puppet ? puppet.renderBackend : currentRenderBackend();
+            if (backend !is null) {
+                uvbo = backend.createPartUvBuffer();
+            }
         }
 
         this.updateUVs();
@@ -424,11 +433,13 @@ public:
     override
     void renderMask(bool dodge = false) {
         version(InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
             MaskApplyPacket packet;
             packet.kind = MaskDrawableKind.Part;
             packet.isDodge = dodge;
             packet.partPacket = makePartDrawPacket(this, true);
-            executeMaskApplyPacket(packet);
+            backend.applyMask(packet);
         }
     }
 
@@ -620,22 +631,25 @@ public:
         version (InDoesRender) {
             if (!enabled) return;
             if (!data.isReady) return; // Yeah, don't even try
+
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
             
             size_t cMasks = maskCount;
 
             if (masks.length > 0) {
 //                import std.stdio : writeln;
-                inBeginMask(cMasks > 0);
+                backend.beginMask(cMasks > 0);
 
                 foreach(ref mask; masks) {
                     mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
                 }
 
-                inBeginMaskContent();
+                backend.beginMaskContent();
 
                 this.drawSelf();
 
-                inEndMask();
+                backend.endMask();
                 return;
             }
 
@@ -770,14 +784,4 @@ package(nijilive) bool backendRenderable() {
             screenTint = part.screenTint;
         }
     }
-}
-
-
-version (InDoesRender) {
-    public import nijilive.core.render.backends.opengl.draw_texture : inDrawTextureAtPart,
-        inDrawTextureAtPosition, inDrawTextureAtRect;
-} else {
-    void inDrawTextureAtPart(Texture, Part) {}
-    void inDrawTextureAtPosition(Texture, vec2, float opacity = 1, vec3 color = vec3(1,1,1), vec3 screenColor = vec3(0,0,0)) {}
-    void inDrawTextureAtRect(Texture, rect, rect uvs = rect(0,0,1,1), float opacity = 1, vec3 color = vec3(1,1,1), vec3 screenColor = vec3(0,0,0), Shader s = null, Camera cam = null) {}
 }

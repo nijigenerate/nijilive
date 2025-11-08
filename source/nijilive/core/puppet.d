@@ -11,7 +11,7 @@ import std.path : extension;
 import std.json;
 import nijilive.core.render.queue;
 import nijilive.core.render.backends : RenderBackend, RenderGpuState;
-import nijilive.core.render.backends.opengl : GLRenderBackend;
+import nijilive.core.runtime_state : currentRenderBackend;
 import nijilive.core.render.scheduler;
 import nijilive.core.texture_types : Filtering;
 
@@ -414,7 +414,7 @@ public:
         root.name = "Root";
         transform = Transform(vec3(0, 0, 0));
         renderQueue = new RenderQueue();
-        renderBackend = new GLRenderBackend();
+        renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
@@ -434,7 +434,7 @@ public:
         transform = Transform(vec3(0, 0, 0));
         this.selfSort();
         renderQueue = new RenderQueue();
-        renderBackend = new GLRenderBackend();
+        renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;

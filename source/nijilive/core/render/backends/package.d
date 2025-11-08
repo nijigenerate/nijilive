@@ -4,8 +4,14 @@ import nijilive.core.nodes : Node;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.nodes.drawable : Drawable;
+import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
     MaskDrawPacket;
+import nijilive.core.meshdata : MeshData;
+import nijilive.core.texture : Texture;
+import nijilive.core.shader : Shader;
+import nijilive.math : vec2, vec3, rect;
+import nijilive.math.camera : Camera;
 
 /// GPU周りの共有状態を Backend がキャッシュするための構造体
 struct RenderGpuState {
@@ -18,11 +24,37 @@ struct RenderGpuState {
 
 /// Backend abstraction executed by RenderCommand implementations.
 interface RenderBackend {
+    void initializeRenderer();
+    void resizeViewportTargets(int width, int height);
+    void dumpViewport(ref ubyte[] data, int width, int height);
+    void beginScene();
+    void endScene();
+    void postProcessScene();
+
+    void initializeDrawableResources();
+    void bindDrawableVao();
+    void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo);
+    void uploadDrawableIndices(uint ibo, ushort[] indices);
+    void uploadDrawableVertices(uint vbo, vec2[] vertices);
+    void uploadDrawableDeform(uint dbo, vec2[] deform);
+    void drawDrawableElements(uint ibo, size_t indexCount);
+
+    uint createPartUvBuffer();
+    void updatePartUvBuffer(uint buffer, ref MeshData data);
+
+    bool supportsAdvancedBlend();
+    bool supportsAdvancedBlendCoherent();
+    void setAdvancedBlendCoherent(bool enabled);
+    void setLegacyBlendMode(BlendMode mode);
+    void setAdvancedBlendEquation(BlendMode mode);
+    void issueBlendBarrier();
+
     void drawNode(Node node);
     void drawPartPacket(ref PartDrawPacket packet);
     void drawMaskPacket(ref MaskDrawPacket packet);
     void beginDynamicComposite(DynamicComposite composite);
     void endDynamicComposite(DynamicComposite composite);
+    void destroyDynamicComposite(DynamicComposite composite);
     void beginMask(bool useStencil);
     void applyMask(ref MaskApplyPacket packet);
     void beginMaskContent();
@@ -30,4 +62,24 @@ interface RenderBackend {
     void beginComposite();
     void drawCompositeQuad(ref CompositeDrawPacket packet);
     void endComposite();
+    void drawTextureAtPart(Texture texture, Part part);
+    void drawTextureAtPosition(Texture texture, vec2 position, float opacity,
+                                vec3 color, vec3 screenColor);
+    void drawTextureAtRect(Texture texture, rect area, rect uvs,
+                            float opacity, vec3 color, vec3 screenColor,
+                            Shader shader = null, Camera cam = null);
+    uint framebufferHandle();
+    uint renderImageHandle();
+    uint compositeFramebufferHandle();
+    uint compositeImageHandle();
+    uint mainAlbedoHandle();
+    uint mainEmissiveHandle();
+    uint mainBumpHandle();
+    uint compositeEmissiveHandle();
+    uint compositeBumpHandle();
+    uint blendFramebufferHandle();
+    uint blendAlbedoHandle();
+    uint blendEmissiveHandle();
+    uint blendBumpHandle();
+    void addBasicLightingPostProcess();
 }

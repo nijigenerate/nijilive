@@ -5,7 +5,7 @@ version (InDoesRender):
 import bindbc.opengl;
 import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.common : inSetBlendMode;
-import nijilive.core : incCompositePrepareRender;
+import nijilive.core.render.backends.opengl.runtime : incCompositePrepareRender;
 import nijilive.core.render.commands : CompositeDrawPacket;
 import nijilive.core.render.backends.opengl.composite_resources : initCompositeBackendResources,
     getCompositeVAO, getCompositeBuffer, getCompositeShader, getCompositeOpacityUniform,

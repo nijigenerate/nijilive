@@ -20,6 +20,7 @@ import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvalua
     rpSetDifferenceEvaluationEnabled, rpDifferenceEvaluationEnabled,
     rpSetDifferenceEvaluationRegion, rpGetDifferenceEvaluationRegion,
     rpEvaluateDifference, rpFetchDifferenceResult;
+import nijilive.core.render.backends : RenderBackend;
 
 package(nijilive) int[] inViewportWidth;
 package(nijilive) int[] inViewportHeight;
@@ -92,13 +93,13 @@ void inSetViewport(int width, int height) {
         inPushViewport(width, height);
     } else {
         if (width == inViewportWidth[$-1] && height == inViewportHeight[$-1]) {
-            resizeViewportBackend(width, height);
+            requireRenderBackend().resizeViewportTargets(width, height);
             return;
         }
         inViewportWidth[$-1] = width;
         inViewportHeight[$-1] = height;
     }
-    resizeViewportBackend(width, height);
+    requireRenderBackend().resizeViewportTargets(width, height);
 }
 
 /**
@@ -133,7 +134,7 @@ void inDumpViewport(ref ubyte[] dumpTo) {
     auto required = width * height * 4;
     enforce(dumpTo.length >= required, "Invalid data destination length for inDumpViewport");
 
-    dumpViewportBackend(dumpTo, width, height);
+    requireRenderBackend().dumpViewport(dumpTo, width, height);
 
     if (width == 0 || height == 0) return;
     ubyte[] tmpLine = new ubyte[width * 4];
@@ -164,21 +165,135 @@ void inGetClearColor(out float r, out float g, out float b, out float a) {
     a = inClearColor.a;
 }
 
-alias InitRendererFunc = void function();
-alias ResizeViewportFunc = void function(int width, int height);
-alias DumpViewportFunc = void function(ref ubyte[] data, int width, int height);
+private RenderBackend registeredBackend;
 
-private InitRendererFunc initRendererBackend = () {};
-private ResizeViewportFunc resizeViewportBackend = (int, int) {};
-private DumpViewportFunc dumpViewportBackend = (ref ubyte[] data, int, int) {};
+package(nijilive) void registerRenderBackend(RenderBackend backend) {
+    registeredBackend = backend;
+}
 
-package(nijilive)
-void registerRendererBackend(InitRendererFunc initFn,
-                             ResizeViewportFunc resizeFn,
-                             DumpViewportFunc dumpFn) {
-    initRendererBackend = initFn is null ? (() {}) : initFn;
-    resizeViewportBackend = resizeFn is null ? ((int, int) {}) : resizeFn;
-    dumpViewportBackend = dumpFn is null ? ((ref ubyte[] data, int, int) {}) : dumpFn;
+package(nijilive) RenderBackend tryRenderBackend() {
+    return registeredBackend;
+}
+
+private RenderBackend requireRenderBackend() {
+    enforce(registeredBackend !is null, "RenderBackend is not registered.");
+    return registeredBackend;
+}
+
+package(nijilive) RenderBackend currentRenderBackend() {
+    return requireRenderBackend();
+}
+
+version(InDoesRender) {
+    import bindbc.opengl : GLuint;
+
+    private RenderBackend renderBackendOrNull() {
+        return tryRenderBackend();
+    }
+
+    private GLuint handleOrZero(uint value) {
+        return cast(GLuint)value;
+    }
+
+    GLuint inGetRenderImage() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.renderImageHandle());
+    }
+
+    GLuint inGetFramebuffer() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.framebufferHandle());
+    }
+
+    GLuint inGetCompositeImage() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.compositeImageHandle());
+    }
+
+    GLuint inGetCompositeFramebuffer() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.compositeFramebufferHandle());
+    }
+
+    GLuint inGetMainAlbedo() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.mainAlbedoHandle());
+    }
+
+    GLuint inGetMainEmissive() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.mainEmissiveHandle());
+    }
+
+    GLuint inGetMainBump() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.mainBumpHandle());
+    }
+
+    GLuint inGetCompositeEmissive() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.compositeEmissiveHandle());
+    }
+
+    GLuint inGetCompositeBump() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.compositeBumpHandle());
+    }
+
+    GLuint inGetBlendFramebuffer() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.blendFramebufferHandle());
+    }
+
+    GLuint inGetBlendAlbedo() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.blendAlbedoHandle());
+    }
+
+    GLuint inGetBlendEmissive() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.blendEmissiveHandle());
+    }
+
+    GLuint inGetBlendBump() {
+        auto backend = renderBackendOrNull();
+        return backend is null ? 0 : handleOrZero(backend.blendBumpHandle());
+    }
+} else {
+    alias GLuint = uint;
+    GLuint inGetRenderImage() { return 0; }
+    GLuint inGetFramebuffer() { return 0; }
+    GLuint inGetCompositeImage() { return 0; }
+    GLuint inGetCompositeFramebuffer() { return 0; }
+    GLuint inGetMainAlbedo() { return 0; }
+    GLuint inGetMainEmissive() { return 0; }
+    GLuint inGetMainBump() { return 0; }
+    GLuint inGetCompositeEmissive() { return 0; }
+    GLuint inGetCompositeBump() { return 0; }
+    GLuint inGetBlendFramebuffer() { return 0; }
+    GLuint inGetBlendAlbedo() { return 0; }
+    GLuint inGetBlendEmissive() { return 0; }
+    GLuint inGetBlendBump() { return 0; }
+}
+
+void inBeginScene() {
+    auto backend = tryRenderBackend();
+    if (backend !is null) backend.beginScene();
+}
+
+void inEndScene() {
+    auto backend = tryRenderBackend();
+    if (backend !is null) backend.endScene();
+}
+
+void inPostProcessScene() {
+    auto backend = tryRenderBackend();
+    if (backend !is null) backend.postProcessScene();
+}
+
+void inPostProcessingAddBasicLighting() {
+    auto backend = tryRenderBackend();
+    if (backend !is null) backend.addBasicLightingPostProcess();
 }
 
 package(nijilive)
@@ -208,7 +323,7 @@ void initRendererCommon() {
 package(nijilive)
 void initRenderer() {
     initRendererCommon();
-    initRendererBackend();
+    requireRenderBackend().initializeRenderer();
 }
 
 void inSetDifferenceAggregationEnabled(bool enabled) {

@@ -67,7 +67,37 @@ struct CommandRecord {
 
 class RecordingBackend : RenderBackend {
     CommandRecord[] records;
+    uint nextHandle;
 
+    override void initializeRenderer() {}
+    override void resizeViewportTargets(int width, int height) {}
+    override void dumpViewport(ref ubyte[] data, int width, int height) {}
+    override void beginScene() {}
+    override void endScene() {}
+    override void postProcessScene() {}
+    override void initializeDrawableResources() {}
+    override void bindDrawableVao() {}
+    override void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) {
+        vbo = ++nextHandle;
+        ibo = ++nextHandle;
+        dbo = ++nextHandle;
+    }
+    override void uploadDrawableIndices(uint ibo, const(ushort)[] indices) {}
+    override void uploadDrawableVertices(uint vbo, const(vec2)[] vertices) {}
+    override void uploadDrawableDeform(uint dbo, const(vec2)[] deform) {}
+    override void drawDrawableElements(uint ibo, size_t indexCount) {}
+    override uint createPartUvBuffer() { return ++nextHandle; }
+    override void updatePartUvBuffer(uint buffer, ref MeshData data) {}
+    override bool supportsAdvancedBlend() { return false; }
+    override bool supportsAdvancedBlendCoherent() { return false; }
+    override void setAdvancedBlendCoherent(bool) {}
+    override void setLegacyBlendMode(BlendMode) {}
+    override void setAdvancedBlendEquation(BlendMode) {}
+    override void issueBlendBarrier() {}
+
+    override void initializeRenderer() {}
+    override void resizeViewportTargets(int width, int height) {}
+    override void dumpViewport(ref ubyte[] data, int width, int height) {}
     override void drawNode(Node node) {
         records ~= CommandRecord(RenderCommandKind.DrawNode, node ? node.name : "", false, MaskDrawableKind.Part);
     }
@@ -98,6 +128,9 @@ class RecordingBackend : RenderBackend {
             composite ? composite.name : "",
             false,
             MaskDrawableKind.Part);
+    }
+
+    override void destroyDynamicComposite(DynamicComposite composite) {
     }
 
     override void beginMask(bool useStencil) {
@@ -137,6 +170,15 @@ class RecordingBackend : RenderBackend {
     override void endComposite() {
         records ~= CommandRecord(RenderCommandKind.EndComposite, "", false, MaskDrawableKind.Part);
     }
+
+    override void drawTextureAtPart(Texture texture, Part part) {}
+
+    override void drawTextureAtPosition(Texture texture, vec2 position, float opacity,
+                                        vec3 color, vec3 screenColor) {}
+
+    override void drawTextureAtRect(Texture texture, rect area, rect uvs,
+                                    float opacity, vec3 color, vec3 screenColor,
+                                    Shader shader = null, Camera cam = null) {}
 }
 
 CommandRecord[] executeFrame(Puppet puppet) {

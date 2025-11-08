@@ -17,7 +17,6 @@ import nijilive.core.nodes;
 import nijilive.fmt;
 import nijilive.core;
 import nijilive.math;
-version(InDoesRender) import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
 import std.exception;
 import std.algorithm.sorting;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
@@ -71,13 +70,17 @@ private:
         // Optimization: Nothing to be drawn, skip context switching
         if (subParts.length == 0) return;
 
-        inBeginComposite();
+        version(InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
+            backend.beginComposite();
 
             foreach(Part child; subParts) {
                 child.drawOne();
             }
 
-        inEndComposite();
+            backend.endComposite();
+        }
     }
 
     /*
@@ -95,8 +98,10 @@ private:
     void drawSelfImmediate() {
         version(InDoesRender) {
             if (subParts.length == 0) return;
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
             auto packet = makeCompositeDrawPacket(this);
-            compositeDrawQuad(packet);
+            backend.drawCompositeQuad(packet);
         }
     }
 
@@ -521,24 +526,29 @@ public:
         this.selfSort();
         this.drawContents();
 
-        size_t cMasks = maskCount;
+        version(InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
 
-        if (masks.length > 0) {
-            inBeginMask(cMasks > 0);
+            size_t cMasks = maskCount;
 
-            foreach(ref mask; masks) {
-                mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
+            if (masks.length > 0) {
+                backend.beginMask(cMasks > 0);
+
+                foreach(ref mask; masks) {
+                    mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
+                }
+
+                backend.beginMaskContent();
+
+                drawSelfImmediate();
+
+                backend.endMask();
+                return;
             }
 
-            inBeginMaskContent();
-
             drawSelfImmediate();
-
-            inEndMask();
-            return;
         }
-
-        drawSelfImmediate();
     }
 
     override

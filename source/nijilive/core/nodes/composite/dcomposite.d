@@ -14,7 +14,6 @@ import nijilive.core;
 import nijilive.math;
 import nijilive;
 import nijilive.core.nodes.utils;
-import bindbc.opengl;
 import std.exception;
 import std.algorithm;
 import std.algorithm.sorting;
@@ -27,10 +26,6 @@ import std.math : isFinite, ceil;
 import nijilive.core.render.commands;
 import nijilive.core.render.queue : RenderCommandBuffer;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
-version (InDoesRender) {
-    import nijilive.core.render.backends.opengl.dynamic_composite : beginDynamicCompositeGL,
-        endDynamicCompositeGL, destroyDynamicCompositeGL;
-}
 
 package(nijilive) {
     void inInitDComposite() {
@@ -223,7 +218,10 @@ protected:
             prevStencil.dispose();
         }
         version (InDoesRender) {
-            destroyDynamicCompositeGL(this);
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend !is null) {
+                backend.destroyDynamicComposite(this);
+            }
         }
 
         initialized = true;
@@ -471,7 +469,10 @@ public:
         selfSort();
 
         version (InDoesRender) {
-            beginDynamicCompositeGL(this);
+            auto backendBegin = puppet ? puppet.renderBackend : null;
+            if (backendBegin !is null) {
+                backendBegin.beginDynamicComposite(this);
+            }
         }
 
         auto original = oneTimeTransform;
@@ -485,7 +486,10 @@ public:
         setOneTimeTransform(original);
 
         version (InDoesRender) {
-            endDynamicCompositeGL(this);
+            auto backendEnd = puppet ? puppet.renderBackend : null;
+            if (backendEnd !is null) {
+                backendEnd.endDynamicComposite(this);
+            }
         }
 
         textureInvalidated = false;

@@ -23,8 +23,11 @@ public import nijilive.core.animation;
 public import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 public import nijilive.core.texture_types;
 public import nijilive.core.runtime_state;
-public import nijilive.core.render.backends.opengl.runtime;
 public import nijilive.integration;
+version(InDoesRender) {
+    import nijilive.core.render.backends.opengl;
+    import nijilive.core.render.backends.opengl.runtime;
+}
 //import std.stdio;
 
 /**

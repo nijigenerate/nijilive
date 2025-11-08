@@ -20,8 +20,6 @@ public import nijilive.core.meshdata;
 import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind,
     makeMaskDrawPacket;
 version (InDoesRender) {
-    import nijilive.core.render.backends.opengl.mask : executeMaskPacket,
-        executeMaskApplyPacket;
     import nijilive.core.render.backends.opengl.mask_resources : initMaskBackendResources;
 }
 
@@ -47,8 +45,10 @@ private:
     */
     void drawSelf() {
         version (InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
             auto packet = makeMaskDrawPacket(this);
-            executeMaskPacket(packet);
+            backend.drawMaskPacket(packet);
         }
     }
 
@@ -83,11 +83,13 @@ public:
     override
     void renderMask(bool dodge = false) {
         version (InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
             MaskApplyPacket packet;
             packet.kind = MaskDrawableKind.Mask;
             packet.isDodge = dodge;
             packet.maskPacket = makeMaskDrawPacket(this);
-            executeMaskApplyPacket(packet);
+            backend.applyMask(packet);
         }
     }
 

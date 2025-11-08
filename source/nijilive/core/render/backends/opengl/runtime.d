@@ -10,7 +10,6 @@ import nijilive.core.shader : Shader;
 import nijilive.core.dbg : inInitDebug;
 import nijilive.core.render.backends.opengl.composite_resources : getCompositeVAO;
 import nijilive.core.runtime_state :
-    registerRendererBackend,
     inSetViewport,
     inViewportWidth,
     inViewportHeight,
@@ -635,8 +634,4 @@ void dumpViewportOpenGL(ref ubyte[] dumpTo, int width, int height) {
         glBindTexture(GL_TEXTURE_2D, fAlbedo);
         glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, dumpTo.ptr);
     }
-}
-
-shared static this() {
-    registerRendererBackend(&initRendererOpenGL, &resizeViewportOpenGL, &dumpViewportOpenGL);
 }

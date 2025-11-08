@@ -4,7 +4,7 @@ version (InDoesRender):
 
 import bindbc.opengl;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
-import nijilive.core : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
+import nijilive.core.runtime_state : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
 import nijilive.math : mat4, vec2, vec4;
 
 void beginDynamicCompositeGL(DynamicComposite composite) {

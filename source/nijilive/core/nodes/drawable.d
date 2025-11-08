@@ -13,7 +13,6 @@ import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
 import nijilive.math.triangle;
-import bindbc.opengl : GLuint;
 import std.exception;
 import nijilive.core.dbg;
 import nijilive.core;
@@ -22,20 +21,12 @@ import std.typecons;
 import std.algorithm.searching;
 import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
-//import std.stdio;
-
-version (InDoesRender) {
-    import nijilive.core.render.backends.opengl.drawable_buffers : initDrawableBackend,
-        bindDrawableVAO, createDrawableBuffers, uploadDrawableIndices, uploadDrawableVertices,
-        uploadDrawableDeform, drawDrawableElements;
-    import nijilive.core.render.backends.opengl.mask_state : beginMaskGL, endMaskGL,
-        beginMaskContentGL;
-}
+version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
 
 package(nijilive) {
     void inInitDrawable() {
-        version(InDoesRender) initDrawableBackend();
+        version(InDoesRender) currentRenderBackend().initializeDrawableResources();
     }
 
 
@@ -43,7 +34,7 @@ package(nijilive) {
         Binds the internal vertex array for rendering
     */
     void incDrawableBindVAO() {
-        version(InDoesRender) bindDrawableVAO();
+        version(InDoesRender) currentRenderBackend().bindDrawableVao();
     }
 
     bool doGenerateBounds = false;
@@ -73,14 +64,14 @@ protected:
 
     void updateIndices() {
         version (InDoesRender) {
-            uploadDrawableIndices(ibo, data.indices);
+            currentRenderBackend().uploadDrawableIndices(ibo, data.indices);
         }
     }
 
     override
     void updateVertices() {
         version (InDoesRender) {
-            uploadDrawableVertices(vbo, data.vertices);
+            currentRenderBackend().uploadDrawableVertices(vbo, data.vertices);
         }
 
         // Zero-fill the deformation delta
@@ -163,7 +154,7 @@ protected:
             origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
         }
         version (InDoesRender) {
-            uploadDrawableDeform(dbo, deformation);
+            currentRenderBackend().uploadDrawableDeform(dbo, deformation);
         }
 
         return tuple(origDeformation, cast(mat4*)null, changed);
@@ -173,26 +164,26 @@ protected:
     void updateDeform() {
         super.updateDeform();
         version (InDoesRender) {
-            uploadDrawableDeform(dbo, deformation);
+            currentRenderBackend().uploadDrawableDeform(dbo, deformation);
         }
 
         this.updateBounds();
     }
 
     /**
-        OpenGL Index Buffer Object
+        Backend Index Buffer Object handle
     */
-    GLuint ibo;
+    uint ibo;
 
     /**
-        OpenGL Vertex Buffer Object
+        Backend Vertex Buffer Object handle
     */
-    GLuint vbo;
+    uint vbo;
 
     /**
-        OpenGL Vertex Buffer Object for deformation
+        Backend Vertex Buffer Object for deformation
     */
-    GLuint dbo;
+    uint dbo;
 
     /**
         The mesh data of this part
@@ -207,7 +198,7 @@ protected:
     */
     final void bindIndex() {
         version (InDoesRender) {
-            drawDrawableElements(ibo, data.indices.length);
+            currentRenderBackend().drawDrawableElements(ibo, data.indices.length);
         }
     }
 
@@ -278,9 +269,7 @@ public:
         super(parent);
 
         version(InDoesRender) {
-
-            // Generate the buffers
-            createDrawableBuffers(vbo, ibo, dbo);
+            currentRenderBackend().createDrawableBuffers(vbo, ibo, dbo);
         }
     }
 
@@ -302,9 +291,7 @@ public:
         this.vertices = data.vertices.dup;
 
         version(InDoesRender) {
-            
-            // Generate the buffers
-            createDrawableBuffers(vbo, ibo, dbo);
+            currentRenderBackend().createDrawableBuffers(vbo, ibo, dbo);
         }
 
         // Update indices and vertices
@@ -645,36 +632,4 @@ public:
     override
     bool mustPropagate() { return true; }
 
-}
-
-version (InDoesRender) {
-    /**
-        Begins a mask
-
-        This causes the next draw calls until inBeginMaskContent/inBeginDodgeContent or inEndMask 
-        to be written to the current mask.
-
-        This also clears whatever old mask there was.
-    */
-    void inBeginMask(bool hasMasks) {
-        beginMaskGL(hasMasks);
-    }
-
-    /**
-        End masking
-
-        Once masking is ended content will no longer be masked by the defined mask.
-    */
-    void inEndMask() {
-        endMaskGL();
-    }
-
-    /**
-        Starts masking content
-
-        NOTE: This have to be run within a inBeginMask and inEndMask block!
-    */
-    void inBeginMaskContent() {
-        beginMaskContentGL();
-    }
 }

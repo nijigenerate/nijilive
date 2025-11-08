@@ -13,9 +13,33 @@ import nijilive.fmt.serialize;
 import std.string;
 
 version (InDoesRender) {
-    import nijilive.core.render.backends.opengl.blend_state : setAdvancedBlendCoherent,
-        setLegacyBlendMode, setAdvancedBlendEquation, issueBlendBarrier,
-        hasAdvancedBlendSupport, hasAdvancedBlendCoherentSupport;
+    import nijilive.core.runtime_state : currentRenderBackend;
+
+    private auto blendBackend() { return currentRenderBackend(); }
+
+    void setAdvancedBlendCoherent(bool enabled) {
+        blendBackend().setAdvancedBlendCoherent(enabled);
+    }
+
+    void setLegacyBlendMode(BlendMode blendingMode) {
+        blendBackend().setLegacyBlendMode(blendingMode);
+    }
+
+    void setAdvancedBlendEquation(BlendMode blendingMode) {
+        blendBackend().setAdvancedBlendEquation(blendingMode);
+    }
+
+    void issueBlendBarrier() {
+        blendBackend().issueBlendBarrier();
+    }
+
+    bool hasAdvancedBlendSupport() {
+        return blendBackend().supportsAdvancedBlend();
+    }
+
+    bool hasAdvancedBlendCoherentSupport() {
+        return blendBackend().supportsAdvancedBlendCoherent();
+    }
 } else {
     void setAdvancedBlendCoherent(bool) { }
     void setLegacyBlendMode(BlendMode) { }
