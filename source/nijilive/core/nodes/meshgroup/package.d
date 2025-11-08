@@ -130,29 +130,31 @@ public:
     /**
         A list of the shape offsets to apply per part
     */
-   override
-   protected void runDynamicTask() {
-        super.runDynamicTask();
-        if (data.indices.length > 0) {
-            if (!precalculated) {
-                precalculate();
-            }
-            transformedVertices.length = vertices.length;
-            foreach(i, vertex; vertices) {
-                transformedVertices[i] = vertex+this.deformation[i];
-            }
-            foreach (index; 0..triangles.length) {
-                auto p1 = transformedVertices[data.indices[index * 3]];
-                auto p2 = transformedVertices[data.indices[index * 3 + 1]];
-                auto p3 = transformedVertices[data.indices[index * 3 + 2]];
-                triangles[index].transformMatrix = mat3([p2.x - p1.x, p3.x - p1.x, p1.x,
-                                                        p2.y - p1.y, p3.y - p1.y, p1.y,
-                                                        0, 0, 1]) * triangles[index].offsetMatrices;
-            }
-            forwardMatrix = transform.matrix;
-            inverseMatrix = globalTransform.matrix.inverse;
+    override
+    protected void runPreProcessTask() {
+        super.runPreProcessTask();
+        if (data.indices.length == 0) {
+            return;
         }
-   }
+
+        if (!precalculated) {
+            precalculate();
+        }
+        transformedVertices.length = vertices.length;
+        foreach(i, vertex; vertices) {
+            transformedVertices[i] = vertex + this.deformation[i];
+        }
+        foreach (index; 0..triangles.length) {
+            auto p1 = transformedVertices[data.indices[index * 3]];
+            auto p2 = transformedVertices[data.indices[index * 3 + 1]];
+            auto p3 = transformedVertices[data.indices[index * 3 + 2]];
+            triangles[index].transformMatrix = mat3([p2.x - p1.x, p3.x - p1.x, p1.x,
+                                                    p2.y - p1.y, p3.y - p1.y, p1.y,
+                                                    0, 0, 1]) * triangles[index].offsetMatrices;
+        }
+        forwardMatrix = transform.matrix;
+        inverseMatrix = globalTransform.matrix.inverse;
+    }
 
     override
     void draw() {

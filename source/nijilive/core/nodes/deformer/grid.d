@@ -88,8 +88,8 @@ public:
     string typeId() { return "GridDeformer"; }
 
     override
-    protected void runDynamicTask() {
-        super.runDynamicTask();
+    protected void runPreProcessTask() {
+        super.runPreProcessTask();
         localTransform.update();
         transform();
         inverseMatrix = globalTransform.matrix.inverse;
