@@ -169,6 +169,19 @@ protected:
     vec2 prevScale;
     bool deferredChanged = false;
     Part[] queuedOffscreenParts;
+    bool hasDynamicCompositeAncestor() {
+        for (Node node = parent; node !is null; node = node.parent) {
+            if (cast(DynamicComposite)node !is null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void renderNestedOffscreen(RenderContext ctx) {
+        dynamicRenderBegin(ctx);
+        dynamicRenderEnd(ctx);
+    }
 
     bool initTarget() {
         auto prevTexture = textures[0];
@@ -499,6 +512,40 @@ public:
         this.drawOne();
     }
 
+    override
+    void registerRenderTasks(TaskScheduler scheduler) {
+        if (scheduler is null) return;
+
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+
+        bool allowRenderTasks = !hasDynamicCompositeAncestor();
+        if (allowRenderTasks) {
+            scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
+            scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
+        }
+
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+
+        auto orderedChildren = children.dup;
+        if (orderedChildren.length > 1) {
+            import std.algorithm.sorting : sort;
+            orderedChildren.sort!((a, b) => a.zSort > b.zSort);
+        }
+
+        foreach(child; orderedChildren) {
+            child.registerRenderTasks(scheduler);
+        }
+
+        if (allowRenderTasks) {
+            scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
+        }
+    }
+
     private void dynamicRenderBegin(RenderContext ctx) {
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
@@ -535,7 +582,11 @@ public:
         foreach (Part child; subParts) {
             auto finalMatrix = childBasis * child.transform.matrix();
             child.setOffscreenModelMatrix(finalMatrix);
-            child.enqueueRenderCommands(ctx);
+            if (auto dynChild = cast(DynamicComposite)child) {
+                dynChild.renderNestedOffscreen(ctx);
+            } else {
+                child.enqueueRenderCommands(ctx);
+            }
             queuedOffscreenParts ~= child;
         }
 
