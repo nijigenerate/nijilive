@@ -565,6 +565,7 @@ public:
         return parent_ !is null ? parent_.puppet : puppet_;
     }
 
+
     /**
         Removes all children from this node
     */

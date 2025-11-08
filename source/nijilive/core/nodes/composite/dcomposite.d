@@ -23,6 +23,8 @@ import std.array;
 import std.format;
 import std.range;
 import std.algorithm.comparison : min, max;
+import std.stdio : writefln;
+import std.math : isFinite, ceil;
 import nijilive.core.render.commands;
 import nijilive.core.render.queue : RenderCommandBuffer;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
@@ -172,15 +174,32 @@ protected:
     bool initTarget() {
         auto prevTexture = textures[0];
         auto prevStencil = stencil;
-        auto localBounds = getChildrenBounds(true);
-        vec2 size = localBounds.zw - localBounds.xy;
-        if (size.x <= 0 || size.y <= 0) {
+
+        vec4 targetBounds;
+        if (autoResizedMesh) {
+            targetBounds = getChildrenBounds(true);
+            if (!boundsFinite(targetBounds)) {
+                targetBounds = getMeshBounds();
+            }
+        } else {
+            targetBounds = getMeshBounds();
+            if (!boundsFinite(targetBounds)) {
+                targetBounds = getChildrenBounds(true);
+            }
+        }
+
+        if (!boundsFinite(targetBounds)) {
             return false;
         }
 
-        texWidth = cast(uint)ceil(size.x) + 1;
-        texHeight = cast(uint)ceil(size.y) + 1;
-        textureOffset = (localBounds.xy + localBounds.zw) / 2;
+        vec2 size = targetBounds.zw - targetBounds.xy;
+        if (!sizeFinite(size) || size.x <= 0 || size.y <= 0) {
+            return false;
+        }
+
+        texWidth = cast(uint)(ceil(size.x)) + 1;
+        texHeight = cast(uint)(ceil(size.y)) + 1;
+        textureOffset = (targetBounds.xy + targetBounds.zw) / 2;
         setIgnorePuppet(true);
 
         textures = [new Texture(texWidth, texHeight), null, null];
@@ -436,6 +455,7 @@ public:
             reuseCachedTextureThisFrame = true;
             return;
         }
+        logTextureCoverage("drawContents");
 
         selfSort();
 
@@ -504,6 +524,7 @@ public:
             loggedFirstRenderAttempt = true;
             return;
         }
+        logTextureCoverage("dynamicRenderBegin");
 
         selfSort();
         dynamicScopeToken = ctx.renderQueue.pushDynamicComposite(this);
@@ -668,6 +689,77 @@ public:
         for (Node c = this; c !is null; c = c.parent) {
             c.removeNotifyListener(&onAncestorChanged);
         }
+    }
+
+    bool boundsFinite(vec4 b) const {
+        return isFinite(b.x) && isFinite(b.y) && isFinite(b.z) && isFinite(b.w);
+    }
+
+    bool sizeFinite(vec2 v) const {
+        return isFinite(v.x) && isFinite(v.y);
+    }
+
+    vec4 getMeshBounds() const {
+        if (data.vertices.length == 0) {
+            return vec4(0, 0, 0, 0);
+        }
+        float minX = data.vertices[0].x;
+        float minY = data.vertices[0].y;
+        float maxX = data.vertices[0].x;
+        float maxY = data.vertices[0].y;
+        foreach (v; data.vertices) {
+            minX = min(minX, v.x);
+            minY = min(minY, v.y);
+            maxX = max(maxX, v.x);
+            maxY = max(maxY, v.y);
+        }
+        return vec4(minX, minY, maxX, maxY);
+    }
+
+    void logTextureCoverage(const(char)[] stage) {
+        if (textures[0] is null) return;
+        bool hasChildren = subParts.length > 0;
+        vec4 childBounds;
+        vec2 childSize;
+        if (hasChildren) {
+            childBounds = getChildrenBounds();
+            childSize = childBounds.zw - childBounds.xy;
+            if (!boundsFinite(childBounds) || !sizeFinite(childSize)) {
+                hasChildren = false;
+            }
+        }
+        vec4 meshBounds = getMeshBounds();
+        vec2 meshSize = meshBounds.zw - meshBounds.xy;
+        uint texW = textures[0].width;
+        uint texH = textures[0].height;
+        vec2 offsetMin = hasChildren ? childBounds.xy - textureOffset : vec2(0, 0);
+        vec2 offsetMax = hasChildren ? childBounds.zw - textureOffset : vec2(0, 0);
+        float childCoverX = hasChildren && texW > 0 ? childSize.x / cast(float)texW : 0;
+        float childCoverY = hasChildren && texH > 0 ? childSize.y / cast(float)texH : 0;
+        float meshCoverX = texW > 0 ? meshSize.x / cast(float)texW : 0;
+        float meshCoverY = texH > 0 ? meshSize.y / cast(float)texH : 0;
+
+        bool meshHasData = data.vertices.length > 0 && boundsFinite(meshBounds) && sizeFinite(meshSize);
+        string childBoundsStr = hasChildren
+            ? format("(%.2f, %.2f)-(%.2f, %.2f)", childBounds.x, childBounds.y, childBounds.z, childBounds.w)
+            : "<empty>";
+        string offsetBoundsStr = hasChildren
+            ? format("(%.2f, %.2f)-(%.2f, %.2f)", offsetMin.x, offsetMin.y, offsetMax.x, offsetMax.y)
+            : "<n/a>";
+        string childCoverageStr = hasChildren
+            ? format("(%.1f%%, %.1f%%)", childCoverX * 100, childCoverY * 100)
+            : "N/A";
+        string meshBoundsStr = meshHasData
+            ? format("(%.2f, %.2f)-(%.2f, %.2f)", meshBounds.x, meshBounds.y, meshBounds.z, meshBounds.w)
+            : "<empty>";
+        string meshCoverageStr = meshHasData
+            ? format("(%.1f%%, %.1f%%)", meshCoverX * 100, meshCoverY * 100)
+            : "N/A";
+
+        writefln("[DynamicComposite] %s node=%s tex=%ux%u childBounds=%s childOffset=%s childCoverage=%s "
+                 ~ "meshBounds=%s meshCoverage=%s textureOffset=(%.2f, %.2f)",
+            stage, name, texW, texH, childBoundsStr, offsetBoundsStr, childCoverageStr,
+            meshBoundsStr, meshCoverageStr, textureOffset.x, textureOffset.y);
     }
 
     // In autoResizedMesh mode, texture must be updated when any of the parents is translated, rotated, or scaled.
