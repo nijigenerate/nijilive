@@ -10,8 +10,9 @@ import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, Mask
 import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
-import nijilive.math : vec2, vec3, rect;
+import nijilive.math : vec2, vec3, vec4, rect, mat4;
 import nijilive.math.camera : Camera;
+import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 
 /// GPU周りの共有状態を Backend がキャッシュするための構造体
 struct RenderGpuState {
@@ -48,6 +49,13 @@ interface RenderBackend {
     void setLegacyBlendMode(BlendMode mode);
     void setAdvancedBlendEquation(BlendMode mode);
     void issueBlendBarrier();
+    void initDebugRenderer();
+    void setDebugPointSize(float size);
+    void setDebugLineWidth(float size);
+    void uploadDebugBuffer(vec3[] points, ushort[] indices);
+    void setDebugExternalBuffer(uint vbo, uint ibo, int count);
+    void drawDebugPoints(vec4 color, mat4 mvp);
+    void drawDebugLines(vec4 color, mat4 mvp);
 
     void drawNode(Node node);
     void drawPartPacket(ref PartDrawPacket packet);
@@ -82,4 +90,10 @@ interface RenderBackend {
     uint blendEmissiveHandle();
     uint blendBumpHandle();
     void addBasicLightingPostProcess();
+    void setDifferenceAggregationEnabled(bool enabled);
+    bool isDifferenceAggregationEnabled();
+    void setDifferenceAggregationRegion(DifferenceEvaluationRegion region);
+    DifferenceEvaluationRegion getDifferenceAggregationRegion();
+    bool evaluateDifferenceAggregation(uint texture, int width, int height);
+    bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result);
 }

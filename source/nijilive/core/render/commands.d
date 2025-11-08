@@ -8,7 +8,6 @@ import nijilive.core.nodes.mask : Mask;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.math;
 import nijilive.core.texture : Texture;
-import bindbc.opengl : GLuint;
 
 /// GPUコマンド種別。Backend 側で switch して処理する。
 enum RenderCommandKind {
@@ -47,10 +46,10 @@ struct PartDrawPacket {
     bool hasEmissionOrBumpmap;
     Texture[] textures;
     vec2 origin;
-    GLuint vertexBuffer;
-    GLuint uvBuffer;
-    GLuint deformBuffer;
-    GLuint indexBuffer;
+    uint vertexBuffer;
+    uint uvBuffer;
+    uint deformBuffer;
+    uint indexBuffer;
     uint indexCount;
 }
 
@@ -59,9 +58,9 @@ struct MaskDrawPacket {
     mat4 modelMatrix;
     mat4 mvp;
     vec2 origin;
-    GLuint vertexBuffer;
-    GLuint deformBuffer;
-    GLuint indexBuffer;
+    uint vertexBuffer;
+    uint deformBuffer;
+    uint indexBuffer;
     uint indexCount;
 }
 

@@ -184,8 +184,9 @@ package(nijilive) RenderBackend currentRenderBackend() {
     return requireRenderBackend();
 }
 
+alias GLuint = uint;
+
 version(InDoesRender) {
-    import bindbc.opengl : GLuint;
 
     private RenderBackend renderBackendOrNull() {
         return tryRenderBackend();
@@ -260,7 +261,6 @@ version(InDoesRender) {
         return backend is null ? 0 : handleOrZero(backend.blendBumpHandle());
     }
 } else {
-    alias GLuint = uint;
     GLuint inGetRenderImage() { return 0; }
     GLuint inGetFramebuffer() { return 0; }
     GLuint inGetCompositeImage() { return 0; }

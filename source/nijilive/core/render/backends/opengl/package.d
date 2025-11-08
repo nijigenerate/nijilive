@@ -31,11 +31,27 @@ import nijilive.core.render.backends.opengl.runtime :
     inGetBlendAlbedo,
     inGetBlendEmissive,
     inGetBlendBump;
-import nijilive.math : vec2, vec3, rect;
+import nijilive.core.render.backends.opengl.debug_renderer :
+    initDebugRendererGL,
+    setDebugPointSizeGL,
+    setDebugLineWidthGL,
+    uploadDebugBufferGL,
+    setDebugExternalBufferGL,
+    drawDebugPointsGL,
+    drawDebugLinesGL;
+import nijilive.core.render.backends.opengl.diff_collect_impl :
+    setDifferenceAggregationEnabledGL,
+    isDifferenceAggregationEnabledGL,
+    setDifferenceAggregationRegionGL,
+    getDifferenceAggregationRegionGL,
+    evaluateDifferenceAggregationGL,
+    fetchDifferenceAggregationResultGL;
+import nijilive.math : vec2, vec3, vec4, rect, mat4;
 import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
 import nijilive.math.camera : Camera;
+import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 import nijilive.core.render.backends.opengl.part : glDrawPartPacket;
 import nijilive.core.render.backends.opengl.composite : compositeDrawQuad;
 import nijilive.core.render.backends.opengl.mask : executeMaskApplyPacket, executeMaskPacket;
@@ -147,6 +163,34 @@ class GLRenderBackend : RenderBackend {
 
     override void issueBlendBarrier() {
         glIssueBlendBarrier();
+    }
+
+    override void initDebugRenderer() {
+        initDebugRendererGL();
+    }
+
+    override void setDebugPointSize(float size) {
+        setDebugPointSizeGL(size);
+    }
+
+    override void setDebugLineWidth(float size) {
+        setDebugLineWidthGL(size);
+    }
+
+    override void uploadDebugBuffer(vec3[] points, ushort[] indices) {
+        uploadDebugBufferGL(points, indices);
+    }
+
+    override void setDebugExternalBuffer(uint vbo, uint ibo, int count) {
+        setDebugExternalBufferGL(vbo, ibo, count);
+    }
+
+    override void drawDebugPoints(vec4 color, mat4 mvp) {
+        drawDebugPointsGL(color, mvp);
+    }
+
+    override void drawDebugLines(vec4 color, mat4 mvp) {
+        drawDebugLinesGL(color, mvp);
     }
 
     override void drawNode(Node node) {
@@ -270,6 +314,30 @@ class GLRenderBackend : RenderBackend {
 
     override void addBasicLightingPostProcess() {
         inPostProcessingAddBasicLighting();
+    }
+
+    override void setDifferenceAggregationEnabled(bool enabled) {
+        setDifferenceAggregationEnabledGL(enabled);
+    }
+
+    override bool isDifferenceAggregationEnabled() {
+        return isDifferenceAggregationEnabledGL();
+    }
+
+    override void setDifferenceAggregationRegion(DifferenceEvaluationRegion region) {
+        setDifferenceAggregationRegionGL(region);
+    }
+
+    override DifferenceEvaluationRegion getDifferenceAggregationRegion() {
+        return getDifferenceAggregationRegionGL();
+    }
+
+    override bool evaluateDifferenceAggregation(uint texture, int width, int height) {
+        return evaluateDifferenceAggregationGL(texture, width, height);
+    }
+
+    override bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
+        return fetchDifferenceAggregationResultGL(result);
     }
 }
 
