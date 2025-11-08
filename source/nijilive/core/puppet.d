@@ -12,7 +12,6 @@ import std.json;
 import nijilive.core.render.queue;
 import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 import nijilive.core.render.backends.opengl : GLRenderBackend;
-import nijilive.core.render.graph;
 import nijilive.core.render.scheduler;
 import nijilive.core.texture_types : Filtering;
 
@@ -239,7 +238,7 @@ private:
     Animation[string] animations;
     RenderQueue renderQueue;
     package(nijilive) RenderBackend renderBackend;
-    RenderGraph renderGraph;
+    TaskScheduler renderScheduler;
     RenderContext renderContext;
 
     void scanPartsRecurse(ref Node node, bool driversOnly = false) {
@@ -308,10 +307,6 @@ private:
 
     void selfSort() {
         sort!((a, b) => a.zSort > b.zSort, SwapStrategy.stable)(rootParts);
-    }
-
-    package(nijilive)
-    void markRenderGraphDirty() {
     }
 
     Node findNode(Node n, string name) {
@@ -420,7 +415,7 @@ public:
         transform = Transform(vec3(0, 0, 0));
         renderQueue = new RenderQueue();
         renderBackend = new GLRenderBackend();
-        renderGraph = new RenderGraph();
+        renderScheduler = new TaskScheduler();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
@@ -440,7 +435,7 @@ public:
         this.selfSort();
         renderQueue = new RenderQueue();
         renderBackend = new GLRenderBackend();
-        renderGraph = new RenderGraph();
+        renderScheduler = new TaskScheduler();
         renderContext.renderQueue = &renderQueue;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
@@ -470,10 +465,11 @@ public:
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
         renderQueue.beginFrame();
-        renderGraph.buildFrame(rootNode);
+        renderScheduler.clearTasks();
+        rootNode.registerRenderTasks(renderScheduler);
 
         auto rootForTasks = rootNode;
-        renderGraph.scheduler().addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
+        renderScheduler.addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
             if (renderParameters) {
                 foreach(parameter; parameters) {
                     if (!enableDrivers || parameter !in drivenParameters) {
@@ -493,7 +489,7 @@ public:
             }
         });
 
-        renderGraph.execute(renderContext);
+        renderScheduler.execute(renderContext);
     }
 
     /**

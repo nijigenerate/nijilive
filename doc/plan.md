@@ -5,8 +5,8 @@
 - 各 Node が `run*Task` フック経由で処理を行い、描画は RenderQueue/GPUQueue に積んだコマンドのみで完結させる。
 
 ## ステップ
-1. **RenderGraph / TaskScheduler の復活と整備** *(完了：全ノードが `registerRenderTasks` を通じて `run*Task` を登録し、`Puppet.update()` が `RenderGraph.buildFrame()`→`execute()` のみで処理する構造に移行済み。旧 `begin/update/end` 再帰呼び出しは空実装として除去。今後はステップ2以降へ進む。)*
-   - `Puppet.update()` で `RenderGraph.buildFrame()` → `TaskScheduler.execute()` を呼ぶ構造に切り替える。
+1. **TaskScheduler の復活と整備** *(完了：全ノードが `registerRenderTasks` を通じて `run*Task` を登録し、`Puppet.update()` が `actualRoot.registerRenderTasks()` → `TaskScheduler.execute()` で処理を完了する構造に移行済み。旧 `begin/update/end` 再帰呼び出しは空実装として除去。今後はステップ2以降へ進む。)*
+   - `Puppet.update()` で `actualRoot.registerRenderTasks()` → `TaskScheduler.execute()` を呼ぶ構造に切り替える。
    - `Node.registerRenderTasks()` を全クラスで機能させ、DFS + zSort 順でタスクを積む。旧 `begin/update/end` 再帰呼び出しは順次削除。
 
 2. **RenderContext / RenderQueue の導入** *(完了：RenderContext が RenderQueue/RenderBackend を保持し、`runRenderTask` から `DrawNodeCommand` を enqueue → `Puppet.draw()` で `renderQueue.flush(backend)` を実行する構造が整備済み。今後は各ノードの OpenGL 呼びをコマンド単位で分割するステップ3へ移行する。)*

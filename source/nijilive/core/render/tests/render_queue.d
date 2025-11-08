@@ -19,11 +19,10 @@ import nijilive.core.nodes.deformer.grid;
 import nijilive.core.nodes.deformer.path;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.render.queue;
-import nijilive.core.render.graph;
 import nijilive.core.render.commands : RenderCommandKind, MaskApplyPacket, PartDrawPacket,
     MaskDrawPacket, MaskDrawableKind, CompositeDrawPacket;
 import nijilive.core.render.backends;
-import nijilive.core.render.scheduler : RenderContext;
+import nijilive.core.render.scheduler : RenderContext, TaskScheduler;
 import nijilive.core.meshdata;
 import nijilive.core.texture : Texture;
 import nijilive.core.nodes.part : TextureUsage;
@@ -150,9 +149,12 @@ CommandRecord[] executeFrame(Puppet puppet) {
     ctx.renderBackend = backend;
     ctx.gpuState = RenderGpuState.init;
 
-    RenderGraph graph = new RenderGraph();
-    graph.buildFrame(puppet.actualRoot());
-    graph.execute(ctx);
+    auto scheduler = new TaskScheduler();
+    if (auto root = puppet.actualRoot()) {
+        scheduler.clearTasks();
+        root.registerRenderTasks(scheduler);
+        scheduler.execute(ctx);
+    }
 
     queue.flush(ctx.renderBackend, ctx.gpuState);
     return backend.records.dup;

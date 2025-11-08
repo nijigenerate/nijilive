@@ -10,7 +10,7 @@ nijilive は `TaskScheduler` と `RenderQueue` を核としたパイプライン
 
 ```mermaid
 flowchart TD
-    A[Puppet.update] --> B[RenderGraph.buildFrame<br/>(親→子 1pass)]
+    A[Puppet.update] --> B[actualRoot.registerRenderTasks<br/>(親→子 1pass)]
     B --> C[TaskScheduler.execute<br/>TaskOrder 1..N]
     C --> D[RenderQueue.enqueue<br/>GPUCommand Only]
     D --> E[Puppet.draw<br/>RenderQueue.flush(Backend)]
@@ -21,9 +21,9 @@ flowchart TD
 1. **`Puppet.update()`**
    - Transform／Driver 更新など従来の CPU 処理を行い、`RenderContext` を初期化する
      (`renderQueue` をクリアし、`renderBackend` と `RenderGpuState` を設定)。
-   - `RenderGraph.buildFrame(actualRoot)` が親→子の DFS を 1 回だけ走らせ、
+   - `actualRoot.registerRenderTasks(taskScheduler)` が親→子の DFS を 1 回だけ走らせ、
      各ノードの `registerRenderTasks` が Task を `TaskScheduler` へ登録する。
-   - `RenderGraph.execute(ctx)` が TaskOrder 1..N の順で handler を実行する。
+   - `taskScheduler.execute(ctx)` が TaskOrder 1..N の順で handler を実行する。
      Node 側は `runBeginTask` / `runDynamicTask` / `runRenderTask` などのフックを通じて
     CPU 処理を終え、描画が必要な場合のみ `ctx.renderQueue.enqueueItem(...)` あるいは
     `pushComposite` / `pushDynamicComposite` を通じて RenderQueue へ登録する。
