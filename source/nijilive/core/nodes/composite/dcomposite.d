@@ -23,7 +23,6 @@ import std.array;
 import std.format;
 import std.range;
 import std.algorithm.comparison : min, max;
-import std.stdio : writefln;
 import std.math : isFinite, ceil;
 import nijilive.core.render.commands;
 import nijilive.core.render.queue : RenderCommandBuffer;
@@ -455,7 +454,6 @@ public:
             reuseCachedTextureThisFrame = true;
             return;
         }
-        logTextureCoverage("drawContents");
 
         selfSort();
 
@@ -524,7 +522,6 @@ public:
             loggedFirstRenderAttempt = true;
             return;
         }
-        logTextureCoverage("dynamicRenderBegin");
 
         selfSort();
         dynamicScopeToken = ctx.renderQueue.pushDynamicComposite(this);
@@ -714,52 +711,6 @@ public:
             maxY = max(maxY, v.y);
         }
         return vec4(minX, minY, maxX, maxY);
-    }
-
-    void logTextureCoverage(const(char)[] stage) {
-        if (textures[0] is null) return;
-        bool hasChildren = subParts.length > 0;
-        vec4 childBounds;
-        vec2 childSize;
-        if (hasChildren) {
-            childBounds = getChildrenBounds();
-            childSize = childBounds.zw - childBounds.xy;
-            if (!boundsFinite(childBounds) || !sizeFinite(childSize)) {
-                hasChildren = false;
-            }
-        }
-        vec4 meshBounds = getMeshBounds();
-        vec2 meshSize = meshBounds.zw - meshBounds.xy;
-        uint texW = textures[0].width;
-        uint texH = textures[0].height;
-        vec2 offsetMin = hasChildren ? childBounds.xy - textureOffset : vec2(0, 0);
-        vec2 offsetMax = hasChildren ? childBounds.zw - textureOffset : vec2(0, 0);
-        float childCoverX = hasChildren && texW > 0 ? childSize.x / cast(float)texW : 0;
-        float childCoverY = hasChildren && texH > 0 ? childSize.y / cast(float)texH : 0;
-        float meshCoverX = texW > 0 ? meshSize.x / cast(float)texW : 0;
-        float meshCoverY = texH > 0 ? meshSize.y / cast(float)texH : 0;
-
-        bool meshHasData = data.vertices.length > 0 && boundsFinite(meshBounds) && sizeFinite(meshSize);
-        string childBoundsStr = hasChildren
-            ? format("(%.2f, %.2f)-(%.2f, %.2f)", childBounds.x, childBounds.y, childBounds.z, childBounds.w)
-            : "<empty>";
-        string offsetBoundsStr = hasChildren
-            ? format("(%.2f, %.2f)-(%.2f, %.2f)", offsetMin.x, offsetMin.y, offsetMax.x, offsetMax.y)
-            : "<n/a>";
-        string childCoverageStr = hasChildren
-            ? format("(%.1f%%, %.1f%%)", childCoverX * 100, childCoverY * 100)
-            : "N/A";
-        string meshBoundsStr = meshHasData
-            ? format("(%.2f, %.2f)-(%.2f, %.2f)", meshBounds.x, meshBounds.y, meshBounds.z, meshBounds.w)
-            : "<empty>";
-        string meshCoverageStr = meshHasData
-            ? format("(%.1f%%, %.1f%%)", meshCoverX * 100, meshCoverY * 100)
-            : "N/A";
-
-        writefln("[DynamicComposite] %s node=%s tex=%ux%u childBounds=%s childOffset=%s childCoverage=%s "
-                 ~ "meshBounds=%s meshCoverage=%s textureOffset=(%.2f, %.2f)",
-            stage, name, texW, texH, childBoundsStr, offsetBoundsStr, childCoverageStr,
-            meshBoundsStr, meshCoverageStr, textureOffset.x, textureOffset.y);
     }
 
     // In autoResizedMesh mode, texture must be updated when any of the parents is translated, rotated, or scaled.
