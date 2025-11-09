@@ -3,7 +3,6 @@ module nijilive.core.render.backends.opengl;
 import nijilive.core.render.backends;
 import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
     MaskDrawPacket;
-import nijilive.core.nodes : Node;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.nodes.common : BlendMode;
