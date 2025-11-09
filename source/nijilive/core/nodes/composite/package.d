@@ -441,7 +441,11 @@ public:
             return;
         }
         selfSort();
-        if (subParts.length == 0) return;
+        if (subParts.length == 0) {
+            // 万が一スキャンが漏れていた場合に備え、その場で更新して描画を継続できるようにする
+            scanParts();
+            if (subParts.length == 0) return;
+        }
 
         MaskApplyPacket[] maskPackets;
         bool useStencil = false;

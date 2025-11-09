@@ -44,7 +44,7 @@ private void checkProgram(GLuint program) {
     }
 }
 
-void createShaderProgram(ref ShaderProgramHandle handle, string vertex, string fragment) {
+void oglCreateShaderProgram(ref ShaderProgramHandle handle, string vertex, string fragment) {
     handle.vert = glCreateShader(GL_VERTEX_SHADER);
     auto vsrc = vertex.toStringz;
     glShaderSource(handle.vert, 1, &vsrc, null);
@@ -64,7 +64,7 @@ void createShaderProgram(ref ShaderProgramHandle handle, string vertex, string f
     checkProgram(handle.program);
 }
 
-void destroyShaderProgram(ref ShaderProgramHandle handle) {
+void oglDestroyShaderProgram(ref ShaderProgramHandle handle) {
     if (handle.program) {
         glDetachShader(handle.program, handle.vert);
         glDetachShader(handle.program, handle.frag);
@@ -75,39 +75,39 @@ void destroyShaderProgram(ref ShaderProgramHandle handle) {
     handle = ShaderProgramHandle.init;
 }
 
-void useShaderProgram(ref ShaderProgramHandle handle) {
+void oglUseShaderProgram(ref ShaderProgramHandle handle) {
     glUseProgram(handle.program);
 }
 
-int getUniformLocation(ref ShaderProgramHandle handle, string name) {
+int oglShaderGetUniformLocation(ref ShaderProgramHandle handle, string name) {
     return glGetUniformLocation(handle.program, name.toStringz);
 }
 
-void setUniformBool(int location, bool value) {
+void oglSetUniformBool(int location, bool value) {
     glUniform1i(location, value ? 1 : 0);
 }
 
-void setUniformInt(int location, int value) {
+void oglSetUniformInt(int location, int value) {
     glUniform1i(location, value);
 }
 
-void setUniformFloat(int location, float value) {
+void oglSetUniformFloat(int location, float value) {
     glUniform1f(location, value);
 }
 
-void setUniformVec2(int location, vec2 value) {
+void oglSetUniformVec2(int location, vec2 value) {
     glUniform2f(location, value.x, value.y);
 }
 
-void setUniformVec3(int location, vec3 value) {
+void oglSetUniformVec3(int location, vec3 value) {
     glUniform3f(location, value.x, value.y, value.z);
 }
 
-void setUniformVec4(int location, vec4 value) {
+void oglSetUniformVec4(int location, vec4 value) {
     glUniform4f(location, value.x, value.y, value.z, value.w);
 }
 
-void setUniformMat4(int location, mat4 value) {
+void oglSetUniformMat4(int location, mat4 value) {
     glUniformMatrix4fv(location, 1, GL_TRUE, value.ptr);
 }
 
@@ -115,16 +115,16 @@ void setUniformMat4(int location, mat4 value) {
 
 struct ShaderProgramHandle { }
 
-void createShaderProgram(ref ShaderProgramHandle handle, string vertex, string fragment) { }
-void destroyShaderProgram(ref ShaderProgramHandle handle) { }
-void useShaderProgram(ref ShaderProgramHandle handle) { }
-int getUniformLocation(ref ShaderProgramHandle handle, string name) { return -1; }
-void setUniformBool(int, bool) { }
-void setUniformInt(int, int) { }
-void setUniformFloat(int, float) { }
-void setUniformVec2(int, vec2) { }
-void setUniformVec3(int, vec3) { }
-void setUniformVec4(int, vec4) { }
-void setUniformMat4(int, mat4) { }
+void oglCreateShaderProgram(ref ShaderProgramHandle handle, string vertex, string fragment) { }
+void oglDestroyShaderProgram(ref ShaderProgramHandle handle) { }
+void oglUseShaderProgram(ref ShaderProgramHandle handle) { }
+int oglShaderGetUniformLocation(ref ShaderProgramHandle handle, string name) { return -1; }
+void oglSetUniformBool(int, bool) { }
+void oglSetUniformInt(int, int) { }
+void oglSetUniformFloat(int, float) { }
+void oglSetUniformVec2(int, vec2) { }
+void oglSetUniformVec3(int, vec3) { }
+void oglSetUniformVec4(int, vec4) { }
+void oglSetUniformMat4(int, mat4) { }
 
 }

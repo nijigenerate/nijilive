@@ -436,9 +436,6 @@ public:
 
         foreach (ref command; commands) {
             final switch (command.kind) {
-                case RenderCommandKind.DrawNode:
-                    if (command.node !is null) backend.drawNode(command.node);
-                    break;
                 case RenderCommandKind.DrawPart:
                     backend.drawPartPacket(command.partPacket);
                     break;

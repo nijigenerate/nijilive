@@ -8,7 +8,7 @@ import core.stdc.string : memcpy;
 import nijilive.math;
 import nijilive.core.shader : Shader;
 import nijilive.core.dbg : inInitDebug;
-import nijilive.core.render.backends.opengl.composite_resources : getCompositeVAO;
+import nijilive.core.render.backends.opengl.composite : oglGetCompositeVao;
 import nijilive.core.runtime_state :
     inSetViewport,
     inViewportWidth,
@@ -149,7 +149,7 @@ package(nijilive) {
     /**
         Initializes the renderer (OpenGL-specific portion)
     */
-    void initRendererOpenGL() {
+    void oglInitRenderer() {
 
         // Set the viewport and by extension set the textures
         inSetViewport(640, 480);
@@ -213,7 +213,7 @@ package(nijilive) {
 /**
     Begins rendering to the framebuffer
 */
-void inBeginScene() {
+void oglBeginScene() {
     glBindVertexArray(sceneVAO);
     glEnable(GL_BLEND);
     glEnablei(GL_BLEND, 0);
@@ -254,7 +254,7 @@ void inBeginScene() {
 /**
     Begins a composition step
 */
-void inBeginComposite() {
+void oglBeginComposite() {
 
     CompositeFrameState frameState;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &frameState.framebuffer);
@@ -275,7 +275,7 @@ void inBeginComposite() {
 /**
     Ends a composition step, re-binding the internal framebuffer
 */
-void inEndComposite() {
+void oglEndComposite() {
     if (compositeScopeStack.length == 0) return;
 
     auto frameState = compositeScopeStack[$ - 1];
@@ -295,7 +295,7 @@ void inEndComposite() {
 /**
     Ends rendering to the framebuffer
 */
-void inEndScene() {
+void oglEndScene() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     glDisablei(GL_BLEND, 0);
@@ -314,7 +314,7 @@ void inEndScene() {
 /**
     Runs post processing on the scene
 */
-void inPostProcessScene() {
+void oglPostProcessScene() {
     if (postProcessingStack.length == 0) return;
     
     bool targetBuffer;
@@ -389,7 +389,7 @@ void inPostProcessScene() {
 /**
     Add basic lighting shader to processing stack
 */
-void inPostProcessingAddBasicLighting() {
+void oglAddBasicLightingPostProcess() {
     postProcessingStack ~= PostProcessingShader(
         new Shader(
             import("scene.vert"),
@@ -401,14 +401,14 @@ void inPostProcessingAddBasicLighting() {
 /**
     Clears the post processing stack
 */
-ref PostProcessingShader[] inGetPostProcessingStack() {
+ref PostProcessingShader[] oglGetPostProcessingStack() {
     return postProcessingStack;
 }
 
 /**
     Draw scene to area
 */
-void inDrawScene(vec4 area) {
+void oglDrawScene(vec4 area) {
     float[] data = [
         area.x,         area.y+area.w,          0, 0,
         area.x,         area.y,                 0, 1,
@@ -424,7 +424,7 @@ void inDrawScene(vec4 area) {
     renderScene(area, basicSceneShader, fAlbedo, fEmissive, fBump);
 }
 
-void incCompositePrepareRender() {
+void oglPrepareCompositeScene() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, cfAlbedo);
     glActiveTexture(GL_TEXTURE1);
@@ -438,7 +438,7 @@ void incCompositePrepareRender() {
 
     DO NOT MODIFY THIS IMAGE!
 */
-GLuint inGetFramebuffer() {
+GLuint oglGetFramebuffer() {
     return fBuffer;
 }
 
@@ -447,7 +447,7 @@ GLuint inGetFramebuffer() {
 
     DO NOT MODIFY THIS IMAGE!
 */
-GLuint inGetRenderImage() {
+GLuint oglGetRenderImage() {
     return fAlbedo;
 }
 
@@ -456,43 +456,43 @@ GLuint inGetRenderImage() {
 
     DO NOT MODIFY THIS IMAGE!
 */
-GLuint inGetCompositeImage() {
+GLuint oglGetCompositeImage() {
     return cfAlbedo;
 }
 
-package(nijilive) GLuint inGetCompositeFramebuffer() {
+package(nijilive) GLuint oglGetCompositeFramebuffer() {
     return cfBuffer;
 }
 
-package(nijilive) GLuint inGetBlendFramebuffer() {
+package(nijilive) GLuint oglGetBlendFramebuffer() {
     return blendFBO;
 }
 
-package(nijilive) GLuint inGetMainEmissive() {
+package(nijilive) GLuint oglGetMainEmissive() {
     return fEmissive;
 }
 
-package(nijilive) GLuint inGetMainBump() {
+package(nijilive) GLuint oglGetMainBump() {
     return fBump;
 }
 
-package(nijilive) GLuint inGetCompositeEmissive() {
+package(nijilive) GLuint oglGetCompositeEmissive() {
     return cfEmissive;
 }
 
-package(nijilive) GLuint inGetCompositeBump() {
+package(nijilive) GLuint oglGetCompositeBump() {
     return cfBump;
 }
 
-package(nijilive) GLuint inGetBlendAlbedo() {
+package(nijilive) GLuint oglGetBlendAlbedo() {
     return blendAlbedo;
 }
 
-package(nijilive) GLuint inGetBlendEmissive() {
+package(nijilive) GLuint oglGetBlendEmissive() {
     return blendEmissive;
 }
 
-package(nijilive) GLuint inGetBlendBump() {
+package(nijilive) GLuint oglGetBlendBump() {
     return blendBump;
 }
 
@@ -501,22 +501,21 @@ package(nijilive) GLuint inGetBlendBump() {
 
     DO NOT MODIFY THIS IMAGE!
 */
-GLuint inGetMainAlbedo() {
+GLuint oglGetMainAlbedo() {
     return fAlbedo;
 }
 
 /**
     Gets the blend shader for the specified mode
 */
-GLuint inGetCompositeVAO() {
+GLuint oglGetCompositeVaoHandle() {
     version (InDoesRender) {
-        import nijilive.core.render.backends.opengl.composite_resources : getCompositeVAO;
-        return getCompositeVAO();
+        return oglGetCompositeVao();
     }
     return 0;
 }
 
-package(nijilive) void inSwapMainCompositeBuffers() {
+package(nijilive) void oglSwapMainCompositeBuffers() {
     swap(fAlbedo, cfAlbedo);
     swap(fEmissive, cfEmissive);
     swap(fBump, cfBump);
@@ -540,7 +539,7 @@ package(nijilive) void inSwapMainCompositeBuffers() {
     glBindFramebuffer(GL_FRAMEBUFFER, previous_fbo);
 }
 package(nijilive)
-void resizeViewportOpenGL(int width, int height) {
+void oglResizeViewport(int width, int height) {
     version(InDoesRender) {
         // Render Framebuffer
         glBindTexture(GL_TEXTURE_2D, fAlbedo);
@@ -628,7 +627,7 @@ void resizeViewportOpenGL(int width, int height) {
     Dumps viewport data to texture stream
 */
 package(nijilive)
-void dumpViewportOpenGL(ref ubyte[] dumpTo, int width, int height) {
+void oglDumpViewport(ref ubyte[] dumpTo, int width, int height) {
     version(InDoesRender) {
         if (width == 0 || height == 0) return;
         glBindTexture(GL_TEXTURE_2D, fAlbedo);

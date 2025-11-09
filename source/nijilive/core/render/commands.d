@@ -11,7 +11,6 @@ import nijilive.core.texture : Texture;
 
 /// GPUコマンド種別。Backend 側で switch して処理する。
 enum RenderCommandKind {
-    DrawNode,
     DrawPart,
     DrawMask,
     BeginDynamicComposite,
@@ -74,7 +73,6 @@ struct MaskApplyPacket {
 /// RenderQueue に積まれる汎用パケット。
 struct RenderCommandData {
     RenderCommandKind kind;
-    Node node;
     PartDrawPacket partPacket;
     MaskDrawPacket maskDrawPacket;
     DynamicComposite dynamicComposite;
@@ -88,13 +86,6 @@ struct CompositeDrawPacket {
     float opacity;
     vec3 tint;
     vec3 screenTint;
-}
-
-RenderCommandData makeDrawNodeCommand(Node node) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.DrawNode;
-    data.node = node;
-    return data;
 }
 
 PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {

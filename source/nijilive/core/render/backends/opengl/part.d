@@ -1,41 +1,135 @@
 module nijilive.core.render.backends.opengl.part;
 
+version (InDoesRender) {
+
 import bindbc.opengl;
 import nijilive.core.nodes.part : Part;
-import nijilive.core.render.backends.opengl.part_resources : boundAlbedo, partShader,
-    partShaderStage1, partShaderStage2, partMaskShader, offset, mvp, gopacity, gMultColor,
-    gScreenColor, gEmissionStrength, gs1offset, gs1mvp, gs1opacity, gs1MultColor,
-    gs1ScreenColor, gs2offset, gs2mvp, gs2opacity, gs2EmissionStrength, gs2MultColor,
-    gs2ScreenColor, mmvp, mthreshold;
 import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFallbackEnabled,
     inSetBlendMode, inBlendModeBarrier;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.commands : PartDrawPacket;
 import nijilive.core.runtime_state : inGetCamera, inGetViewport;
 import nijilive.core.render.backends.opengl.runtime :
-    inGetFramebuffer,
-    inGetCompositeFramebuffer,
-    inGetBlendFramebuffer,
-    inGetMainAlbedo,
-    inGetCompositeImage,
-    inGetMainEmissive,
-    inGetCompositeEmissive,
-    inGetMainBump,
-    inGetCompositeBump,
-    inGetBlendAlbedo,
-    inGetBlendEmissive,
-    inGetBlendBump,
-    inSwapMainCompositeBuffers;
-import nijilive.core.render.backends.opengl.blend_resources : getBlendShader, blendToBuffer;
-import nijilive.math : mat4;
+    oglGetFramebuffer,
+    oglGetCompositeFramebuffer,
+    oglGetBlendFramebuffer,
+    oglGetMainAlbedo,
+    oglGetCompositeImage,
+    oglGetMainEmissive,
+    oglGetCompositeEmissive,
+    oglGetMainBump,
+    oglGetCompositeBump,
+    oglGetBlendAlbedo,
+    oglGetBlendEmissive,
+    oglGetBlendBump,
+    oglSwapMainCompositeBuffers;
+import nijilive.core.render.backends.opengl.blend : oglGetBlendShader, oglBlendToBuffer;
+import nijilive.core.meshdata : MeshData;
+import nijilive.core.texture : Texture;
+import nijilive.core.shader : Shader;
+import nijilive.math : mat4, vec2;
 
-void glDrawPartPacket(ref PartDrawPacket packet) {
-    auto part = packet.part;
-    if (part is null || !part.backendRenderable()) return;
-    executePartPacket(packet);
+package(nijilive) {
+    __gshared Texture boundAlbedo;
+    __gshared Shader partShader;
+    __gshared Shader partShaderStage1;
+    __gshared Shader partShaderStage2;
+    __gshared Shader partMaskShader;
+    __gshared GLint mvp;
+    __gshared GLint offset;
+    __gshared GLint gopacity;
+    __gshared GLint gMultColor;
+    __gshared GLint gScreenColor;
+    __gshared GLint gEmissionStrength;
+    __gshared GLint gs1mvp;
+    __gshared GLint gs1offset;
+    __gshared GLint gs1opacity;
+    __gshared GLint gs1MultColor;
+    __gshared GLint gs1ScreenColor;
+    __gshared GLint gs2mvp;
+    __gshared GLint gs2offset;
+    __gshared GLint gs2opacity;
+    __gshared GLint gs2EmissionStrength;
+    __gshared GLint gs2MultColor;
+    __gshared GLint gs2ScreenColor;
+    __gshared GLint mmvp;
+    __gshared GLint mthreshold;
+    __gshared GLuint sVertexBuffer;
+    __gshared GLuint sUVBuffer;
+    __gshared GLuint sElementBuffer;
+    __gshared bool partBackendInitialized = false;
 }
 
-void executePartPacket(ref PartDrawPacket packet) {
+void oglInitPartBackendResources() {
+    if (partBackendInitialized) return;
+    partBackendInitialized = true;
+
+    partShader = new Shader(import("basic/basic.vert"), import("basic/basic.frag"));
+    partShaderStage1 = new Shader(import("basic/basic.vert"), import("basic/basic-stage1.frag"));
+    partShaderStage2 = new Shader(import("basic/basic.vert"), import("basic/basic-stage2.frag"));
+    partMaskShader = new Shader(import("basic/basic.vert"), import("basic/basic-mask.frag"));
+
+    incDrawableBindVAO();
+
+    partShader.use();
+    partShader.setUniform(partShader.getUniformLocation("albedo"), 0);
+    partShader.setUniform(partShader.getUniformLocation("emissive"), 1);
+    partShader.setUniform(partShader.getUniformLocation("bumpmap"), 2);
+    mvp = partShader.getUniformLocation("mvp");
+    offset = partShader.getUniformLocation("offset");
+    gopacity = partShader.getUniformLocation("opacity");
+    gMultColor = partShader.getUniformLocation("multColor");
+    gScreenColor = partShader.getUniformLocation("screenColor");
+    gEmissionStrength = partShader.getUniformLocation("emissionStrength");
+
+    partShaderStage1.use();
+    partShaderStage1.setUniform(partShader.getUniformLocation("albedo"), 0);
+    gs1mvp = partShaderStage1.getUniformLocation("mvp");
+    gs1offset = partShaderStage1.getUniformLocation("offset");
+    gs1opacity = partShaderStage1.getUniformLocation("opacity");
+    gs1MultColor = partShaderStage1.getUniformLocation("multColor");
+    gs1ScreenColor = partShaderStage1.getUniformLocation("screenColor");
+
+    partShaderStage2.use();
+    partShaderStage2.setUniform(partShaderStage2.getUniformLocation("emissive"), 1);
+    partShaderStage2.setUniform(partShaderStage2.getUniformLocation("bumpmap"), 2);
+    gs2mvp = partShaderStage2.getUniformLocation("mvp");
+    gs2offset = partShaderStage2.getUniformLocation("offset");
+    gs2opacity = partShaderStage2.getUniformLocation("opacity");
+    gs2MultColor = partShaderStage2.getUniformLocation("multColor");
+    gs2ScreenColor = partShaderStage2.getUniformLocation("screenColor");
+    gs2EmissionStrength = partShaderStage2.getUniformLocation("emissionStrength");
+
+    partMaskShader.use();
+    partMaskShader.setUniform(partMaskShader.getUniformLocation("albedo"), 0);
+    partMaskShader.setUniform(partMaskShader.getUniformLocation("emissive"), 1);
+    partMaskShader.setUniform(partMaskShader.getUniformLocation("bumpmap"), 2);
+    mmvp = partMaskShader.getUniformLocation("mvp");
+    mthreshold = partMaskShader.getUniformLocation("threshold");
+
+    glGenBuffers(1, &sVertexBuffer);
+    glGenBuffers(1, &sUVBuffer);
+    glGenBuffers(1, &sElementBuffer);
+}
+
+uint oglCreatePartUvBuffer() {
+    uint buffer;
+    glGenBuffers(1, &buffer);
+    return buffer;
+}
+
+void oglUpdatePartUvBuffer(uint uvbo, ref MeshData data) {
+    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
+    glBufferData(GL_ARRAY_BUFFER, data.uvs.length * vec2.sizeof, data.uvs.ptr, GL_STATIC_DRAW);
+}
+
+void oglDrawPartPacket(ref PartDrawPacket packet) {
+    auto part = packet.part;
+    if (part is null || !part.backendRenderable()) return;
+    oglExecutePartPacket(packet);
+}
+
+void oglExecutePartPacket(ref PartDrawPacket packet) {
     auto part = packet.part;
     if (part is null) return;
 
@@ -61,7 +155,6 @@ void executePartPacket(ref PartDrawPacket packet) {
         puppetMatrix = part.puppet.transform.matrix;
     }
     mat4 cameraMatrix = inGetCamera().matrix;
-    // no logging
 
     if (packet.isMask) {
         mat4 mvpMatrix = cameraMatrix * puppetMatrix * matrix;
@@ -86,7 +179,7 @@ void executePartPacket(ref PartDrawPacket packet) {
             }
         } else {
             if (nlIsTripleBufferFallbackEnabled()) {
-                auto blendShader = getBlendShader(packet.blendingMode);
+                auto blendShader = oglGetBlendShader(packet.blendingMode);
                 if (blendShader) {
                     GLint previous_draw_fbo;
                     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
@@ -95,8 +188,8 @@ void executePartPacket(ref PartDrawPacket packet) {
                     GLfloat[4] previous_clear_color;
                     glGetFloatv(GL_COLOR_CLEAR_VALUE, previous_clear_color.ptr);
 
-                    bool drawingMainBuffer = previous_draw_fbo == inGetFramebuffer();
-                    bool drawingCompositeBuffer = previous_draw_fbo == inGetCompositeFramebuffer();
+                    bool drawingMainBuffer = previous_draw_fbo == oglGetFramebuffer();
+                    bool drawingCompositeBuffer = previous_draw_fbo == oglGetCompositeFramebuffer();
 
                     if (!drawingMainBuffer && !drawingCompositeBuffer) {
                         setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
@@ -112,7 +205,7 @@ void executePartPacket(ref PartDrawPacket packet) {
                     GLint[4] previousViewport;
                     glGetIntegerv(GL_VIEWPORT, previousViewport.ptr);
 
-                    GLuint blendFramebuffer = inGetBlendFramebuffer();
+                    GLuint blendFramebuffer = oglGetBlendFramebuffer();
                     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
                     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
                     glViewport(0, 0, viewportWidth, viewportHeight);
@@ -121,16 +214,16 @@ void executePartPacket(ref PartDrawPacket packet) {
                     setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
                     renderStage(packet, false);
 
-                    GLuint bgAlbedo = drawingMainBuffer ? inGetMainAlbedo() : inGetCompositeImage();
-                    GLuint bgEmissive = drawingMainBuffer ? inGetMainEmissive() : inGetCompositeEmissive();
-                    GLuint bgBump = drawingMainBuffer ? inGetMainBump() : inGetCompositeBump();
+                    GLuint bgAlbedo = drawingMainBuffer ? oglGetMainAlbedo() : oglGetCompositeImage();
+                    GLuint bgEmissive = drawingMainBuffer ? oglGetMainEmissive() : oglGetCompositeEmissive();
+                    GLuint bgBump = drawingMainBuffer ? oglGetMainBump() : oglGetCompositeBump();
 
-                    GLuint fgAlbedo = inGetBlendAlbedo();
-                    GLuint fgEmissive = inGetBlendEmissive();
-                    GLuint fgBump = inGetBlendBump();
+                    GLuint fgAlbedo = oglGetBlendAlbedo();
+                    GLuint fgEmissive = oglGetBlendEmissive();
+                    GLuint fgBump = oglGetBlendBump();
 
-                    GLuint destinationFBO = drawingMainBuffer ? inGetCompositeFramebuffer() : inGetFramebuffer();
-                    blendToBuffer(
+                    GLuint destinationFBO = drawingMainBuffer ? oglGetCompositeFramebuffer() : oglGetFramebuffer();
+                    oglBlendToBuffer(
                         blendShader,
                         packet.blendingMode,
                         destinationFBO,
@@ -138,9 +231,9 @@ void executePartPacket(ref PartDrawPacket packet) {
                         fgAlbedo, fgEmissive, fgBump
                     );
 
-                    inSwapMainCompositeBuffers();
+                    oglSwapMainCompositeBuffers();
 
-                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawingMainBuffer ? inGetFramebuffer() : inGetCompositeFramebuffer());
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawingMainBuffer ? oglGetFramebuffer() : oglGetCompositeFramebuffer());
                     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
                     glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
                     glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
@@ -234,4 +327,17 @@ private void renderStage(ref PartDrawPacket packet, bool advanced) {
     if (advanced) {
         inBlendModeBarrier(packet.blendingMode);
     }
+}
+
+} else {
+
+import nijilive.core.render.commands : PartDrawPacket;
+import nijilive.core.meshdata : MeshData;
+
+void oglInitPartBackendResources() {}
+uint oglCreatePartUvBuffer() { return 0; }
+void oglUpdatePartUvBuffer(uint, ref MeshData) {}
+void oglDrawPartPacket(ref PartDrawPacket) {}
+void oglExecutePartPacket(ref PartDrawPacket) {}
+
 }

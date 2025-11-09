@@ -28,7 +28,6 @@ public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
 import nijilive.core.render.queue;
-import nijilive.core.render.commands : makeDrawNodeCommand;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
 import nijilive.core.render.scheduler;
@@ -883,12 +882,8 @@ public:
     }
 
     protected void runRenderTask(RenderContext ctx) {
-        if (!renderEnabled() || ctx.renderQueue is null) return;
-        auto scopeHint = determineRenderScopeHint();
-        if (scopeHint.skip) return;
-        ctx.renderQueue.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
-            buffer.add(makeDrawNodeCommand(this));
-        });
+        // 基底ノードは直接描画しない。描画が必要なノードは個別にオーバーライドして
+        // RenderQueue へコマンドを積む。
     }
 
     protected void runRenderBeginTask(RenderContext ctx) {

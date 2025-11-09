@@ -1,21 +1,50 @@
 module nijilive.core.render.backends.opengl.mask;
 
-version (InDoesRender):
+import nijilive.core.render.commands : MaskApplyPacket, MaskDrawPacket, MaskDrawableKind;
+
+version (InDoesRender) {
 
 import bindbc.opengl;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
-import nijilive.core.render.backends.opengl.mask_resources : maskShader, maskOffsetUniform,
-    maskMvpUniform, initMaskBackendResources, maskBackendInitialized;
-import nijilive.core.render.backends.opengl.part : executePartPacket;
-import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind;
+import nijilive.core.render.backends.opengl.part : oglExecutePartPacket;
+import nijilive.core.shader : Shader;
 
-void ensureMaskBackendInitialized() {
-    if (!maskBackendInitialized) {
-        initMaskBackendResources();
-    }
+private __gshared Shader maskShader;
+private __gshared GLint maskOffsetUniform;
+private __gshared GLint maskMvpUniform;
+private __gshared bool maskBackendInitialized = false;
+
+private void ensureMaskBackendInitialized() {
+    if (maskBackendInitialized) return;
+    maskBackendInitialized = true;
+
+    maskShader = new Shader(import("mask.vert"), import("mask.frag"));
+    maskOffsetUniform = maskShader.getUniformLocation("offset");
+    maskMvpUniform = maskShader.getUniformLocation("mvp");
 }
 
-void executeMaskPacket(ref MaskDrawPacket packet) {
+void oglInitMaskBackend() {
+    ensureMaskBackendInitialized();
+}
+
+void oglBeginMask(bool hasMasks) {
+    glEnable(GL_STENCIL_TEST);
+    glClearStencil(hasMasks ? 0 : 1);
+    glClear(GL_STENCIL_BUFFER_BIT);
+}
+
+void oglEndMask() {
+    glStencilMask(0xFF);
+    glStencilFunc(GL_ALWAYS, 1, 0xFF);
+    glDisable(GL_STENCIL_TEST);
+}
+
+void oglBeginMaskContent() {
+    glStencilFunc(GL_EQUAL, 1, 0xFF);
+    glStencilMask(0x00);
+}
+
+void oglExecuteMaskPacket(ref MaskDrawPacket packet) {
     ensureMaskBackendInitialized();
     if (packet.indexCount == 0) return;
 
@@ -40,7 +69,7 @@ void executeMaskPacket(ref MaskDrawPacket packet) {
     glDisableVertexAttribArray(1);
 }
 
-void executeMaskApplyPacket(ref MaskApplyPacket packet) {
+void oglExecuteMaskApplyPacket(ref MaskApplyPacket packet) {
     ensureMaskBackendInitialized();
     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
@@ -49,12 +78,25 @@ void executeMaskApplyPacket(ref MaskApplyPacket packet) {
 
     final switch (packet.kind) {
         case MaskDrawableKind.Part:
-            executePartPacket(packet.partPacket);
+            oglExecutePartPacket(packet.partPacket);
             break;
         case MaskDrawableKind.Mask:
-            executeMaskPacket(packet.maskPacket);
+            oglExecuteMaskPacket(packet.maskPacket);
             break;
     }
 
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
+} else {
+
+import nijilive.core.render.commands : MaskApplyPacket, MaskDrawPacket;
+
+void oglBeginMask(bool) {}
+void oglEndMask() {}
+void oglBeginMaskContent() {}
+void oglExecuteMaskPacket(ref MaskDrawPacket) {}
+void oglExecuteMaskApplyPacket(ref MaskApplyPacket) {}
+void oglInitMaskBackend() {}
+
 }

@@ -434,27 +434,27 @@ private struct DifferenceEvaluator {
 
 private DifferenceEvaluator gDifferenceEvaluator;
 
-package(nijilive) void setDifferenceAggregationEnabledGL(bool enabled) {
+package(nijilive) void oglSetDifferenceAggregationEnabled(bool enabled) {
     gDifferenceEvaluator.setEnabled(enabled);
 }
 
-package(nijilive) bool isDifferenceAggregationEnabledGL() {
+package(nijilive) bool oglIsDifferenceAggregationEnabled() {
     return gDifferenceEvaluator.isEnabled();
 }
 
-package(nijilive) void setDifferenceAggregationRegionGL(DifferenceEvaluationRegion region) {
+package(nijilive) void oglSetDifferenceAggregationRegion(DifferenceEvaluationRegion region) {
     gDifferenceEvaluator.setRegion(region);
 }
 
-package(nijilive) DifferenceEvaluationRegion getDifferenceAggregationRegionGL() {
+package(nijilive) DifferenceEvaluationRegion oglGetDifferenceAggregationRegion() {
     return gDifferenceEvaluator.getRegion();
 }
 
-package(nijilive) bool evaluateDifferenceAggregationGL(uint texture, int viewportWidth, int viewportHeight) {
+package(nijilive) bool oglEvaluateDifferenceAggregation(uint texture, int viewportWidth, int viewportHeight) {
     return gDifferenceEvaluator.evaluate(cast(GLuint)texture, viewportWidth, viewportHeight);
 }
 
-package(nijilive) bool fetchDifferenceAggregationResultGL(out DifferenceEvaluationResult result) {
+package(nijilive) bool oglFetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
     return gDifferenceEvaluator.fetch(result);
 }
 
@@ -509,14 +509,14 @@ private GLuint linkProgram(GLuint vertexShader, GLuint fragmentShader) {
 
 } else {
 
-package(nijilive) void setDifferenceAggregationEnabledGL(bool) {}
-package(nijilive) bool isDifferenceAggregationEnabledGL() { return false; }
-package(nijilive) void setDifferenceAggregationRegionGL(DifferenceEvaluationRegion) {}
-package(nijilive) DifferenceEvaluationRegion getDifferenceAggregationRegionGL() {
+package(nijilive) void oglSetDifferenceAggregationEnabled(bool) {}
+package(nijilive) bool oglIsDifferenceAggregationEnabled() { return false; }
+package(nijilive) void oglSetDifferenceAggregationRegion(DifferenceEvaluationRegion) {}
+package(nijilive) DifferenceEvaluationRegion oglGetDifferenceAggregationRegion() {
     return DifferenceEvaluationRegion.init;
 }
-package(nijilive) bool evaluateDifferenceAggregationGL(uint, int, int) { return false; }
-package(nijilive) bool fetchDifferenceAggregationResultGL(out DifferenceEvaluationResult result) {
+package(nijilive) bool oglEvaluateDifferenceAggregation(uint, int, int) { return false; }
+package(nijilive) bool oglFetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
     result = DifferenceEvaluationResult.init;
     return false;
 }

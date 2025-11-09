@@ -219,7 +219,7 @@ public:
         this.channels_ = outChannels;
         this.stencil_ = stencil;
 
-        createTextureHandle(id);
+        oglCreateTextureHandle(id);
         this.setData(data, inChannels);
 
         this.setFiltering(Filtering.Linear);
@@ -290,18 +290,18 @@ public:
         Set the filtering mode used for the texture
     */
     void setFiltering(Filtering filtering) {
-        applyTextureFiltering(id, filtering);
+        oglApplyTextureFiltering(id, filtering);
     }
 
     void setAnisotropy(float value) {
-        applyTextureAnisotropy(id, clamp(value, 1, incGetMaxAnisotropy()));
+        oglApplyTextureAnisotropy(id, clamp(value, 1, incGetMaxAnisotropy()));
     }
 
     /**
         Set the wrapping mode used for the texture
     */
     void setWrapping(Wrapping wrapping) {
-        applyTextureWrapping(id, wrapping);
+        oglApplyTextureWrapping(id, wrapping);
     }
 
     /**
@@ -313,7 +313,7 @@ public:
             lockedData = data;
             modified = true;
         } else {
-            uploadTextureData(id, width_, height_, actualChannels, channels_, stencil_, data);
+            oglUploadTextureData(id, width_, height_, actualChannels, channels_, stencil_, data);
             this.genMipmap();
         }
     }
@@ -323,7 +323,7 @@ public:
     */
     void genMipmap() {
         if (!stencil_) {
-            generateTextureMipmap(id);
+            oglGenerateTextureMipmap(id);
         }
     }
 
@@ -337,7 +337,7 @@ public:
         enforce( x >= 0 && x+width <= this.width_, "x offset is out of bounds (xoffset=%s, xbound=%s)".format(x+width, this.width_));
         enforce( y >= 0 && y+height <= this.height_, "y offset is out of bounds (yoffset=%s, ybound=%s)".format(y+height, this.height_));
 
-        updateTextureRegion(id, x, y, width, height, actualChannels, data);
+        oglUpdateTextureRegion(id, x, y, width, height, actualChannels, data);
 
         this.genMipmap();
     }
@@ -351,7 +351,7 @@ public:
     */
     void bind(uint unit = 0) {
         assert(unit <= 31u, "Outside maximum OpenGL texture unit value");
-        bindTextureHandle(id, unit);
+        oglBindTextureHandle(id, unit);
     }
 
     /**
@@ -369,7 +369,7 @@ public:
             return lockedData;
         } else {
             ubyte[] buf = new ubyte[width*height*channels_];
-            readTextureData(id, channels_, stencil_, buf);
+            oglReadTextureData(id, channels_, stencil_, buf);
             if (unmultiply && channels == 4) {
                 inTexUnPremuliply(buf);
             }
@@ -388,7 +388,7 @@ public:
         Disposes texture from GL
     */
     void dispose() {
-        deleteTextureHandle(id);
+        oglDeleteTextureHandle(id);
     }
 
     Texture dup() {
@@ -425,7 +425,7 @@ private {
     Gets the maximum level of anisotropy
 */
 float incGetMaxAnisotropy() {
-    return maxTextureAnisotropy();
+    return oglMaxTextureAnisotropy();
 }
 
 /**

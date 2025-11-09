@@ -8,10 +8,10 @@ import nijilive.math;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.texture : Texture;
 import nijilive.core.nodes.part : Part;
-import nijilive.core.render.backends.opengl.part_resources : partShader, gopacity, gMultColor,
+import nijilive.core.render.backends.opengl.part : partShader, gopacity, gMultColor,
     gScreenColor, mvp, sVertexBuffer, sUVBuffer, sElementBuffer;
 
-void inDrawTextureAtPart(Texture texture, Part part) {
+void oglDrawTextureAtPart(Texture texture, Part part) {
     if (texture is null || part is null) return;
 
     const float texWidthP = texture.width()/2;
@@ -61,7 +61,7 @@ void inDrawTextureAtPart(Texture texture, Part part) {
     glDisableVertexAttribArray(1);
 }
 
-void inDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, vec3 color = vec3(1, 1, 1), vec3 screenColor = vec3(0, 0, 0)) {
+void oglDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, vec3 color = vec3(1, 1, 1), vec3 screenColor = vec3(0, 0, 0)) {
     if (texture is null) return;
 
     const float texWidthP = texture.width()/2;
@@ -112,7 +112,7 @@ void inDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, 
     glDisableVertexAttribArray(1);
 }
 
-void inDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1), float opacity = 1, vec3 color = vec3(1, 1, 1), vec3 screenColor = vec3(0, 0, 0), Shader s = null, Camera cam = null) {
+void oglDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1), float opacity = 1, vec3 color = vec3(1, 1, 1), vec3 screenColor = vec3(0, 0, 0), Shader s = null, Camera cam = null) {
     if (texture is null) return;
 
     incDrawableBindVAO();

@@ -9,17 +9,17 @@ module nijilive.core.shader;
 import nijilive.math;
 import nijilive.core.render.backends.opengl.shader_backend :
     ShaderProgramHandle,
-    createShaderProgram,
-    destroyShaderProgram,
-    useShaderProgram,
-    shaderGetUniformLocation = getUniformLocation,
-    setUniformBool,
-    setUniformInt,
-    setUniformFloat,
-    setUniformVec2,
-    setUniformVec3,
-    setUniformVec4,
-    setUniformMat4;
+    oglCreateShaderProgram,
+    oglDestroyShaderProgram,
+    oglUseShaderProgram,
+    oglShaderGetUniformLocation,
+    oglSetUniformBool,
+    oglSetUniformInt,
+    oglSetUniformFloat,
+    oglSetUniformVec2,
+    oglSetUniformVec3,
+    oglSetUniformVec4,
+    oglSetUniformMat4;
 
 /**
     A shader
@@ -34,52 +34,52 @@ public:
         Destructor
     */
     ~this() {
-        destroyShaderProgram(handle);
+        oglDestroyShaderProgram(handle);
     }
 
     /**
         Creates a new shader object from source
     */
     this(string vertex, string fragment) {
-        createShaderProgram(handle, vertex, fragment);
+        oglCreateShaderProgram(handle, vertex, fragment);
     }
 
     /**
         Use the shader
     */
     void use() {
-        useShaderProgram(handle);
+        oglUseShaderProgram(handle);
     }
 
     int getUniformLocation(string name) {
-        return shaderGetUniformLocation(handle, name);
+        return oglShaderGetUniformLocation(handle, name);
     }
 
     void setUniform(int uniform, bool value) {
-        setUniformBool(uniform, value);
+        oglSetUniformBool(uniform, value);
     }
 
     void setUniform(int uniform, int value) {
-        setUniformInt(uniform, value);
+        oglSetUniformInt(uniform, value);
     }
 
     void setUniform(int uniform, float value) {
-        setUniformFloat(uniform, value);
+        oglSetUniformFloat(uniform, value);
     }
 
     void setUniform(int uniform, vec2 value) {
-        setUniformVec2(uniform, value);
+        oglSetUniformVec2(uniform, value);
     }
 
     void setUniform(int uniform, vec3 value) {
-        setUniformVec3(uniform, value);
+        oglSetUniformVec3(uniform, value);
     }
 
     void setUniform(int uniform, vec4 value) {
-        setUniformVec4(uniform, value);
+        oglSetUniformVec4(uniform, value);
     }
 
     void setUniform(int uniform, mat4 value) {
-        setUniformMat4(uniform, value);
+        oglSetUniformMat4(uniform, value);
     }
 }

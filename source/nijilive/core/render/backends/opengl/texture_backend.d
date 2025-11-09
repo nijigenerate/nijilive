@@ -5,17 +5,17 @@ import nijilive.core.texture_types : Filtering, Wrapping;
 mixin template TextureBackendStub() {
     alias GLId = uint;
 
-    void createTextureHandle(ref GLId id) { id = 0; }
-    void deleteTextureHandle(ref GLId id) { id = 0; }
-    void bindTextureHandle(GLId, uint) { }
-    void uploadTextureData(GLId, int, int, int, int, bool, ubyte[]) { }
-    void updateTextureRegion(GLId, int, int, int, int, int, ubyte[]) { }
-    void generateTextureMipmap(GLId) { }
-    void applyTextureFiltering(GLId, Filtering) { }
-    void applyTextureWrapping(GLId, Wrapping) { }
-    void applyTextureAnisotropy(GLId, float) { }
-    float maxTextureAnisotropy() { return 1; }
-    void readTextureData(GLId, int, bool, ubyte[]) { }
+    void oglCreateTextureHandle(ref GLId id) { id = 0; }
+    void oglDeleteTextureHandle(ref GLId id) { id = 0; }
+    void oglBindTextureHandle(GLId, uint) { }
+    void oglUploadTextureData(GLId, int, int, int, int, bool, ubyte[]) { }
+    void oglUpdateTextureRegion(GLId, int, int, int, int, int, ubyte[]) { }
+    void oglGenerateTextureMipmap(GLId) { }
+    void oglApplyTextureFiltering(GLId, Filtering) { }
+    void oglApplyTextureWrapping(GLId, Wrapping) { }
+    void oglApplyTextureAnisotropy(GLId, float) { }
+    float oglMaxTextureAnisotropy() { return 1; }
+    void oglReadTextureData(GLId, int, bool, ubyte[]) { }
 }
 
 version (unittest) {
@@ -36,14 +36,14 @@ private GLuint channelFormat(int channels) {
     }
 }
 
-void createTextureHandle(ref GLId id) {
+void oglCreateTextureHandle(ref GLId id) {
     GLuint handle;
     glGenTextures(1, &handle);
     enforce(handle != 0, "Failed to create texture");
     id = handle;
 }
 
-void deleteTextureHandle(ref GLId id) {
+void oglDeleteTextureHandle(ref GLId id) {
     if (id) {
         GLuint handle = id;
         glDeleteTextures(1, &handle);
@@ -51,12 +51,12 @@ void deleteTextureHandle(ref GLId id) {
     }
 }
 
-void bindTextureHandle(GLId id, uint unit) {
+void oglBindTextureHandle(GLId id, uint unit) {
     glActiveTexture(GL_TEXTURE0 + (unit <= 31 ? unit : 31));
     glBindTexture(GL_TEXTURE_2D, id);
 }
 
-void uploadTextureData(GLId id, int width, int height, int inChannels, int outChannels, bool stencil, ubyte[] data) {
+void oglUploadTextureData(GLId id, int width, int height, int inChannels, int outChannels, bool stencil, ubyte[] data) {
     glBindTexture(GL_TEXTURE_2D, id);
     if (stencil) {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, null);
@@ -69,18 +69,18 @@ void uploadTextureData(GLId id, int width, int height, int inChannels, int outCh
     glTexImage2D(GL_TEXTURE_2D, 0, outFormat, width, height, 0, inFormat, GL_UNSIGNED_BYTE, data.ptr);
 }
 
-void updateTextureRegion(GLId id, int x, int y, int width, int height, int channels, ubyte[] data) {
+void oglUpdateTextureRegion(GLId id, int x, int y, int width, int height, int channels, ubyte[] data) {
     auto format = channelFormat(channels);
     glBindTexture(GL_TEXTURE_2D, id);
     glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, format, GL_UNSIGNED_BYTE, data.ptr);
 }
 
-void generateTextureMipmap(GLId id) {
+void oglGenerateTextureMipmap(GLId id) {
     glBindTexture(GL_TEXTURE_2D, id);
     glGenerateMipmap(GL_TEXTURE_2D);
 }
 
-void applyTextureFiltering(GLId id, Filtering filtering) {
+void oglApplyTextureFiltering(GLId id, Filtering filtering) {
     glBindTexture(GL_TEXTURE_2D, id);
     auto minFilter = filtering == Filtering.Linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST;
     auto magFilter = filtering == Filtering.Linear ? GL_LINEAR : GL_NEAREST;
@@ -88,7 +88,7 @@ void applyTextureFiltering(GLId id, Filtering filtering) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
 }
 
-void applyTextureWrapping(GLId id, Wrapping wrapping) {
+void oglApplyTextureWrapping(GLId id, Wrapping wrapping) {
     glBindTexture(GL_TEXTURE_2D, id);
     GLint wrapValue;
     switch (wrapping) {
@@ -104,18 +104,18 @@ void applyTextureWrapping(GLId id, Wrapping wrapping) {
     }
 }
 
-void applyTextureAnisotropy(GLId id, float value) {
+void oglApplyTextureAnisotropy(GLId id, float value) {
     glBindTexture(GL_TEXTURE_2D, id);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, value);
 }
 
-float maxTextureAnisotropy() {
+float oglMaxTextureAnisotropy() {
     float max;
     glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max);
     return max;
 }
 
-void readTextureData(GLId id, int channels, bool stencil, ubyte[] buffer) {
+void oglReadTextureData(GLId id, int channels, bool stencil, ubyte[] buffer) {
     glBindTexture(GL_TEXTURE_2D, id);
     GLuint format = stencil ? GL_DEPTH_STENCIL : channelFormat(channels);
     glGetTexImage(GL_TEXTURE_2D, 0, format, GL_UNSIGNED_BYTE, buffer.ptr);

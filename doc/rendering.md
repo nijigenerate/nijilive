@@ -78,14 +78,13 @@ Composite の FBO 切り替えや Mask スタックの整合性が保たれる�
 | `DrawCompositeQuad`                              | Composite                          | Composite 結果を親ターゲットへ転送        |
 | `BeginDynamicComposite` / `EndDynamicComposite`  | DynamicComposite                   | 動的ターゲット用 FBO の切り替え           |
 | `DrawMask`                                       | Mask                               | マスクジオメトリ描画                      |
-| `DrawNode`                                       | 互換パス                           | 旧 `node.drawOne()` 呼び出し               |
 
 ## OpenGL Backend の責務
 
 OpenGL 実装 (`nijilive.core.render.backends.opengl.*`) は、
 
-- `part_resources.d` / `mask_resources.d` / `drawable_buffers.d` などで GPU バッファやシェーダを初期化し、
-- `part.d` / `mask.d` / `composite.d` などで RenderQueue のコマンドを実際の `gl*` 呼び出しに変換する。
+- `part.d` / `mask.d` / `drawable_buffers.d` などで GPU バッファやシェーダを初期化し、
+- 同じく `part.d` / `mask.d` / `composite.d` などで RenderQueue のコマンドを実際の `gl*` 呼び出しに変換する。
 
 Node 側から直接 OpenGL を呼ぶコードは撤去され、RenderBackend 経由でのみアクセスする。
 ユニットテストでは `version(unittest)` のスタブを用意し、GL コンテキスト無しでテストが実行できる。

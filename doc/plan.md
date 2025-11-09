@@ -9,9 +9,9 @@
    - `Puppet.update()` で `actualRoot.registerRenderTasks()` → `TaskScheduler.execute()` を呼ぶ構造に切り替える。
    - `Node.registerRenderTasks()` を全クラスで機能させ、DFS + zSort 順でタスクを積む。旧 `begin/update/end` 再帰呼び出しは順次削除。
 
-2. **RenderContext / RenderQueue の導入** *(完了：RenderContext が RenderQueue/RenderBackend を保持し、`runRenderTask` から `DrawNodeCommand` を enqueue → `Puppet.draw()` で `renderQueue.flush(backend)` を実行する構造が整備済み。今後は各ノードの OpenGL 呼びをコマンド単位で分割するステップ3へ移行する。)*
+2. **RenderContext / RenderQueue の導入** *(完了：RenderContext が RenderQueue/RenderBackend を保持し、`runRenderTask` が用途別のコマンドを enqueue → `Puppet.draw()` で `renderQueue.flush(backend)` を実行する構造が整備済み。旧 `DrawNodeCommand` は廃止済み。今後は各ノードの OpenGL 呼びをコマンド単位で分割するステップ3へ移行する。)*
    - `RenderContext` に `RenderQueue` 参照を渡し、`TaskOrder.Render` で `runRenderTask()` を実行する仕組みを実装。
-   - 基本形として `DrawNodeCommand` を積み、`Puppet.draw()` では `RenderQueue.flush()` を呼ぶ。
+   - 基本形として RenderQueue にノード固有のコマンドを積み、`Puppet.draw()` では `RenderQueue.flush()` を呼ぶ。
 
 3. **描画コマンドの細分化** *(進行中: Part の RenderQueue 化は途中段階。以下の順で実装する)*
    0. **バックエンド分離** … OpenGL 呼び出しは `nijilive.core.render.backends.*`（仮）に集約し、Node からは RenderBackend コマンドのみ発行する。

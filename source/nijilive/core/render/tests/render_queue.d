@@ -98,10 +98,6 @@ class RecordingBackend : RenderBackend {
     override void initializeRenderer() {}
     override void resizeViewportTargets(int width, int height) {}
     override void dumpViewport(ref ubyte[] data, int width, int height) {}
-    override void drawNode(Node node) {
-        records ~= CommandRecord(RenderCommandKind.DrawNode, node ? node.name : "", false, MaskDrawableKind.Part);
-    }
-
     override void drawPartPacket(ref PartDrawPacket packet) {
         records ~= CommandRecord(RenderCommandKind.DrawPart,
             packet.part ? packet.part.name : "",

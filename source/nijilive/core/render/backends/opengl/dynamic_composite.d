@@ -7,7 +7,7 @@ import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.runtime_state : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
 import nijilive.math : mat4, vec2, vec4;
 
-void beginDynamicCompositeGL(DynamicComposite composite) {
+void oglBeginDynamicComposite(DynamicComposite composite) {
     if (composite is null) return;
     auto tex = composite.textures[0];
     if (tex is null) return;
@@ -71,7 +71,7 @@ void beginDynamicCompositeGL(DynamicComposite composite) {
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-void endDynamicCompositeGL(DynamicComposite composite) {
+void oglEndDynamicComposite(DynamicComposite composite) {
     if (composite is null) return;
 
     glBindFramebuffer(GL_FRAMEBUFFER, composite.origBuffer);
@@ -87,7 +87,7 @@ void endDynamicCompositeGL(DynamicComposite composite) {
     }
 }
 
-void destroyDynamicCompositeGL(DynamicComposite composite) {
+void oglDestroyDynamicComposite(DynamicComposite composite) {
     if (composite is null) return;
     if (composite.cfBuffer != 0) {
         uint buffer = composite.cfBuffer;

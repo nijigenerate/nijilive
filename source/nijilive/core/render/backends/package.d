@@ -57,7 +57,6 @@ interface RenderBackend {
     void drawDebugPoints(vec4 color, mat4 mvp);
     void drawDebugLines(vec4 color, mat4 mvp);
 
-    void drawNode(Node node);
     void drawPartPacket(ref PartDrawPacket packet);
     void drawMaskPacket(ref MaskDrawPacket packet);
     void beginDynamicComposite(DynamicComposite composite);

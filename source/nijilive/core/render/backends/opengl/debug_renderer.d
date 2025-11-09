@@ -37,19 +37,19 @@ private void ensureInitialized() {
     indexCount = 0;
 }
 
-package(nijilive) void initDebugRendererGL() {
+package(nijilive) void oglInitDebugRenderer() {
     ensureInitialized();
 }
 
-package(nijilive) void setDebugPointSizeGL(float size) {
+package(nijilive) void oglSetDebugPointSize(float size) {
     glPointSize(size);
 }
 
-package(nijilive) void setDebugLineWidthGL(float size) {
+package(nijilive) void oglSetDebugLineWidth(float size) {
     glLineWidth(size);
 }
 
-package(nijilive) void uploadDebugBufferGL(vec3[] points, ushort[] indices) {
+package(nijilive) void oglUploadDebugBuffer(vec3[] points, ushort[] indices) {
     ensureInitialized();
     if (points.length == 0 || indices.length == 0) {
         indexCount = 0;
@@ -66,7 +66,7 @@ package(nijilive) void uploadDebugBufferGL(vec3[] points, ushort[] indices) {
     indexCount = cast(int)indices.length;
 }
 
-package(nijilive) void setDebugExternalBufferGL(uint vertexBuffer, uint indexBuffer, int count) {
+package(nijilive) void oglSetDebugExternalBuffer(uint vertexBuffer, uint indexBuffer, int count) {
     ensureInitialized();
 
     glBindVertexArray(vao);
@@ -94,7 +94,7 @@ private void finishDraw() {
     glBindVertexArray(0);
 }
 
-package(nijilive) void drawDebugPointsGL(vec4 color, mat4 mvp) {
+package(nijilive) void oglDrawDebugPoints(vec4 color, mat4 mvp) {
     ensureInitialized();
     if (indexCount <= 0) return;
 
@@ -108,7 +108,7 @@ package(nijilive) void drawDebugPointsGL(vec4 color, mat4 mvp) {
     glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
 }
 
-package(nijilive) void drawDebugLinesGL(vec4 color, mat4 mvp) {
+package(nijilive) void oglDrawDebugLines(vec4 color, mat4 mvp) {
     ensureInitialized();
     if (indexCount <= 0) return;
 
@@ -126,12 +126,12 @@ package(nijilive) void drawDebugLinesGL(vec4 color, mat4 mvp) {
 
 } else {
 
-package(nijilive) void initDebugRendererGL() {}
-package(nijilive) void setDebugPointSizeGL(float) {}
-package(nijilive) void setDebugLineWidthGL(float) {}
-package(nijilive) void uploadDebugBufferGL(vec3[], ushort[]) {}
-package(nijilive) void setDebugExternalBufferGL(uint, uint, int) {}
-package(nijilive) void drawDebugPointsGL(vec4, mat4) {}
-package(nijilive) void drawDebugLinesGL(vec4, mat4) {}
+package(nijilive) void oglInitDebugRenderer() {}
+package(nijilive) void oglSetDebugPointSize(float) {}
+package(nijilive) void oglSetDebugLineWidth(float) {}
+package(nijilive) void oglUploadDebugBuffer(vec3[], ushort[]) {}
+package(nijilive) void oglSetDebugExternalBuffer(uint, uint, int) {}
+package(nijilive) void oglDrawDebugPoints(vec4, mat4) {}
+package(nijilive) void oglDrawDebugLines(vec4, mat4) {}
 
 }
