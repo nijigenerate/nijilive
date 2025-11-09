@@ -87,6 +87,37 @@ import nijilive.core.render.backends.opengl.blend :
     oglBlendToBuffer;
 import nijilive.core.render.backends.opengl.draw_texture :
     oglDrawTextureAtPart, oglDrawTextureAtPosition, oglDrawTextureAtRect;
+import nijilive.core.texture_types : Filtering, Wrapping;
+import nijilive.core.render.backends.opengl.shader_backend :
+    ShaderProgramHandle,
+    oglCreateShaderProgram,
+    oglDestroyShaderProgram,
+    oglUseShaderProgram,
+    oglShaderGetUniformLocation,
+    oglSetUniformBool,
+    oglSetUniformInt,
+    oglSetUniformFloat,
+    oglSetUniformVec2,
+    oglSetUniformVec3,
+    oglSetUniformVec4,
+    oglSetUniformMat4;
+import nijilive.core.render.backends.opengl.texture_backend :
+    oglCreateTextureHandle,
+    oglDeleteTextureHandle,
+    oglBindTextureHandle,
+    oglUploadTextureData,
+    oglUpdateTextureRegion,
+    oglGenerateTextureMipmap,
+    oglApplyTextureFiltering,
+    oglApplyTextureWrapping,
+    oglApplyTextureAnisotropy,
+    oglMaxTextureAnisotropy,
+    oglReadTextureData;
+import nijilive.core.render.backends.opengl.handles :
+    GLShaderHandle,
+    GLTextureHandle,
+    requireGLShader,
+    requireGLTexture;
 
 class GLRenderBackend : RenderBackend {
     override void initializeRenderer() {
@@ -344,6 +375,128 @@ class GLRenderBackend : RenderBackend {
 
     override bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
         return oglFetchDifferenceAggregationResult(result);
+    }
+
+    override RenderShaderHandle createShader(string vertexSource, string fragmentSource) {
+        auto handle = new GLShaderHandle();
+        oglCreateShaderProgram(handle.shader, vertexSource, fragmentSource);
+        return handle;
+    }
+
+    override void destroyShader(RenderShaderHandle shader) {
+        auto handle = requireGLShader(shader);
+        oglDestroyShaderProgram(handle.shader);
+        handle.shader = ShaderProgramHandle.init;
+    }
+
+    override void useShader(RenderShaderHandle shader) {
+        auto handle = requireGLShader(shader);
+        oglUseShaderProgram(handle.shader);
+    }
+
+    override int getShaderUniformLocation(RenderShaderHandle shader, string name) {
+        auto handle = requireGLShader(shader);
+        return oglShaderGetUniformLocation(handle.shader, name);
+    }
+
+    override void setShaderUniform(RenderShaderHandle shader, int location, bool value) {
+        requireGLShader(shader);
+        oglSetUniformBool(location, value);
+    }
+
+    override void setShaderUniform(RenderShaderHandle shader, int location, int value) {
+        requireGLShader(shader);
+        oglSetUniformInt(location, value);
+    }
+
+    override void setShaderUniform(RenderShaderHandle shader, int location, float value) {
+        requireGLShader(shader);
+        oglSetUniformFloat(location, value);
+    }
+
+    override void setShaderUniform(RenderShaderHandle shader, int location, vec2 value) {
+        requireGLShader(shader);
+        oglSetUniformVec2(location, value);
+    }
+
+    override void setShaderUniform(RenderShaderHandle shader, int location, vec3 value) {
+        requireGLShader(shader);
+        oglSetUniformVec3(location, value);
+    }
+
+    override void setShaderUniform(RenderShaderHandle shader, int location, vec4 value) {
+        requireGLShader(shader);
+        oglSetUniformVec4(location, value);
+    }
+
+    override void setShaderUniform(RenderShaderHandle shader, int location, mat4 value) {
+        requireGLShader(shader);
+        oglSetUniformMat4(location, value);
+    }
+
+    override RenderTextureHandle createTextureHandle() {
+        auto handle = new GLTextureHandle();
+        oglCreateTextureHandle(handle.id);
+        return handle;
+    }
+
+    override void destroyTextureHandle(RenderTextureHandle texture) {
+        auto handle = requireGLTexture(texture);
+        oglDeleteTextureHandle(handle.id);
+        handle.id = 0;
+    }
+
+    override void bindTextureHandle(RenderTextureHandle texture, uint unit) {
+        auto handle = requireGLTexture(texture);
+        oglBindTextureHandle(handle.id, unit);
+    }
+
+    override void uploadTextureData(RenderTextureHandle texture, int width, int height,
+                                    int inChannels, int outChannels, bool stencil,
+                                    ubyte[] data) {
+        auto handle = requireGLTexture(texture);
+        oglUploadTextureData(handle.id, width, height, inChannels, outChannels, stencil, data);
+    }
+
+    override void updateTextureRegion(RenderTextureHandle texture, int x, int y, int width,
+                                      int height, int channels, ubyte[] data) {
+        auto handle = requireGLTexture(texture);
+        oglUpdateTextureRegion(handle.id, x, y, width, height, channels, data);
+    }
+
+    override void generateTextureMipmap(RenderTextureHandle texture) {
+        auto handle = requireGLTexture(texture);
+        oglGenerateTextureMipmap(handle.id);
+    }
+
+    override void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) {
+        auto handle = requireGLTexture(texture);
+        oglApplyTextureFiltering(handle.id, filtering);
+    }
+
+    override void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping) {
+        auto handle = requireGLTexture(texture);
+        oglApplyTextureWrapping(handle.id, wrapping);
+    }
+
+    override void applyTextureAnisotropy(RenderTextureHandle texture, float value) {
+        auto handle = requireGLTexture(texture);
+        oglApplyTextureAnisotropy(handle.id, value);
+    }
+
+    override float maxTextureAnisotropy() {
+        return oglMaxTextureAnisotropy();
+    }
+
+    override void readTextureData(RenderTextureHandle texture, int channels, bool stencil,
+                                  ubyte[] buffer) {
+        auto handle = requireGLTexture(texture);
+        oglReadTextureData(handle.id, channels, stencil, buffer);
+    }
+
+    override size_t textureNativeHandle(RenderTextureHandle texture) {
+        auto handle = requireGLTexture(texture);
+        return handle.id;
     }
 }
 

@@ -10,6 +10,7 @@ import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, Mask
 import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
+import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.math : vec2, vec3, vec4, rect, mat4;
 import nijilive.math.camera : Camera;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
@@ -22,6 +23,15 @@ struct RenderGpuState {
     bool[4] colorMask;
     bool blendEnabled;
 }
+
+/// Base type for backend-provided opaque handles.
+class RenderBackendHandle { }
+
+/// Handle for shader programs managed by a RenderBackend.
+class RenderShaderHandle : RenderBackendHandle { }
+
+/// Handle for texture resources managed by a RenderBackend.
+class RenderTextureHandle : RenderBackendHandle { }
 
 /// Backend abstraction executed by RenderCommand implementations.
 interface RenderBackend {
@@ -95,4 +105,34 @@ interface RenderBackend {
     DifferenceEvaluationRegion getDifferenceAggregationRegion();
     bool evaluateDifferenceAggregation(uint texture, int width, int height);
     bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result);
+
+    // Shader management
+    RenderShaderHandle createShader(string vertexSource, string fragmentSource);
+    void destroyShader(RenderShaderHandle shader);
+    void useShader(RenderShaderHandle shader);
+    int getShaderUniformLocation(RenderShaderHandle shader, string name);
+    void setShaderUniform(RenderShaderHandle shader, int location, bool value);
+    void setShaderUniform(RenderShaderHandle shader, int location, int value);
+    void setShaderUniform(RenderShaderHandle shader, int location, float value);
+    void setShaderUniform(RenderShaderHandle shader, int location, vec2 value);
+    void setShaderUniform(RenderShaderHandle shader, int location, vec3 value);
+    void setShaderUniform(RenderShaderHandle shader, int location, vec4 value);
+    void setShaderUniform(RenderShaderHandle shader, int location, mat4 value);
+
+    // Texture management
+    RenderTextureHandle createTextureHandle();
+    void destroyTextureHandle(RenderTextureHandle texture);
+    void bindTextureHandle(RenderTextureHandle texture, uint unit);
+    void uploadTextureData(RenderTextureHandle texture, int width, int height, int inChannels,
+                           int outChannels, bool stencil, ubyte[] data);
+    void updateTextureRegion(RenderTextureHandle texture, int x, int y, int width, int height,
+                             int channels, ubyte[] data);
+    void generateTextureMipmap(RenderTextureHandle texture);
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering);
+    void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping);
+    void applyTextureAnisotropy(RenderTextureHandle texture, float value);
+    float maxTextureAnisotropy();
+    void readTextureData(RenderTextureHandle texture, int channels, bool stencil,
+                         ubyte[] buffer);
+    size_t textureNativeHandle(RenderTextureHandle texture);
 }

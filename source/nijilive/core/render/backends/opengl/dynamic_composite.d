@@ -6,6 +6,15 @@ import bindbc.opengl;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.runtime_state : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
 import nijilive.math : mat4, vec2, vec4;
+import nijilive.core.texture : Texture;
+import nijilive.core.render.backends.opengl.handles : requireGLTexture;
+
+private GLuint textureId(Texture texture) {
+    if (texture is null) return 0;
+    auto handle = texture.backendHandle();
+    if (handle is null) return 0;
+    return requireGLTexture(handle).id;
+}
 
 void oglBeginDynamicComposite(DynamicComposite composite) {
     if (composite is null) return;
@@ -27,7 +36,7 @@ void oglBeginDynamicComposite(DynamicComposite composite) {
     void attachColor(size_t index, GLenum attachment) {
         auto texture = index < composite.textures.length ? composite.textures[index] : null;
         if (texture !is null) {
-            glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, texture.getTextureId(), 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, textureId(texture), 0);
             drawBuffers[bufferCount++] = attachment;
         } else {
             glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, 0, 0);
@@ -43,7 +52,7 @@ void oglBeginDynamicComposite(DynamicComposite composite) {
     }
 
     if (composite.stencil !is null) {
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, composite.stencil.getTextureId(), 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, textureId(composite.stencil), 0);
         glClear(GL_STENCIL_BUFFER_BIT);
     } else {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);

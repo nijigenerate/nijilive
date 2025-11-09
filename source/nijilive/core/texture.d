@@ -13,8 +13,10 @@ import imagefmt;
 import std.algorithm : clamp;
 import nijilive.core.nodes : inCreateUUID;
 import nijilive.core.texture_types : Filtering, Wrapping;
-import nijilive.core.render.backends.opengl.texture_backend;
-import bindbc.opengl : GL_RED, GL_RG, GL_RGB, GL_RGBA;
+import nijilive.core.render.backends : RenderTextureHandle;
+version (InDoesRender) {
+    import nijilive.core.runtime_state : currentRenderBackend, tryRenderBackend;
+}
 
 /**
     A texture which is not bound to an OpenGL context
@@ -153,7 +155,7 @@ public:
 */
 class Texture {
 private:
-    uint id;
+    RenderTextureHandle handle;
     int width_;
     int height_;
     int channels_;
@@ -219,12 +221,15 @@ public:
         this.channels_ = outChannels;
         this.stencil_ = stencil;
 
-        oglCreateTextureHandle(id);
-        this.setData(data, inChannels);
+        version (InDoesRender) {
+            auto backend = currentRenderBackend();
+            handle = backend.createTextureHandle();
+            this.setData(data, inChannels);
 
-        this.setFiltering(Filtering.Linear);
-        this.setWrapping(Wrapping.Clamp);
-        this.setAnisotropy(incGetMaxAnisotropy()/2.0f);
+            this.setFiltering(Filtering.Linear);
+            this.setWrapping(Wrapping.Clamp);
+            this.setAnisotropy(incGetMaxAnisotropy()/2.0f);
+        }
         uuid = inCreateUUID();
     }
 
@@ -254,15 +259,10 @@ public:
     }
 
     /**
-        Returns the OpenGL color mode for this texture
+        Returns a legacy color mode value matching the previous OpenGL enums.
     */
     @property int colorMode() const {
-        switch (channels_) {
-            case 1: return GL_RED;
-            case 2: return GL_RG;
-            case 3: return GL_RGB;
-            default: return GL_RGBA;
-        }
+        return legacyColorModeFromChannels(channels_);
     }
 
     /**
@@ -290,18 +290,27 @@ public:
         Set the filtering mode used for the texture
     */
     void setFiltering(Filtering filtering) {
-        oglApplyTextureFiltering(id, filtering);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().applyTextureFiltering(handle, filtering);
+        }
     }
 
     void setAnisotropy(float value) {
-        oglApplyTextureAnisotropy(id, clamp(value, 1, incGetMaxAnisotropy()));
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().applyTextureAnisotropy(handle, clamp(value, 1, incGetMaxAnisotropy()));
+        }
     }
 
     /**
         Set the wrapping mode used for the texture
     */
     void setWrapping(Wrapping wrapping) {
-        oglApplyTextureWrapping(id, wrapping);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().applyTextureWrapping(handle, wrapping);
+        }
     }
 
     /**
@@ -313,8 +322,11 @@ public:
             lockedData = data;
             modified = true;
         } else {
-            oglUploadTextureData(id, width_, height_, actualChannels, channels_, stencil_, data);
-            this.genMipmap();
+            version (InDoesRender) {
+                if (handle is null) return;
+                currentRenderBackend().uploadTextureData(handle, width_, height_, actualChannels, channels_, stencil_, data);
+                this.genMipmap();
+            }
         }
     }
 
@@ -322,8 +334,10 @@ public:
         Generate mipmaps
     */
     void genMipmap() {
-        if (!stencil_) {
-            oglGenerateTextureMipmap(id);
+        version (InDoesRender) {
+            if (!stencil_ && handle !is null) {
+                currentRenderBackend().generateTextureMipmap(handle);
+            }
         }
     }
 
@@ -337,7 +351,10 @@ public:
         enforce( x >= 0 && x+width <= this.width_, "x offset is out of bounds (xoffset=%s, xbound=%s)".format(x+width, this.width_));
         enforce( y >= 0 && y+height <= this.height_, "y offset is out of bounds (yoffset=%s, ybound=%s)".format(y+height, this.height_));
 
-        oglUpdateTextureRegion(id, x, y, width, height, actualChannels, data);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().updateTextureRegion(handle, x, y, width, height, actualChannels, data);
+        }
 
         this.genMipmap();
     }
@@ -350,8 +367,24 @@ public:
         - In debug mode unit values over 31 will assert.
     */
     void bind(uint unit = 0) {
-        assert(unit <= 31u, "Outside maximum OpenGL texture unit value");
-        oglBindTextureHandle(id, unit);
+        assert(unit <= 31u, "Outside maximum texture unit value");
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().bindTextureHandle(handle, unit);
+        }
+    }
+
+    /**
+        Gets this texture's native GPU handle (legacy compatibility with OpenGL ID users)
+    */
+    uint getTextureId() {
+        version (InDoesRender) {
+            if (handle is null) return 0;
+            auto backend = tryRenderBackend();
+            if (backend is null) return 0;
+            return cast(uint)backend.textureNativeHandle(handle);
+        }
+        return 0;
     }
 
     /**
@@ -369,7 +402,10 @@ public:
             return lockedData;
         } else {
             ubyte[] buf = new ubyte[width*height*channels_];
-            oglReadTextureData(id, channels_, stencil_, buf);
+            version (InDoesRender) {
+                if (handle is null) return buf;
+                currentRenderBackend().readTextureData(handle, channels_, stencil_, buf);
+            }
             if (unmultiply && channels == 4) {
                 inTexUnPremuliply(buf);
             }
@@ -378,17 +414,19 @@ public:
     }
 
     /**
-        Gets this texture's texture id
-    */
-    uint getTextureId() {
-        return id;
-    }
-
-    /**
         Disposes texture from GL
     */
     void dispose() {
-        oglDeleteTextureHandle(id);
+        version (InDoesRender) {
+            if (handle is null) return;
+            auto backend = tryRenderBackend();
+            if (backend !is null) backend.destroyTextureHandle(handle);
+            handle = null;
+        }
+    }
+
+    RenderTextureHandle backendHandle() {
+        return handle;
     }
 
     Texture dup() {
@@ -415,6 +453,19 @@ public:
         }
     }
 }
+private enum int LegacyGLRed = 0x1903;
+private enum int LegacyGLRg = 0x8227;
+private enum int LegacyGLRgb = 0x1907;
+private enum int LegacyGLRgba = 0x1908;
+
+private int legacyColorModeFromChannels(int channels) {
+    switch (channels) {
+        case 1: return LegacyGLRed;
+        case 2: return LegacyGLRg;
+        case 3: return LegacyGLRgb;
+        default: return LegacyGLRgba;
+    }
+}
 
 private {
     Texture[] textureBindings;
@@ -425,7 +476,13 @@ private {
     Gets the maximum level of anisotropy
 */
 float incGetMaxAnisotropy() {
-    return oglMaxTextureAnisotropy();
+    version (InDoesRender) {
+        auto backend = tryRenderBackend();
+        if (backend !is null) {
+            return backend.maxTextureAnisotropy();
+        }
+    }
+    return 1;
 }
 
 /**

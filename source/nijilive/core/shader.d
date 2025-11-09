@@ -7,26 +7,17 @@
 */
 module nijilive.core.shader;
 import nijilive.math;
-import nijilive.core.render.backends.opengl.shader_backend :
-    ShaderProgramHandle,
-    oglCreateShaderProgram,
-    oglDestroyShaderProgram,
-    oglUseShaderProgram,
-    oglShaderGetUniformLocation,
-    oglSetUniformBool,
-    oglSetUniformInt,
-    oglSetUniformFloat,
-    oglSetUniformVec2,
-    oglSetUniformVec3,
-    oglSetUniformVec4,
-    oglSetUniformMat4;
+import nijilive.core.render.backends : RenderShaderHandle;
+version (InDoesRender) {
+    import nijilive.core.runtime_state : currentRenderBackend, tryRenderBackend;
+}
 
 /**
     A shader
 */
 class Shader {
 private:
-    ShaderProgramHandle handle;
+    RenderShaderHandle handle;
 
 public:
 
@@ -34,52 +25,89 @@ public:
         Destructor
     */
     ~this() {
-        oglDestroyShaderProgram(handle);
+        version (InDoesRender) {
+            if (handle is null) return;
+            auto backend = tryRenderBackend();
+            if (backend !is null) {
+                backend.destroyShader(handle);
+            }
+            handle = null;
+        }
     }
 
     /**
         Creates a new shader object from source
     */
     this(string vertex, string fragment) {
-        oglCreateShaderProgram(handle, vertex, fragment);
+        version (InDoesRender) {
+            handle = currentRenderBackend().createShader(vertex, fragment);
+        }
     }
 
     /**
         Use the shader
     */
     void use() {
-        oglUseShaderProgram(handle);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().useShader(handle);
+        }
     }
 
     int getUniformLocation(string name) {
-        return oglShaderGetUniformLocation(handle, name);
+        version (InDoesRender) {
+            if (handle is null) return -1;
+            return currentRenderBackend().getShaderUniformLocation(handle, name);
+        }
+        return -1;
     }
 
     void setUniform(int uniform, bool value) {
-        oglSetUniformBool(uniform, value);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
     void setUniform(int uniform, int value) {
-        oglSetUniformInt(uniform, value);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
     void setUniform(int uniform, float value) {
-        oglSetUniformFloat(uniform, value);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
     void setUniform(int uniform, vec2 value) {
-        oglSetUniformVec2(uniform, value);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
     void setUniform(int uniform, vec3 value) {
-        oglSetUniformVec3(uniform, value);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
     void setUniform(int uniform, vec4 value) {
-        oglSetUniformVec4(uniform, value);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
     void setUniform(int uniform, mat4 value) {
-        oglSetUniformMat4(uniform, value);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 }

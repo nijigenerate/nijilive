@@ -19,16 +19,10 @@ public import nijilive.core.meshdata;
 
 import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind,
     makeMaskDrawPacket;
-version (InDoesRender) {
-    import nijilive.core.render.backends.opengl.mask : oglInitMaskBackend;
-}
 
 package(nijilive) {
     void inInitMask() {
         inRegisterNodeType!Mask;
-        version(InDoesRender) {
-            oglInitMaskBackend();
-        }
     }
 }
 

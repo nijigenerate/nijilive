@@ -7,7 +7,7 @@ import std.array : array;
 import std.conv : to;
 import std.range : iota;
 
-import nijilive.math : vec2, vec3;
+import nijilive.math : vec2, vec3, mat4;
 import nijilive.core;
 import nijilive.core : inEnsureCameraStackForTests, inEnsureViewportForTests;
 import nijilive.core.nodes;
@@ -25,6 +25,7 @@ import nijilive.core.render.backends;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler;
 import nijilive.core.meshdata;
 import nijilive.core.texture : Texture;
+import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.nodes.part : TextureUsage;
 import nijilive.core.nodes.common : MaskBinding, MaskingMode;
 
@@ -175,6 +176,42 @@ class RecordingBackend : RenderBackend {
     override void drawTextureAtRect(Texture texture, rect area, rect uvs,
                                     float opacity, vec3 color, vec3 screenColor,
                                     Shader shader = null, Camera cam = null) {}
+
+    override RenderShaderHandle createShader(string, string) {
+        return null;
+    }
+
+    override void destroyShader(RenderShaderHandle) {}
+
+    override void useShader(RenderShaderHandle) {}
+
+    override int getShaderUniformLocation(RenderShaderHandle, string) {
+        return -1;
+    }
+
+    override void setShaderUniform(RenderShaderHandle, int, bool) {}
+    override void setShaderUniform(RenderShaderHandle, int, int) {}
+    override void setShaderUniform(RenderShaderHandle, int, float) {}
+    override void setShaderUniform(RenderShaderHandle, int, vec2) {}
+    override void setShaderUniform(RenderShaderHandle, int, vec3) {}
+    override void setShaderUniform(RenderShaderHandle, int, vec4) {}
+    override void setShaderUniform(RenderShaderHandle, int, mat4) {}
+
+    override RenderTextureHandle createTextureHandle() {
+        return null;
+    }
+
+    override void destroyTextureHandle(RenderTextureHandle) {}
+    override void bindTextureHandle(RenderTextureHandle, uint) {}
+    override void uploadTextureData(RenderTextureHandle, int, int, int, int, bool, ubyte[]) {}
+    override void updateTextureRegion(RenderTextureHandle, int, int, int, int, int, ubyte[]) {}
+    override void generateTextureMipmap(RenderTextureHandle) {}
+    override void applyTextureFiltering(RenderTextureHandle, Filtering) {}
+    override void applyTextureWrapping(RenderTextureHandle, Wrapping) {}
+    override void applyTextureAnisotropy(RenderTextureHandle, float) {}
+    override float maxTextureAnisotropy() { return 1; }
+    override void readTextureData(RenderTextureHandle, int, bool, ubyte[]) {}
+    override size_t textureNativeHandle(RenderTextureHandle) { return 0; }
 }
 
 CommandRecord[] executeFrame(Puppet puppet) {
