@@ -661,11 +661,7 @@ public:
         packet.part = this;
         packet.isMask = isMask;
 
-        mat4 modelMatrix = hasOffscreenModelMatrix ? offscreenModelMatrix : transform.matrix();
-        if (overrideTransformMatrix !is null)
-            modelMatrix = overrideTransformMatrix.matrix;
-        if (oneTimeTransform !is null)
-            modelMatrix = (*oneTimeTransform) * modelMatrix;
+        mat4 modelMatrix = immediateModelMatrix();
         packet.modelMatrix = modelMatrix;
         packet.ignoreCamera = ignorePuppet || hasOffscreenModelMatrix;
 
@@ -695,6 +691,15 @@ public:
     packet.indexBuffer = ibo;
     packet.indexCount = cast(uint)data.indices.length;
 }
+
+    package(nijilive) mat4 immediateModelMatrix() {
+        mat4 modelMatrix = hasOffscreenModelMatrix ? offscreenModelMatrix : transform.matrix();
+        if (overrideTransformMatrix !is null)
+            modelMatrix = overrideTransformMatrix.matrix;
+        if (oneTimeTransform !is null)
+            modelMatrix = (*oneTimeTransform) * modelMatrix;
+        return modelMatrix;
+    }
 
 package(nijilive) void setOffscreenModelMatrix(const mat4 matrix) {
     offscreenModelMatrix = matrix;
