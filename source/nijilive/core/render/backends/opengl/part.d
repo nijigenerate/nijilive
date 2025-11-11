@@ -3,7 +3,6 @@ module nijilive.core.render.backends.opengl.part;
 version (InDoesRender) {
 
 import bindbc.opengl;
-import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFallbackEnabled,
     inSetBlendMode, inBlendModeBarrier;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
@@ -124,16 +123,12 @@ void oglUpdatePartUvBuffer(uint uvbo, ref MeshData data) {
 }
 
 void oglDrawPartPacket(ref PartDrawPacket packet) {
-    auto part = packet.part;
-    if (part is null || !part.backendRenderable()) return;
+    if (!packet.renderable) return;
     oglExecutePartPacket(packet);
 }
 
 void oglExecutePartPacket(ref PartDrawPacket packet) {
-    auto part = packet.part;
-    if (part is null) return;
-
-    auto textures = packet.textures.length ? packet.textures : part.textures;
+    auto textures = packet.textures;
     if (textures.length == 0) return;
 
     incDrawableBindVAO();
@@ -150,10 +145,7 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
     }
 
     auto matrix = packet.modelMatrix;
-    mat4 puppetMatrix = mat4.identity;
-    if (!part.ignorePuppet && part.puppet !is null) {
-        puppetMatrix = part.puppet.transform.matrix;
-    }
+    mat4 puppetMatrix = packet.puppetMatrix;
     mat4 cameraMatrix = inGetCamera().matrix;
 
     if (packet.isMask) {
@@ -252,7 +244,6 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
 }
 
 private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix, mat4 cameraMatrix, mat4 puppetMatrix) {
-    auto part = packet.part;
     mat4 mvpMatrix = cameraMatrix * puppetMatrix * matrix;
 
     switch (stage) {

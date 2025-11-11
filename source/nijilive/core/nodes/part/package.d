@@ -11,7 +11,7 @@
 module nijilive.core.nodes.part;
 
 import nijilive.core.render.scheduler;
-import nijilive.core.render.queue : RenderCommandBuffer;
+import nijilive.core.render.graph_builder : RenderCommandBuffer;
 import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket,
     makeBeginMaskCommand, makeApplyMaskCommand, makeBeginMaskContentCommand, makeEndMaskCommand,
     tryMakeMaskApplyPacket, MaskApplyPacket, MaskDrawableKind;
@@ -584,7 +584,7 @@ public:
 
     package(nijilive)
     void enqueueRenderCommands(RenderContext ctx) {
-        if (!renderEnabled() || ctx.renderQueue is null) return;
+        if (!renderEnabled() || ctx.renderGraph is null) return;
         auto packet = makePartDrawPacket(this);
 
         debug(RenderQueueLog) {
@@ -594,7 +594,7 @@ public:
 
         auto scopeHint = determineRenderScopeHint();
         if (scopeHint.skip) return;
-        ctx.renderQueue.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
+        ctx.renderGraph.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
             if (hasMasks) {
                 buffer.add(makeBeginMaskCommand(useStencil));
                 foreach (ref mask; masks) {
@@ -658,12 +658,13 @@ public:
     }
 
     package(nijilive) void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
-        packet.part = this;
         packet.isMask = isMask;
+        packet.renderable = backendRenderable();
 
         mat4 modelMatrix = immediateModelMatrix();
         packet.modelMatrix = modelMatrix;
-        packet.ignoreCamera = ignorePuppet || hasOffscreenModelMatrix;
+        mat4 puppetMatrix = (!ignorePuppet && puppet !is null) ? puppet.transform.matrix : mat4.identity;
+        packet.puppetMatrix = puppetMatrix;
 
         packet.opacity = clamp(offsetOpacity * opacity, 0, 1);
         packet.emissionStrength = emissionStrength * offsetEmissionStrength;
@@ -687,10 +688,10 @@ public:
         packet.origin = data.origin;
         packet.vertexBuffer = vbo;
         packet.uvBuffer = uvbo;
-    packet.deformBuffer = dbo;
-    packet.indexBuffer = ibo;
-    packet.indexCount = cast(uint)data.indices.length;
-}
+        packet.deformBuffer = dbo;
+        packet.indexBuffer = ibo;
+        packet.indexCount = cast(uint)data.indices.length;
+    }
 
     package(nijilive) mat4 immediateModelMatrix() {
         mat4 modelMatrix = hasOffscreenModelMatrix ? offscreenModelMatrix : transform.matrix();

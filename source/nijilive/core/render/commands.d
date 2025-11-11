@@ -30,11 +30,10 @@ enum MaskDrawableKind {
 }
 
 struct PartDrawPacket {
-    Part part;
     bool isMask;
+    bool renderable;
     mat4 modelMatrix;
-    mat4 mvp;
-    bool ignoreCamera;
+    mat4 puppetMatrix;
     vec3 clampedTint;
     vec3 clampedScreen;
     float opacity;
@@ -53,7 +52,6 @@ struct PartDrawPacket {
 }
 
 struct MaskDrawPacket {
-    Mask mask;
     mat4 modelMatrix;
     mat4 mvp;
     vec2 origin;
@@ -82,10 +80,11 @@ struct RenderCommandData {
 }
 
 struct CompositeDrawPacket {
-    Composite composite;
+    bool valid;
     float opacity;
     vec3 tint;
     vec3 screenTint;
+    BlendMode blendingMode;
 }
 
 PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {
@@ -178,10 +177,11 @@ RenderCommandData makeEndMaskCommand() {
 CompositeDrawPacket makeCompositeDrawPacket(Composite composite) {
     CompositeDrawPacket packet;
     if (composite !is null) {
-        packet.composite = composite;
+        packet.valid = true;
         packet.opacity = composite.opacity * composite.offsetOpacity;
         packet.tint = composite.computeClampedTint();
         packet.screenTint = composite.computeClampedScreenTint();
+        packet.blendingMode = composite.blendingMode;
     }
     return packet;
 }

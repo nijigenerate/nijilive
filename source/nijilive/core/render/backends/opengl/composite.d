@@ -5,7 +5,6 @@ import nijilive.core.render.commands : CompositeDrawPacket;
 version (InDoesRender) {
 
 import bindbc.opengl;
-import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.common : inSetBlendMode;
 import nijilive.core.render.backends.opengl.runtime : oglPrepareCompositeScene;
 import nijilive.core.shader : Shader;
@@ -115,8 +114,7 @@ GLint oglGetCompositeScreenColorUniform() {
 }
 
 void oglDrawCompositeQuad(ref CompositeDrawPacket packet) {
-    auto comp = packet.composite;
-    if (comp is null) return;
+    if (!packet.valid) return;
 
     ensureCompositeBackendResources();
 
@@ -129,7 +127,7 @@ void oglDrawCompositeQuad(ref CompositeDrawPacket packet) {
     oglPrepareCompositeScene();
     shader.setUniform(oglGetCompositeMultColorUniform(), packet.tint);
     shader.setUniform(oglGetCompositeScreenColorUniform(), packet.screenTint);
-    inSetBlendMode(comp.blendingMode, true);
+    inSetBlendMode(packet.blendingMode, true);
 
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);

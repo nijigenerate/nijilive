@@ -10,6 +10,7 @@ import std.file;
 import std.path : extension;
 import std.json;
 import nijilive.core.render.queue;
+import nijilive.core.render.graph_builder;
 import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 import nijilive.core.runtime_state : currentRenderBackend;
 import nijilive.core.render.scheduler;
@@ -237,6 +238,7 @@ private:
     */
     Animation[string] animations;
     RenderQueue renderQueue;
+    RenderGraphBuilder renderGraph;
     package(nijilive) RenderBackend renderBackend;
     TaskScheduler renderScheduler;
     RenderContext renderContext;
@@ -414,9 +416,11 @@ public:
         root.name = "Root";
         transform = Transform(vec3(0, 0, 0));
         renderQueue = new RenderQueue();
+        renderGraph = new RenderGraphBuilder();
         renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
         renderContext.renderQueue = &renderQueue;
+        renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
     }
@@ -434,9 +438,11 @@ public:
         transform = Transform(vec3(0, 0, 0));
         this.selfSort();
         renderQueue = new RenderQueue();
+        renderGraph = new RenderGraphBuilder();
         renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
         renderContext.renderQueue = &renderQueue;
+        renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
     }
@@ -462,9 +468,10 @@ public:
         if (rootNode is null) return;
 
         renderContext.renderQueue = &renderQueue;
+        renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
-        renderQueue.beginFrame();
+        renderGraph.beginFrame();
         renderScheduler.clearTasks();
         rootNode.registerRenderTasks(renderScheduler);
 
@@ -490,6 +497,9 @@ public:
         });
 
         renderScheduler.execute(renderContext);
+
+        auto builtCommands = renderGraph.takeCommands();
+        renderQueue.setCommands(builtCommands);
     }
 
     /**

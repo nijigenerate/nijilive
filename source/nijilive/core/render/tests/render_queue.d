@@ -19,6 +19,7 @@ import nijilive.core.nodes.deformer.grid;
 import nijilive.core.nodes.deformer.path;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.render.queue;
+import nijilive.core.render.graph_builder;
 import nijilive.core.render.commands : RenderCommandKind, MaskApplyPacket, PartDrawPacket,
     MaskDrawPacket, MaskDrawableKind, CompositeDrawPacket;
 import nijilive.core.render.backends;
@@ -61,7 +62,8 @@ MeshData makeQuadMesh(float size = 1.0f) {
 
 struct CommandRecord {
     RenderCommandKind kind;
-    string nodeName;
+    PartDrawPacket partPacket;
+    MaskApplyPacket maskApplyPacket;
     bool maskUsesStencil;
     MaskDrawableKind maskKind;
 }
@@ -96,33 +98,34 @@ class RecordingBackend : RenderBackend {
     override void setAdvancedBlendEquation(BlendMode) {}
     override void issueBlendBarrier() {}
 
-    override void initializeRenderer() {}
-    override void resizeViewportTargets(int width, int height) {}
-    override void dumpViewport(ref ubyte[] data, int width, int height) {}
     override void drawPartPacket(ref PartDrawPacket packet) {
         records ~= CommandRecord(RenderCommandKind.DrawPart,
-            packet.part ? packet.part.name : "",
+            packet,
+            MaskApplyPacket.init,
             false,
             MaskDrawableKind.Part);
     }
 
     override void drawMaskPacket(ref MaskDrawPacket packet) {
         records ~= CommandRecord(RenderCommandKind.DrawMask,
-            packet.mask ? packet.mask.name : "",
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
             false,
             MaskDrawableKind.Mask);
     }
 
     override void beginDynamicComposite(DynamicComposite composite) {
         records ~= CommandRecord(RenderCommandKind.BeginDynamicComposite,
-            composite ? composite.name : "",
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
             false,
             MaskDrawableKind.Part);
     }
 
     override void endDynamicComposite(DynamicComposite composite) {
         records ~= CommandRecord(RenderCommandKind.EndDynamicComposite,
-            composite ? composite.name : "",
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
             false,
             MaskDrawableKind.Part);
     }
@@ -131,41 +134,59 @@ class RecordingBackend : RenderBackend {
     }
 
     override void beginMask(bool useStencil) {
-        records ~= CommandRecord(RenderCommandKind.BeginMask, "", useStencil, MaskDrawableKind.Part);
+        records ~= CommandRecord(RenderCommandKind.BeginMask,
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
+            useStencil,
+            MaskDrawableKind.Part);
     }
 
     override void applyMask(ref MaskApplyPacket packet) {
         records ~= CommandRecord(RenderCommandKind.ApplyMask,
-            packet.kind == MaskDrawableKind.Part && packet.partPacket.part !is null
-                ? packet.partPacket.part.name
-                : packet.kind == MaskDrawableKind.Mask && packet.maskPacket.mask !is null
-                    ? packet.maskPacket.mask.name
-                    : "",
+            packet.kind == MaskDrawableKind.Part ? packet.partPacket : PartDrawPacket.init,
+            packet,
             false,
             packet.kind);
     }
 
     override void beginMaskContent() {
-        records ~= CommandRecord(RenderCommandKind.BeginMaskContent, "", false, MaskDrawableKind.Part);
+        records ~= CommandRecord(RenderCommandKind.BeginMaskContent,
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
+            false,
+            MaskDrawableKind.Part);
     }
 
     override void endMask() {
-        records ~= CommandRecord(RenderCommandKind.EndMask, "", false, MaskDrawableKind.Part);
+        records ~= CommandRecord(RenderCommandKind.EndMask,
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
+            false,
+            MaskDrawableKind.Part);
     }
 
     override void beginComposite() {
-        records ~= CommandRecord(RenderCommandKind.BeginComposite, "", false, MaskDrawableKind.Part);
+        records ~= CommandRecord(RenderCommandKind.BeginComposite,
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
+            false,
+            MaskDrawableKind.Part);
     }
 
     override void drawCompositeQuad(ref CompositeDrawPacket packet) {
         records ~= CommandRecord(RenderCommandKind.DrawCompositeQuad,
-            packet.composite ? packet.composite.name : "",
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
             false,
             MaskDrawableKind.Part);
     }
 
     override void endComposite() {
-        records ~= CommandRecord(RenderCommandKind.EndComposite, "", false, MaskDrawableKind.Part);
+        records ~= CommandRecord(RenderCommandKind.EndComposite,
+            PartDrawPacket.init,
+            MaskApplyPacket.init,
+            false,
+            MaskDrawableKind.Part);
     }
 
     override void drawTextureAtPart(Texture texture, Part part) {}
@@ -219,8 +240,10 @@ CommandRecord[] executeFrame(Puppet puppet) {
     inEnsureViewportForTests();
     auto backend = new RecordingBackend();
     auto queue = new RenderQueue();
+    auto graph = new RenderGraphBuilder();
     RenderContext ctx;
     ctx.renderQueue = &queue;
+    ctx.renderGraph = &graph;
     ctx.renderBackend = backend;
     ctx.gpuState = RenderGpuState.init;
 
@@ -228,9 +251,11 @@ CommandRecord[] executeFrame(Puppet puppet) {
     if (auto root = puppet.actualRoot()) {
         scheduler.clearTasks();
         root.registerRenderTasks(scheduler);
+        graph.beginFrame();
         scheduler.execute(ctx);
     }
 
+    queue.setCommands(graph.takeCommands());
     queue.flush(ctx.renderBackend, ctx.gpuState);
     return backend.records.dup;
 }
@@ -263,18 +288,20 @@ unittest {
     auto back = new Part(quad, textures, inCreateUUID(), puppet.root);
     back.name = "Background";
     back.zSort = -0.5f;
+    back.opacity = 0.25f;
 
     auto front = new Part(quad, textures, inCreateUUID(), puppet.root);
     front.name = "Foreground";
     front.zSort = 0.5f;
+    front.opacity = 0.75f;
 
     puppet.rescanNodes();
     auto records = executeFrame(puppet);
-    auto drawNames = records
+    auto drawOpacities = records
         .filter!(r => r.kind == RenderCommandKind.DrawPart)
-        .map!(r => r.nodeName)
+        .map!(r => r.partPacket.opacity)
         .array;
-    assert(drawNames == ["Foreground", "Background"],
+    assert(drawOpacities == [0.75f, 0.25f],
         "Render tasks must be flushed in descending zSort order.");
 }
 
@@ -407,6 +434,34 @@ unittest {
         RenderCommandKind.EndComposite,        // outer end
         RenderCommandKind.DrawCompositeQuad    // outer transfer to parent
     ], "Nested composites should finalize inner scopes before closing the outer scope.");
+}
+
+unittest {
+    auto puppet = new Puppet();
+    puppet.root.name = "Root";
+
+    auto quad = makeQuadMesh();
+    Texture[] textures;
+    textures.length = TextureUsage.COUNT;
+
+    auto first = new Composite(puppet.root);
+    first.name = "FirstComposite";
+    auto firstPart = new Part(quad, textures, inCreateUUID(), first);
+    firstPart.name = "FirstChild";
+
+    auto second = new Composite(puppet.root);
+    second.name = "SecondComposite";
+    second.zSort = -0.1f;
+    auto secondPart = new Part(quad, textures, inCreateUUID(), second);
+    secondPart.name = "SecondChild";
+
+    puppet.rescanNodes();
+    auto records = executeFrame(puppet);
+    auto compositeDraws = records
+        .filter!(r => r.kind == RenderCommandKind.DrawCompositeQuad)
+        .array;
+    assert(compositeDraws.length == 2,
+        "Sibling composites should each emit a DrawCompositeQuad command.");
 }
 
 unittest {

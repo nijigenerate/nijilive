@@ -47,6 +47,10 @@ private:
         return compositeScopeActive;
     }
 
+    package(nijilive) size_t compositeScopeTokenValue() const {
+        return compositeScopeToken;
+    }
+
     this() { }
 
     void synchronizeDelegated() {
@@ -435,7 +439,7 @@ public:
 
     override
     protected void runRenderBeginTask(RenderContext ctx) {
-        if (!renderEnabled() || ctx.renderQueue is null) return;
+        if (!renderEnabled() || ctx.renderGraph is null) return;
         if (delegated) {
             delegated.delegatedRunRenderBeginTask(ctx);
             return;
@@ -462,7 +466,8 @@ public:
             }
         }
 
-        compositeScopeToken = ctx.renderQueue.pushComposite(this, useStencil, maskPackets);
+        auto drawPacket = makeCompositeDrawPacket(this);
+        compositeScopeToken = ctx.renderGraph.pushComposite(this, zSort(), drawPacket, useStencil, maskPackets);
         compositeScopeActive = true;
     }
 
@@ -475,7 +480,7 @@ public:
 
     override
     protected void runRenderEndTask(RenderContext ctx) {
-        if (ctx.renderQueue is null) return;
+        if (ctx.renderGraph is null) return;
         if (delegated) {
             delegated.delegatedRunRenderEndTask(ctx);
             return;
@@ -483,7 +488,7 @@ public:
 
         if (!compositeScopeActive) return;
 
-        ctx.renderQueue.popComposite(compositeScopeToken, this);
+        ctx.renderGraph.popComposite(compositeScopeToken);
         markCompositeScopeClosed();
     }
 

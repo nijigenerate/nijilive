@@ -27,7 +27,7 @@ public import nijilive.core.nodes.deformer.path;
 public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
-import nijilive.core.render.queue;
+import nijilive.core.render.graph_builder;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
 import nijilive.core.render.scheduler;
@@ -922,7 +922,7 @@ public:
         while (current !is null) {
             if (auto dyn = cast(DynamicComposite)current) {
                 if (dyn.dynamicScopeActive) {
-                    return RenderScopeHint.forDynamic(dyn);
+                    return RenderScopeHint.forDynamic(dyn.dynamicScopeTokenValue());
                 }
                 if (dyn.reuseCachedTextureThisFrame) {
                     return RenderScopeHint.skipHint();
@@ -930,7 +930,7 @@ public:
             }
             if (auto comp = cast(Composite)current) {
                 if (comp.isCompositeScopeActive()) {
-                    return RenderScopeHint.forComposite(comp);
+                    return RenderScopeHint.forComposite(comp.compositeScopeTokenValue());
                 }
             }
             current = current.parent;

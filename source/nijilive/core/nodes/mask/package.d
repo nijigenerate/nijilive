@@ -106,8 +106,6 @@ public:
 
     package(nijilive)
     void fillMaskDrawPacket(ref MaskDrawPacket packet) {
-        packet.mask = this;
-
         mat4 modelMatrix = transform.matrix();
         if (overrideTransformMatrix !is null)
             modelMatrix = overrideTransformMatrix.matrix;

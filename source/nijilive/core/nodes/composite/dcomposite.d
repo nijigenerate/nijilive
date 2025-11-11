@@ -24,7 +24,7 @@ import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil;
 import nijilive.core.render.commands;
-import nijilive.core.render.queue : RenderCommandBuffer;
+import nijilive.core.render.graph_builder : RenderCommandBuffer;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 
 package(nijilive) {
@@ -46,6 +46,10 @@ protected:
     package(nijilive) bool reuseCachedTextureThisFrame = false;
     bool hasValidOffscreenContent = false;
     bool loggedFirstRenderAttempt = false;
+
+    package(nijilive) size_t dynamicScopeTokenValue() const {
+        return dynamicScopeToken;
+    }
 public:
     this(bool delegatedMode) { }
 
@@ -563,7 +567,7 @@ public:
             }
         }
         queuedOffscreenParts.length = 0;
-        if (!renderEnabled() || ctx.renderQueue is null) return;
+        if (!renderEnabled() || ctx.renderGraph is null) return;
         if (!updateDynamicRenderStateFlags()) {
             return;
         }
@@ -575,7 +579,7 @@ public:
         }
 
         selfSort();
-        dynamicScopeToken = ctx.renderQueue.pushDynamicComposite(this);
+        dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, zSort());
         dynamicScopeActive = true;
 
         queuedOffscreenParts.length = 0;
@@ -598,10 +602,10 @@ public:
     }
 
     private void dynamicRenderEnd(RenderContext ctx) {
-        if (ctx.renderQueue is null) return;
+        if (ctx.renderGraph is null) return;
         bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
-            ctx.renderQueue.popDynamicComposite(dynamicScopeToken, this, (ref RenderCommandBuffer buffer) {
+            ctx.renderGraph.popDynamicComposite(dynamicScopeToken, (ref RenderCommandBuffer buffer) {
                 auto packet = makePartDrawPacket(this);
                 bool hasMasks = masks.length > 0;
                 bool useStencil = hasMasks && maskCount > 0;
