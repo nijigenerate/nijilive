@@ -11,8 +11,10 @@ import std.path : extension;
 import std.json;
 import nijilive.core.render.queue;
 import nijilive.core.render.graph_builder;
-import nijilive.core.render.backends : RenderBackend, RenderGpuState;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
 import nijilive.core.runtime_state : currentRenderBackend;
+
+alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 import nijilive.core.render.scheduler;
 import nijilive.core.texture_types : Filtering;
 

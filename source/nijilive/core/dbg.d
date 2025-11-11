@@ -1,8 +1,10 @@
 module nijilive.core.dbg;
 
 import nijilive.math : vec3, vec4, mat4;
-import nijilive.core.render.backends : RenderBackend;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum;
 import nijilive.core.runtime_state : inGetCamera, tryRenderBackend;
+
+alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 
 private bool debugInitialized;
 private bool hasDebugBuffer;

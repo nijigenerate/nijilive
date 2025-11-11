@@ -80,6 +80,7 @@ private struct RenderPass {
     float scopeZSort;
     Composite composite;
     DynamicComposite dynamicComposite;
+    DynamicCompositePass dynamicPass;
     bool maskUsesStencil;
     MaskApplyPacket[] maskPackets;
     CompositeDrawPacket compositePacket;
@@ -182,10 +183,18 @@ private:
 
         auto childCommands = collectPassCommands(pass);
 
+        if (pass.dynamicPass is null) {
+            if (autoClose && pass.dynamicComposite !is null) {
+                pass.dynamicComposite.dynamicScopeActive = false;
+                pass.dynamicComposite.dynamicScopeToken = size_t.max;
+            }
+            pass.dynamicPostCommands = null;
+            return;
+        }
         RenderCommandBuffer buffer;
-        buffer.add(makeBeginDynamicCompositeCommand(pass.dynamicComposite));
+        buffer.add(makeBeginDynamicCompositeCommand(pass.dynamicPass));
         buffer.addAll(childCommands);
-        buffer.add(makeEndDynamicCompositeCommand(pass.dynamicComposite));
+        buffer.add(makeEndDynamicCompositeCommand(pass.dynamicPass));
 
         auto finalizer = postCommands is null ? pass.dynamicPostCommands : postCommands;
         if (finalizer !is null) {
@@ -365,11 +374,12 @@ public:
         finalizeCompositePass(false);
     }
 
-    size_t pushDynamicComposite(DynamicComposite composite, float zSort) {
+    size_t pushDynamicComposite(DynamicComposite composite, DynamicCompositePass passData, float zSort) {
         ensureRootPass();
         RenderPass pass;
         pass.kind = RenderPassKind.DynamicComposite;
         pass.dynamicComposite = composite;
+        pass.dynamicPass = passData;
         pass.scopeZSort = zSort;
         pass.token = ++nextToken;
         pass.nextSequence = 0;

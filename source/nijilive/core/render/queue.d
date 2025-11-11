@@ -1,7 +1,9 @@
 module nijilive.core.render.queue;
 
 import nijilive.core.render.commands;
-import nijilive.core.render.backends : RenderBackend, RenderGpuState;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
+
+alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 
 /// Simple GPU command queue that replays prepared command lists.
 final class RenderQueue {
@@ -45,10 +47,10 @@ public:
                     backend.drawMaskPacket(command.maskDrawPacket);
                     break;
                 case RenderCommandKind.BeginDynamicComposite:
-                    if (command.dynamicComposite !is null) backend.beginDynamicComposite(command.dynamicComposite);
+                    if (command.dynamicCompositePass !is null) backend.beginDynamicComposite(command.dynamicCompositePass);
                     break;
                 case RenderCommandKind.EndDynamicComposite:
-                    if (command.dynamicComposite !is null) backend.endDynamicComposite(command.dynamicComposite);
+                    if (command.dynamicCompositePass !is null) backend.endDynamicComposite(command.dynamicCompositePass);
                     break;
                 case RenderCommandKind.BeginMask:
                     backend.beginMask(command.maskUsesStencil);

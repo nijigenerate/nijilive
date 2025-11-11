@@ -1,12 +1,11 @@
 module nijilive.core.render.backends;
 
-import nijilive.core.nodes : Node;
+import std.exception : enforce;
+
 import nijilive.core.nodes.part : Part;
-import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
-import nijilive.core.nodes.drawable : Drawable;
 import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
-    MaskDrawPacket;
+    MaskDrawPacket, DynamicCompositeSurface, DynamicCompositePass;
 import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
@@ -33,106 +32,132 @@ class RenderShaderHandle : RenderBackendHandle { }
 /// Handle for texture resources managed by a RenderBackend.
 class RenderTextureHandle : RenderBackendHandle { }
 
-/// Backend abstraction executed by RenderCommand implementations.
-interface RenderBackend {
-    void initializeRenderer();
-    void resizeViewportTargets(int width, int height);
-    void dumpViewport(ref ubyte[] data, int width, int height);
-    void beginScene();
-    void endScene();
-    void postProcessScene();
-
-    void initializeDrawableResources();
-    void bindDrawableVao();
-    void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo);
-    void uploadDrawableIndices(uint ibo, ushort[] indices);
-    void uploadDrawableVertices(uint vbo, vec2[] vertices);
-    void uploadDrawableDeform(uint dbo, vec2[] deform);
-    void drawDrawableElements(uint ibo, size_t indexCount);
-
-    uint createPartUvBuffer();
-    void updatePartUvBuffer(uint buffer, ref MeshData data);
-
-    bool supportsAdvancedBlend();
-    bool supportsAdvancedBlendCoherent();
-    void setAdvancedBlendCoherent(bool enabled);
-    void setLegacyBlendMode(BlendMode mode);
-    void setAdvancedBlendEquation(BlendMode mode);
-    void issueBlendBarrier();
-    void initDebugRenderer();
-    void setDebugPointSize(float size);
-    void setDebugLineWidth(float size);
-    void uploadDebugBuffer(vec3[] points, ushort[] indices);
-    void setDebugExternalBuffer(uint vbo, uint ibo, int count);
-    void drawDebugPoints(vec4 color, mat4 mvp);
-    void drawDebugLines(vec4 color, mat4 mvp);
-
-    void drawPartPacket(ref PartDrawPacket packet);
-    void drawMaskPacket(ref MaskDrawPacket packet);
-    void beginDynamicComposite(DynamicComposite composite);
-    void endDynamicComposite(DynamicComposite composite);
-    void destroyDynamicComposite(DynamicComposite composite);
-    void beginMask(bool useStencil);
-    void applyMask(ref MaskApplyPacket packet);
-    void beginMaskContent();
-    void endMask();
-    void beginComposite();
-    void drawCompositeQuad(ref CompositeDrawPacket packet);
-    void endComposite();
-    void drawTextureAtPart(Texture texture, Part part);
-    void drawTextureAtPosition(Texture texture, vec2 position, float opacity,
-                                vec3 color, vec3 screenColor);
-    void drawTextureAtRect(Texture texture, rect area, rect uvs,
-                            float opacity, vec3 color, vec3 screenColor,
-                            Shader shader = null, Camera cam = null);
-    uint framebufferHandle();
-    uint renderImageHandle();
-    uint compositeFramebufferHandle();
-    uint compositeImageHandle();
-    uint mainAlbedoHandle();
-    uint mainEmissiveHandle();
-    uint mainBumpHandle();
-    uint compositeEmissiveHandle();
-    uint compositeBumpHandle();
-    uint blendFramebufferHandle();
-    uint blendAlbedoHandle();
-    uint blendEmissiveHandle();
-    uint blendBumpHandle();
-    void addBasicLightingPostProcess();
-    void setDifferenceAggregationEnabled(bool enabled);
-    bool isDifferenceAggregationEnabled();
-    void setDifferenceAggregationRegion(DifferenceEvaluationRegion region);
-    DifferenceEvaluationRegion getDifferenceAggregationRegion();
-    bool evaluateDifferenceAggregation(uint texture, int width, int height);
-    bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result);
-
-    // Shader management
-    RenderShaderHandle createShader(string vertexSource, string fragmentSource);
-    void destroyShader(RenderShaderHandle shader);
-    void useShader(RenderShaderHandle shader);
-    int getShaderUniformLocation(RenderShaderHandle shader, string name);
-    void setShaderUniform(RenderShaderHandle shader, int location, bool value);
-    void setShaderUniform(RenderShaderHandle shader, int location, int value);
-    void setShaderUniform(RenderShaderHandle shader, int location, float value);
-    void setShaderUniform(RenderShaderHandle shader, int location, vec2 value);
-    void setShaderUniform(RenderShaderHandle shader, int location, vec3 value);
-    void setShaderUniform(RenderShaderHandle shader, int location, vec4 value);
-    void setShaderUniform(RenderShaderHandle shader, int location, mat4 value);
-
-    // Texture management
-    RenderTextureHandle createTextureHandle();
-    void destroyTextureHandle(RenderTextureHandle texture);
-    void bindTextureHandle(RenderTextureHandle texture, uint unit);
-    void uploadTextureData(RenderTextureHandle texture, int width, int height, int inChannels,
-                           int outChannels, bool stencil, ubyte[] data);
-    void updateTextureRegion(RenderTextureHandle texture, int x, int y, int width, int height,
-                             int channels, ubyte[] data);
-    void generateTextureMipmap(RenderTextureHandle texture);
-    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering);
-    void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping);
-    void applyTextureAnisotropy(RenderTextureHandle texture, float value);
-    float maxTextureAnisotropy();
-    void readTextureData(RenderTextureHandle texture, int channels, bool stencil,
-                         ubyte[] buffer);
-    size_t textureNativeHandle(RenderTextureHandle texture);
+enum BackendEnum {
+    OpenGL,
+    Mock,
 }
+
+/*
+class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.OpenGL){
+    private auto backendUnsupported(T = void)(string func) {
+        enforce(false, "Rendering backend "~backendType.stringof~" does not implement "~func);
+        static if (!is(T == void)) {
+            return T.init;
+        }
+    }
+
+    void initializeRenderer() { backendUnsupported(__FUNCTION__); }
+    void resizeViewportTargets(int width, int height) { backendUnsupported(__FUNCTION__); }
+    void dumpViewport(ref ubyte[] data, int width, int height) { backendUnsupported(__FUNCTION__); }
+    void beginScene() { backendUnsupported(__FUNCTION__); }
+    void endScene() { backendUnsupported(__FUNCTION__); }
+    void postProcessScene() { backendUnsupported(__FUNCTION__); }
+
+    void initializeDrawableResources() { backendUnsupported(__FUNCTION__); }
+    void bindDrawableVao() { backendUnsupported(__FUNCTION__); }
+    void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) { backendUnsupported(__FUNCTION__); }
+    void uploadDrawableIndices(uint ibo, ushort[] indices) { backendUnsupported(__FUNCTION__); }
+    void uploadDrawableVertices(uint vbo, vec2[] vertices) { backendUnsupported(__FUNCTION__); }
+    void uploadDrawableDeform(uint dbo, vec2[] deform) { backendUnsupported(__FUNCTION__); }
+    void drawDrawableElements(uint ibo, size_t indexCount) { backendUnsupported(__FUNCTION__); }
+
+    uint createPartUvBuffer() { return backendUnsupported!uint(__FUNCTION__); }
+    void updatePartUvBuffer(uint buffer, ref MeshData data) { backendUnsupported(__FUNCTION__); }
+
+    bool supportsAdvancedBlend() { return backendUnsupported!bool(__FUNCTION__); }
+    bool supportsAdvancedBlendCoherent() { return backendUnsupported!bool(__FUNCTION__); }
+    void setAdvancedBlendCoherent(bool enabled) { backendUnsupported(__FUNCTION__); }
+    void setLegacyBlendMode(BlendMode mode) { backendUnsupported(__FUNCTION__); }
+    void setAdvancedBlendEquation(BlendMode mode) { backendUnsupported(__FUNCTION__); }
+    void issueBlendBarrier() { backendUnsupported(__FUNCTION__); }
+    void initDebugRenderer() { backendUnsupported(__FUNCTION__); }
+    void setDebugPointSize(float size) { backendUnsupported(__FUNCTION__); }
+    void setDebugLineWidth(float size) { backendUnsupported(__FUNCTION__); }
+    void uploadDebugBuffer(vec3[] points, ushort[] indices) { backendUnsupported(__FUNCTION__); }
+    void setDebugExternalBuffer(uint vbo, uint ibo, int count) { backendUnsupported(__FUNCTION__); }
+    void drawDebugPoints(vec4 color, mat4 mvp) { backendUnsupported(__FUNCTION__); }
+    void drawDebugLines(vec4 color, mat4 mvp) { backendUnsupported(__FUNCTION__); }
+
+    void drawPartPacket(ref PartDrawPacket packet) { backendUnsupported(__FUNCTION__); }
+    void drawMaskPacket(ref MaskDrawPacket packet) { backendUnsupported(__FUNCTION__); }
+    void beginDynamicComposite(DynamicCompositePass pass) { backendUnsupported(__FUNCTION__); }
+    void endDynamicComposite(DynamicCompositePass pass) { backendUnsupported(__FUNCTION__); }
+    void destroyDynamicComposite(DynamicCompositeSurface surface) { backendUnsupported(__FUNCTION__); }
+    void beginMask(bool useStencil) { backendUnsupported(__FUNCTION__); }
+    void applyMask(ref MaskApplyPacket packet) { backendUnsupported(__FUNCTION__); }
+    void beginMaskContent() { backendUnsupported(__FUNCTION__); }
+    void endMask() { backendUnsupported(__FUNCTION__); }
+    void beginComposite() { backendUnsupported(__FUNCTION__); }
+    void drawCompositeQuad(ref CompositeDrawPacket packet) { backendUnsupported(__FUNCTION__); }
+    void endComposite() { backendUnsupported(__FUNCTION__); }
+    void drawTextureAtPart(Texture texture, Part part) { backendUnsupported(__FUNCTION__); }
+    void drawTextureAtPosition(Texture texture, vec2 position, float opacity,
+                               vec3 color, vec3 screenColor) { backendUnsupported(__FUNCTION__); }
+    void drawTextureAtRect(Texture texture, rect area, rect uvs,
+                           float opacity, vec3 color, vec3 screenColor,
+                           Shader shader = null, Camera cam = null) { backendUnsupported(__FUNCTION__); }
+    uint framebufferHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint renderImageHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint compositeFramebufferHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint compositeImageHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint mainAlbedoHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint mainEmissiveHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint mainBumpHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint compositeEmissiveHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint compositeBumpHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint blendFramebufferHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint blendAlbedoHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint blendEmissiveHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint blendBumpHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    void addBasicLightingPostProcess() { backendUnsupported(__FUNCTION__); }
+    void setDifferenceAggregationEnabled(bool enabled) { backendUnsupported(__FUNCTION__); }
+    bool isDifferenceAggregationEnabled() { return backendUnsupported!bool(__FUNCTION__); }
+    void setDifferenceAggregationRegion(DifferenceEvaluationRegion region) { backendUnsupported(__FUNCTION__); }
+    DifferenceEvaluationRegion getDifferenceAggregationRegion() { return backendUnsupported!DifferenceEvaluationRegion(__FUNCTION__); }
+    bool evaluateDifferenceAggregation(uint texture, int width, int height) { return backendUnsupported!bool(__FUNCTION__); }
+    bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result) { return backendUnsupported!bool(__FUNCTION__); }
+
+    RenderShaderHandle createShader(string vertexSource, string fragmentSource) { return backendUnsupported!RenderShaderHandle(__FUNCTION__); }
+    void destroyShader(RenderShaderHandle shader) { backendUnsupported(__FUNCTION__); }
+    void useShader(RenderShaderHandle shader) { backendUnsupported(__FUNCTION__); }
+    int getShaderUniformLocation(RenderShaderHandle shader, string name) { return backendUnsupported!int(__FUNCTION__); }
+    void setShaderUniform(RenderShaderHandle shader, int location, bool value) { backendUnsupported(__FUNCTION__); }
+    void setShaderUniform(RenderShaderHandle shader, int location, int value) { backendUnsupported(__FUNCTION__); }
+    void setShaderUniform(RenderShaderHandle shader, int location, float value) { backendUnsupported(__FUNCTION__); }
+    void setShaderUniform(RenderShaderHandle shader, int location, vec2 value) { backendUnsupported(__FUNCTION__); }
+    void setShaderUniform(RenderShaderHandle shader, int location, vec3 value) { backendUnsupported(__FUNCTION__); }
+    void setShaderUniform(RenderShaderHandle shader, int location, vec4 value) { backendUnsupported(__FUNCTION__); }
+    void setShaderUniform(RenderShaderHandle shader, int location, mat4 value) { backendUnsupported(__FUNCTION__); }
+
+    RenderTextureHandle createTextureHandle() { return backendUnsupported!RenderTextureHandle(__FUNCTION__); }
+    void destroyTextureHandle(RenderTextureHandle texture) { backendUnsupported(__FUNCTION__); }
+    void bindTextureHandle(RenderTextureHandle texture, uint unit) { backendUnsupported(__FUNCTION__); }
+    void uploadTextureData(RenderTextureHandle texture, int width, int height, int inChannels,
+                           int outChannels, bool stencil, ubyte[] data) { backendUnsupported(__FUNCTION__); }
+    void updateTextureRegion(RenderTextureHandle texture, int x, int y, int width, int height,
+                             int channels, ubyte[] data) { backendUnsupported(__FUNCTION__); }
+    void generateTextureMipmap(RenderTextureHandle texture) { backendUnsupported(__FUNCTION__); }
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) { backendUnsupported(__FUNCTION__); }
+    void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping) { backendUnsupported(__FUNCTION__); }
+    void applyTextureAnisotropy(RenderTextureHandle texture, float value) { backendUnsupported(__FUNCTION__); }
+    float maxTextureAnisotropy() { return backendUnsupported!float(__FUNCTION__); }
+    void readTextureData(RenderTextureHandle texture, int channels, bool stencil,
+                         ubyte[] buffer) { backendUnsupported(__FUNCTION__); }
+    size_t textureNativeHandle(RenderTextureHandle texture) { return backendUnsupported!size_t(__FUNCTION__); }
+}
+*/
+version (InDoesRender) {
+    public import nijilive.core.render.backends.opengl;
+}
+
+template RenderingBackend(BackendEnum backendType) {
+    static if (backendType == BackendEnum.OpenGL) {
+        alias RenderingBackend = nijilive.core.render.backends.opengl.RenderingBackend!(backendType);
+    } else {
+        enum msg = "RenderingBackend!("~backendType.stringof~") is not implemented. Only BackendEnum.OpenGL is supported.";
+        pragma(msg, msg);
+        static assert(backendType == BackendEnum.OpenGL, msg);
+    }
+}
+
+alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);

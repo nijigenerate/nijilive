@@ -1,11 +1,11 @@
 module nijilive.core.render.backends.opengl.dynamic_composite;
 
-version (InDoesRender):
+version (InDoesRender) {
 
 import bindbc.opengl;
-import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
+import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface;
 import nijilive.core.runtime_state : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
-import nijilive.math : mat4, vec2, vec4;
+import nijilive.math : mat4, vec2, vec3, vec4;
 import nijilive.core.texture : Texture;
 import nijilive.core.render.backends.opengl.handles : requireGLTexture;
 
@@ -16,43 +16,41 @@ private GLuint textureId(Texture texture) {
     return requireGLTexture(handle).id;
 }
 
-void oglBeginDynamicComposite(DynamicComposite composite) {
-    if (composite is null) return;
-    auto tex = composite.textures[0];
+void oglBeginDynamicComposite(DynamicCompositePass pass) {
+    if (pass is null) return;
+    auto surface = pass.surface;
+    if (surface is null || surface.textureCount == 0) return;
+    auto tex = surface.textures[0];
     if (tex is null) return;
 
-    if (composite.cfBuffer == 0) {
-        glGenFramebuffers(1, &composite.cfBuffer);
+    if (surface.framebuffer == 0) {
+        glGenFramebuffers(1, &surface.framebuffer);
     }
 
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &composite.origBuffer);
-    glGetIntegerv(GL_VIEWPORT, composite.origViewport.ptr);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &pass.origBuffer);
+    glGetIntegerv(GL_VIEWPORT, pass.origViewport.ptr);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, composite.cfBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, surface.framebuffer);
 
     GLuint[3] drawBuffers;
     size_t bufferCount;
-
-    void attachColor(size_t index, GLenum attachment) {
-        auto texture = index < composite.textures.length ? composite.textures[index] : null;
-        if (texture !is null) {
-            glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, textureId(texture), 0);
+    foreach (i; 0 .. surface.textureCount) {
+        auto attachment = GL_COLOR_ATTACHMENT0 + cast(GLenum)i;
+        auto attachmentTexture = surface.textures[i];
+        if (attachmentTexture !is null) {
+            glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, textureId(attachmentTexture), 0);
             drawBuffers[bufferCount++] = attachment;
         } else {
             glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, 0, 0);
         }
     }
 
-    attachColor(0, GL_COLOR_ATTACHMENT0);
-    attachColor(1, GL_COLOR_ATTACHMENT1);
-    attachColor(2, GL_COLOR_ATTACHMENT2);
-
     if (bufferCount == 0) {
         drawBuffers[bufferCount++] = GL_COLOR_ATTACHMENT0;
     }
 
-    if (composite.stencil !is null) {
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, textureId(composite.stencil), 0);
+    if (surface.stencil !is null) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, textureId(surface.stencil), 0);
         glClear(GL_STENCIL_BUFFER_BIT);
     } else {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
@@ -63,11 +61,10 @@ void oglBeginDynamicComposite(DynamicComposite composite) {
     auto camera = inGetCamera();
     camera.scale = vec2(1, -1);
 
-    auto transform = composite.transform;
-    float invScaleX = transform.scale.x == 0 ? 0 : 1 / transform.scale.x;
-    float invScaleY = transform.scale.y == 0 ? 0 : 1 / transform.scale.y;
+    float invScaleX = pass.scale.x == 0 ? 0 : 1 / pass.scale.x;
+    float invScaleY = pass.scale.y == 0 ? 0 : 1 / pass.scale.y;
     auto scaling = mat4.identity.scaling(invScaleX, invScaleY, 1);
-    auto rotation = mat4.identity.rotateZ(-transform.rotation.z);
+    auto rotation = mat4.identity.rotateZ(-pass.rotationZ);
     auto offsetMatrix = scaling * rotation;
     camera.position = (offsetMatrix * -vec4(0, 0, 0, 1)).xy;
     inSetCamera(camera);
@@ -80,27 +77,37 @@ void oglBeginDynamicComposite(DynamicComposite composite) {
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-void oglEndDynamicComposite(DynamicComposite composite) {
-    if (composite is null) return;
+void oglEndDynamicComposite(DynamicCompositePass pass) {
+    if (pass is null || pass.surface is null) return;
 
-    glBindFramebuffer(GL_FRAMEBUFFER, composite.origBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, pass.origBuffer);
     inPopViewport();
-    glViewport(composite.origViewport[0], composite.origViewport[1],
-        composite.origViewport[2], composite.origViewport[3]);
+    glViewport(pass.origViewport[0], pass.origViewport[1],
+        pass.origViewport[2], pass.origViewport[3]);
     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
     glFlush();
 
-    auto tex = composite.textures[0];
+    auto tex = pass.surface.textureCount > 0 ? pass.surface.textures[0] : null;
     if (tex !is null) {
         tex.genMipmap();
     }
 }
 
-void oglDestroyDynamicComposite(DynamicComposite composite) {
-    if (composite is null) return;
-    if (composite.cfBuffer != 0) {
-        uint buffer = composite.cfBuffer;
+void oglDestroyDynamicComposite(DynamicCompositeSurface surface) {
+    if (surface is null) return;
+    if (surface.framebuffer != 0) {
+        uint buffer = surface.framebuffer;
         glDeleteFramebuffers(1, &buffer);
-        composite.cfBuffer = 0;
+        surface.framebuffer = 0;
     }
+}
+
+} else {
+
+import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface;
+
+void oglBeginDynamicComposite(DynamicCompositePass) {}
+void oglEndDynamicComposite(DynamicCompositePass) {}
+void oglDestroyDynamicComposite(DynamicCompositeSurface) {}
+
 }

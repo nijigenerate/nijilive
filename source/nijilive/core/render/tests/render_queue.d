@@ -21,8 +21,9 @@ import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.render.queue;
 import nijilive.core.render.graph_builder;
 import nijilive.core.render.commands : RenderCommandKind, MaskApplyPacket, PartDrawPacket,
-    MaskDrawPacket, MaskDrawableKind, CompositeDrawPacket;
-import nijilive.core.render.backends;
+    MaskDrawPacket, MaskDrawableKind, CompositeDrawPacket, DynamicCompositePass,
+    DynamicCompositeSurface;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler;
 import nijilive.core.meshdata;
 import nijilive.core.texture : Texture;
@@ -68,7 +69,7 @@ struct CommandRecord {
     MaskDrawableKind maskKind;
 }
 
-class RecordingBackend : RenderBackend {
+class RecordingBackend : RenderingBackendStub!(BackendEnum.Mock) {
     CommandRecord[] records;
     uint nextHandle;
 
@@ -85,9 +86,9 @@ class RecordingBackend : RenderBackend {
         ibo = ++nextHandle;
         dbo = ++nextHandle;
     }
-    override void uploadDrawableIndices(uint ibo, const(ushort)[] indices) {}
-    override void uploadDrawableVertices(uint vbo, const(vec2)[] vertices) {}
-    override void uploadDrawableDeform(uint dbo, const(vec2)[] deform) {}
+    override void uploadDrawableIndices(uint ibo, ushort[] indices) {}
+    override void uploadDrawableVertices(uint vbo, vec2[] vertices) {}
+    override void uploadDrawableDeform(uint dbo, vec2[] deform) {}
     override void drawDrawableElements(uint ibo, size_t indexCount) {}
     override uint createPartUvBuffer() { return ++nextHandle; }
     override void updatePartUvBuffer(uint buffer, ref MeshData data) {}
@@ -114,7 +115,7 @@ class RecordingBackend : RenderBackend {
             MaskDrawableKind.Mask);
     }
 
-    override void beginDynamicComposite(DynamicComposite composite) {
+    override void beginDynamicComposite(DynamicCompositePass) {
         records ~= CommandRecord(RenderCommandKind.BeginDynamicComposite,
             PartDrawPacket.init,
             MaskApplyPacket.init,
@@ -122,7 +123,7 @@ class RecordingBackend : RenderBackend {
             MaskDrawableKind.Part);
     }
 
-    override void endDynamicComposite(DynamicComposite composite) {
+    override void endDynamicComposite(DynamicCompositePass) {
         records ~= CommandRecord(RenderCommandKind.EndDynamicComposite,
             PartDrawPacket.init,
             MaskApplyPacket.init,
@@ -130,7 +131,7 @@ class RecordingBackend : RenderBackend {
             MaskDrawableKind.Part);
     }
 
-    override void destroyDynamicComposite(DynamicComposite composite) {
+    override void destroyDynamicComposite(DynamicCompositeSurface) {
     }
 
     override void beginMask(bool useStencil) {

@@ -1,12 +1,12 @@
 module nijilive.core.render.backends.opengl;
 
+version (InDoesRender) {
+
 import nijilive.core.render.backends;
 import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
-    MaskDrawPacket;
+    MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface;
 import nijilive.core.nodes.part : Part;
-import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.nodes.common : BlendMode;
-import nijilive.core.runtime_state : registerRenderBackend;
 import nijilive.core.render.backends.opengl.runtime :
     oglInitRenderer,
     oglResizeViewport,
@@ -119,387 +119,385 @@ import nijilive.core.render.backends.opengl.handles :
     requireGLShader,
     requireGLTexture;
 
-class GLRenderBackend : RenderBackend {
-    override void initializeRenderer() {
+class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
+    void initializeRenderer() {
         oglInitRenderer();
         oglInitDrawableBackend();
         oglInitPartBackendResources();
         oglInitMaskBackend();
     }
 
-    override void resizeViewportTargets(int width, int height) {
+    void resizeViewportTargets(int width, int height) {
         oglResizeViewport(width, height);
     }
 
-    override void dumpViewport(ref ubyte[] data, int width, int height) {
+    void dumpViewport(ref ubyte[] data, int width, int height) {
         oglDumpViewport(data, width, height);
     }
 
-    override void beginScene() {
+    void beginScene() {
         oglBeginScene();
     }
 
-    override void endScene() {
+    void endScene() {
         oglEndScene();
     }
 
-    override void postProcessScene() {
+    void postProcessScene() {
         oglPostProcessScene();
     }
 
-    override void initializeDrawableResources() {
+    void initializeDrawableResources() {
         oglInitDrawableBackend();
     }
 
-    override void bindDrawableVao() {
+    void bindDrawableVao() {
         oglBindDrawableVao();
     }
 
-    override void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) {
+    void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) {
         oglCreateDrawableBuffers(vbo, ibo, dbo);
     }
 
-    override void uploadDrawableIndices(uint ibo, ushort[] indices) {
+    void uploadDrawableIndices(uint ibo, ushort[] indices) {
         oglUploadDrawableIndices(ibo, indices);
     }
 
-    override void uploadDrawableVertices(uint vbo, vec2[] vertices) {
+    void uploadDrawableVertices(uint vbo, vec2[] vertices) {
         oglUploadDrawableVertices(vbo, vertices);
     }
 
-    override void uploadDrawableDeform(uint dbo, vec2[] deform) {
+    void uploadDrawableDeform(uint dbo, vec2[] deform) {
         oglUploadDrawableDeform(dbo, deform);
     }
 
-    override void drawDrawableElements(uint ibo, size_t indexCount) {
+    void drawDrawableElements(uint ibo, size_t indexCount) {
         oglDrawDrawableElements(ibo, indexCount);
     }
 
-    override uint createPartUvBuffer() {
+    uint createPartUvBuffer() {
         return oglCreatePartUvBuffer();
     }
 
-    override void updatePartUvBuffer(uint buffer, ref MeshData data) {
+    void updatePartUvBuffer(uint buffer, ref MeshData data) {
         oglUpdatePartUvBuffer(buffer, data);
     }
 
-    override bool supportsAdvancedBlend() {
+    bool supportsAdvancedBlend() {
         return oglSupportsAdvancedBlend();
     }
 
-    override bool supportsAdvancedBlendCoherent() {
+    bool supportsAdvancedBlendCoherent() {
         return oglSupportsAdvancedBlendCoherent();
     }
 
-    override void setAdvancedBlendCoherent(bool enabled) {
+    void setAdvancedBlendCoherent(bool enabled) {
         oglSetAdvancedBlendCoherent(enabled);
     }
 
-    override void setLegacyBlendMode(BlendMode mode) {
+    void setLegacyBlendMode(BlendMode mode) {
         oglSetLegacyBlendMode(mode);
     }
 
-    override void setAdvancedBlendEquation(BlendMode mode) {
+    void setAdvancedBlendEquation(BlendMode mode) {
         oglSetAdvancedBlendEquation(mode);
     }
 
-    override void issueBlendBarrier() {
+    void issueBlendBarrier() {
         oglIssueBlendBarrier();
     }
 
-    override void initDebugRenderer() {
+    void initDebugRenderer() {
         oglInitDebugRenderer();
     }
 
-    override void setDebugPointSize(float size) {
+    void setDebugPointSize(float size) {
         oglSetDebugPointSize(size);
     }
 
-    override void setDebugLineWidth(float size) {
+    void setDebugLineWidth(float size) {
         oglSetDebugLineWidth(size);
     }
 
-    override void uploadDebugBuffer(vec3[] points, ushort[] indices) {
+    void uploadDebugBuffer(vec3[] points, ushort[] indices) {
         oglUploadDebugBuffer(points, indices);
     }
 
-    override void setDebugExternalBuffer(uint vbo, uint ibo, int count) {
+    void setDebugExternalBuffer(uint vbo, uint ibo, int count) {
         oglSetDebugExternalBuffer(vbo, ibo, count);
     }
 
-    override void drawDebugPoints(vec4 color, mat4 mvp) {
+    void drawDebugPoints(vec4 color, mat4 mvp) {
         oglDrawDebugPoints(color, mvp);
     }
 
-    override void drawDebugLines(vec4 color, mat4 mvp) {
+    void drawDebugLines(vec4 color, mat4 mvp) {
         oglDrawDebugLines(color, mvp);
     }
 
-    override void drawPartPacket(ref PartDrawPacket packet) {
+    void drawPartPacket(ref PartDrawPacket packet) {
         oglDrawPartPacket(packet);
     }
 
-    override void drawMaskPacket(ref MaskDrawPacket packet) {
+    void drawMaskPacket(ref MaskDrawPacket packet) {
         oglExecuteMaskPacket(packet);
     }
 
-    override void beginDynamicComposite(DynamicComposite composite) {
-        oglBeginDynamicComposite(composite);
+    void beginDynamicComposite(DynamicCompositePass pass) {
+        oglBeginDynamicComposite(pass);
     }
 
-    override void endDynamicComposite(DynamicComposite composite) {
-        oglEndDynamicComposite(composite);
+    void endDynamicComposite(DynamicCompositePass pass) {
+        oglEndDynamicComposite(pass);
     }
 
-    override void destroyDynamicComposite(DynamicComposite composite) {
-        oglDestroyDynamicComposite(composite);
+    void destroyDynamicComposite(DynamicCompositeSurface surface) {
+        oglDestroyDynamicComposite(surface);
     }
 
-    override void beginMask(bool useStencil) {
+    void beginMask(bool useStencil) {
         oglBeginMask(useStencil);
     }
 
-    override void applyMask(ref MaskApplyPacket packet) {
+    void applyMask(ref MaskApplyPacket packet) {
         oglExecuteMaskApplyPacket(packet);
     }
 
-    override void beginMaskContent() {
+    void beginMaskContent() {
         oglBeginMaskContent();
     }
 
-    override void endMask() {
+    void endMask() {
         oglEndMask();
     }
-    override void beginComposite() {
+    void beginComposite() {
         oglBeginComposite();
     }
 
-    override void drawCompositeQuad(ref CompositeDrawPacket packet) {
+    void drawCompositeQuad(ref CompositeDrawPacket packet) {
         oglDrawCompositeQuad(packet);
     }
 
-    override void endComposite() {
+    void endComposite() {
         oglEndComposite();
     }
 
-    override void drawTextureAtPart(Texture texture, Part part) {
+    void drawTextureAtPart(Texture texture, Part part) {
         oglDrawTextureAtPart(texture, part);
     }
 
-    override void drawTextureAtPosition(Texture texture, vec2 position, float opacity,
+    void drawTextureAtPosition(Texture texture, vec2 position, float opacity,
                                         vec3 color, vec3 screenColor) {
         oglDrawTextureAtPosition(texture, position, opacity, color, screenColor);
     }
 
-    override void drawTextureAtRect(Texture texture, rect area, rect uvs,
+    void drawTextureAtRect(Texture texture, rect area, rect uvs,
                                     float opacity, vec3 color, vec3 screenColor,
                                     Shader shader = null, Camera cam = null) {
         oglDrawTextureAtRect(texture, area, uvs, opacity, color, screenColor, shader, cam);
     }
 
-    override uint framebufferHandle() {
+    uint framebufferHandle() {
         return oglGetFramebuffer();
     }
 
-    override uint renderImageHandle() {
+    uint renderImageHandle() {
         return oglGetRenderImage();
     }
 
-    override uint compositeFramebufferHandle() {
+    uint compositeFramebufferHandle() {
         return oglGetCompositeFramebuffer();
     }
 
-    override uint compositeImageHandle() {
+    uint compositeImageHandle() {
         return oglGetCompositeImage();
     }
 
-    override uint mainAlbedoHandle() {
+    uint mainAlbedoHandle() {
         return oglGetMainAlbedo();
     }
 
-    override uint mainEmissiveHandle() {
+    uint mainEmissiveHandle() {
         return oglGetMainEmissive();
     }
 
-    override uint mainBumpHandle() {
+    uint mainBumpHandle() {
         return oglGetMainBump();
     }
 
-    override uint compositeEmissiveHandle() {
+    uint compositeEmissiveHandle() {
         return oglGetCompositeEmissive();
     }
 
-    override uint compositeBumpHandle() {
+    uint compositeBumpHandle() {
         return oglGetCompositeBump();
     }
 
-    override uint blendFramebufferHandle() {
+    uint blendFramebufferHandle() {
         return oglGetBlendFramebuffer();
     }
 
-    override uint blendAlbedoHandle() {
+    uint blendAlbedoHandle() {
         return oglGetBlendAlbedo();
     }
 
-    override uint blendEmissiveHandle() {
+    uint blendEmissiveHandle() {
         return oglGetBlendEmissive();
     }
 
-    override uint blendBumpHandle() {
+    uint blendBumpHandle() {
         return oglGetBlendBump();
     }
 
-    override void addBasicLightingPostProcess() {
+    void addBasicLightingPostProcess() {
         oglAddBasicLightingPostProcess();
     }
 
-    override void setDifferenceAggregationEnabled(bool enabled) {
+    void setDifferenceAggregationEnabled(bool enabled) {
         oglSetDifferenceAggregationEnabled(enabled);
     }
 
-    override bool isDifferenceAggregationEnabled() {
+    bool isDifferenceAggregationEnabled() {
         return oglIsDifferenceAggregationEnabled();
     }
 
-    override void setDifferenceAggregationRegion(DifferenceEvaluationRegion region) {
+    void setDifferenceAggregationRegion(DifferenceEvaluationRegion region) {
         oglSetDifferenceAggregationRegion(region);
     }
 
-    override DifferenceEvaluationRegion getDifferenceAggregationRegion() {
+    DifferenceEvaluationRegion getDifferenceAggregationRegion() {
         return oglGetDifferenceAggregationRegion();
     }
 
-    override bool evaluateDifferenceAggregation(uint texture, int width, int height) {
+    bool evaluateDifferenceAggregation(uint texture, int width, int height) {
         return oglEvaluateDifferenceAggregation(texture, width, height);
     }
 
-    override bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
+    bool fetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
         return oglFetchDifferenceAggregationResult(result);
     }
 
-    override RenderShaderHandle createShader(string vertexSource, string fragmentSource) {
+    RenderShaderHandle createShader(string vertexSource, string fragmentSource) {
         auto handle = new GLShaderHandle();
         oglCreateShaderProgram(handle.shader, vertexSource, fragmentSource);
         return handle;
     }
 
-    override void destroyShader(RenderShaderHandle shader) {
+    void destroyShader(RenderShaderHandle shader) {
         auto handle = requireGLShader(shader);
         oglDestroyShaderProgram(handle.shader);
         handle.shader = ShaderProgramHandle.init;
     }
 
-    override void useShader(RenderShaderHandle shader) {
+    void useShader(RenderShaderHandle shader) {
         auto handle = requireGLShader(shader);
         oglUseShaderProgram(handle.shader);
     }
 
-    override int getShaderUniformLocation(RenderShaderHandle shader, string name) {
+    int getShaderUniformLocation(RenderShaderHandle shader, string name) {
         auto handle = requireGLShader(shader);
         return oglShaderGetUniformLocation(handle.shader, name);
     }
 
-    override void setShaderUniform(RenderShaderHandle shader, int location, bool value) {
+    void setShaderUniform(RenderShaderHandle shader, int location, bool value) {
         requireGLShader(shader);
         oglSetUniformBool(location, value);
     }
 
-    override void setShaderUniform(RenderShaderHandle shader, int location, int value) {
+    void setShaderUniform(RenderShaderHandle shader, int location, int value) {
         requireGLShader(shader);
         oglSetUniformInt(location, value);
     }
 
-    override void setShaderUniform(RenderShaderHandle shader, int location, float value) {
+    void setShaderUniform(RenderShaderHandle shader, int location, float value) {
         requireGLShader(shader);
         oglSetUniformFloat(location, value);
     }
 
-    override void setShaderUniform(RenderShaderHandle shader, int location, vec2 value) {
+    void setShaderUniform(RenderShaderHandle shader, int location, vec2 value) {
         requireGLShader(shader);
         oglSetUniformVec2(location, value);
     }
 
-    override void setShaderUniform(RenderShaderHandle shader, int location, vec3 value) {
+    void setShaderUniform(RenderShaderHandle shader, int location, vec3 value) {
         requireGLShader(shader);
         oglSetUniformVec3(location, value);
     }
 
-    override void setShaderUniform(RenderShaderHandle shader, int location, vec4 value) {
+    void setShaderUniform(RenderShaderHandle shader, int location, vec4 value) {
         requireGLShader(shader);
         oglSetUniformVec4(location, value);
     }
 
-    override void setShaderUniform(RenderShaderHandle shader, int location, mat4 value) {
+    void setShaderUniform(RenderShaderHandle shader, int location, mat4 value) {
         requireGLShader(shader);
         oglSetUniformMat4(location, value);
     }
 
-    override RenderTextureHandle createTextureHandle() {
+    RenderTextureHandle createTextureHandle() {
         auto handle = new GLTextureHandle();
         oglCreateTextureHandle(handle.id);
         return handle;
     }
 
-    override void destroyTextureHandle(RenderTextureHandle texture) {
+    void destroyTextureHandle(RenderTextureHandle texture) {
         auto handle = requireGLTexture(texture);
         oglDeleteTextureHandle(handle.id);
         handle.id = 0;
     }
 
-    override void bindTextureHandle(RenderTextureHandle texture, uint unit) {
+    void bindTextureHandle(RenderTextureHandle texture, uint unit) {
         auto handle = requireGLTexture(texture);
         oglBindTextureHandle(handle.id, unit);
     }
 
-    override void uploadTextureData(RenderTextureHandle texture, int width, int height,
+    void uploadTextureData(RenderTextureHandle texture, int width, int height,
                                     int inChannels, int outChannels, bool stencil,
                                     ubyte[] data) {
         auto handle = requireGLTexture(texture);
         oglUploadTextureData(handle.id, width, height, inChannels, outChannels, stencil, data);
     }
 
-    override void updateTextureRegion(RenderTextureHandle texture, int x, int y, int width,
+    void updateTextureRegion(RenderTextureHandle texture, int x, int y, int width,
                                       int height, int channels, ubyte[] data) {
         auto handle = requireGLTexture(texture);
         oglUpdateTextureRegion(handle.id, x, y, width, height, channels, data);
     }
 
-    override void generateTextureMipmap(RenderTextureHandle texture) {
+    void generateTextureMipmap(RenderTextureHandle texture) {
         auto handle = requireGLTexture(texture);
         oglGenerateTextureMipmap(handle.id);
     }
 
-    override void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) {
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) {
         auto handle = requireGLTexture(texture);
         oglApplyTextureFiltering(handle.id, filtering);
     }
 
-    override void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping) {
+    void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping) {
         auto handle = requireGLTexture(texture);
         oglApplyTextureWrapping(handle.id, wrapping);
     }
 
-    override void applyTextureAnisotropy(RenderTextureHandle texture, float value) {
+    void applyTextureAnisotropy(RenderTextureHandle texture, float value) {
         auto handle = requireGLTexture(texture);
         oglApplyTextureAnisotropy(handle.id, value);
     }
 
-    override float maxTextureAnisotropy() {
+    float maxTextureAnisotropy() {
         return oglMaxTextureAnisotropy();
     }
 
-    override void readTextureData(RenderTextureHandle texture, int channels, bool stencil,
+    void readTextureData(RenderTextureHandle texture, int channels, bool stencil,
                                   ubyte[] buffer) {
         auto handle = requireGLTexture(texture);
         oglReadTextureData(handle.id, channels, stencil, buffer);
     }
 
-    override size_t textureNativeHandle(RenderTextureHandle texture) {
+    size_t textureNativeHandle(RenderTextureHandle texture) {
         auto handle = requireGLTexture(texture);
         return handle.id;
     }
 }
 
-shared static this() {
-    registerRenderBackend(new GLRenderBackend());
 }

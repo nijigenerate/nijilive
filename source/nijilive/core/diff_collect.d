@@ -1,7 +1,9 @@
 module nijilive.core.diff_collect;
 
-import nijilive.core.render.backends : RenderBackend;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum;
 import nijilive.core.runtime_state : tryRenderBackend;
+
+alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 
 struct DifferenceEvaluationRegion {
     int x;

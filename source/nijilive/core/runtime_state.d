@@ -20,13 +20,21 @@ import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvalua
     rpSetDifferenceEvaluationEnabled, rpDifferenceEvaluationEnabled,
     rpSetDifferenceEvaluationRegion, rpGetDifferenceEvaluationRegion,
     rpEvaluateDifference, rpFetchDifferenceResult;
-import nijilive.core.render.backends : RenderBackend;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum;
 
 package(nijilive) int[] inViewportWidth;
 package(nijilive) int[] inViewportHeight;
 package(nijilive) vec4 inClearColor = vec4(0, 0, 0, 0);
 package(nijilive) Camera[] inCamera;
 vec3 inSceneAmbientLight = vec3(1, 1, 1);
+
+private __gshared RenderingBackend!(BackendEnum.OpenGL) cachedRenderBackend;
+
+private void ensureRenderBackend() {
+    if (cachedRenderBackend is null) {
+        cachedRenderBackend = new RenderingBackend!(BackendEnum.OpenGL);
+    }
+}
 
 /// Push a new default camera onto the stack.
 void inPushCamera() {
@@ -165,22 +173,18 @@ void inGetClearColor(out float r, out float g, out float b, out float a) {
     a = inClearColor.a;
 }
 
-private RenderBackend registeredBackend;
-
-package(nijilive) void registerRenderBackend(RenderBackend backend) {
-    registeredBackend = backend;
+package(nijilive) RenderingBackend!(BackendEnum.OpenGL) tryRenderBackend() {
+    ensureRenderBackend();
+    return cachedRenderBackend;
 }
 
-package(nijilive) RenderBackend tryRenderBackend() {
-    return registeredBackend;
+private RenderingBackend!(BackendEnum.OpenGL) requireRenderBackend() {
+    auto backend = tryRenderBackend();
+    enforce(backend !is null, "RenderBackend is not available.");
+    return backend;
 }
 
-private RenderBackend requireRenderBackend() {
-    enforce(registeredBackend !is null, "RenderBackend is not registered.");
-    return registeredBackend;
-}
-
-package(nijilive) RenderBackend currentRenderBackend() {
+package(nijilive) RenderingBackend!(BackendEnum.OpenGL) currentRenderBackend() {
     return requireRenderBackend();
 }
 
@@ -188,7 +192,7 @@ alias GLuint = uint;
 
 version(InDoesRender) {
 
-    private RenderBackend renderBackendOrNull() {
+    private RenderingBackend!(BackendEnum.OpenGL) renderBackendOrNull() {
         return tryRenderBackend();
     }
 

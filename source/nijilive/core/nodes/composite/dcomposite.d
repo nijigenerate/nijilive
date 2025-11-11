@@ -152,10 +152,8 @@ public:
     }
 
 protected:
-    package(nijilive) uint cfBuffer;
-    package(nijilive) int origBuffer;
     package(nijilive) Texture stencil;
-    package(nijilive) int[4] origViewport;
+    DynamicCompositeSurface offscreenSurface;
     bool textureInvalidated = false;
     bool shouldUpdateVertices = false;
 
@@ -175,6 +173,30 @@ protected:
             }
         }
         return false;
+    }
+
+    DynamicCompositePass prepareDynamicCompositePass() {
+        if (textures.length == 0 || textures[0] is null) return null;
+        if (offscreenSurface is null) {
+            offscreenSurface = new DynamicCompositeSurface();
+        }
+        size_t count = 0;
+        foreach (i; 0 .. offscreenSurface.textures.length) {
+            Texture tex = i < textures.length ? textures[i] : null;
+            offscreenSurface.textures[i] = tex;
+            if (tex !is null) {
+                count = i + 1;
+            }
+        }
+        if (count == 0) return null;
+        offscreenSurface.textureCount = count;
+        offscreenSurface.stencil = stencil;
+
+        auto pass = new DynamicCompositePass();
+        pass.surface = offscreenSurface;
+        pass.scale = vec2(transform.scale.x, transform.scale.y);
+        pass.rotationZ = transform.rotation.z;
+        return pass;
     }
 
     void renderNestedOffscreen(RenderContext ctx) {
@@ -223,8 +245,9 @@ protected:
         }
         version (InDoesRender) {
             auto backend = puppet ? puppet.renderBackend : null;
-            if (backend !is null) {
-                backend.destroyDynamicComposite(this);
+            if (backend !is null && offscreenSurface !is null) {
+                backend.destroyDynamicComposite(offscreenSurface);
+                offscreenSurface.framebuffer = 0;
             }
         }
 
@@ -472,10 +495,12 @@ public:
 
         selfSort();
 
+        DynamicCompositePass immediatePass;
         version (InDoesRender) {
             auto backendBegin = puppet ? puppet.renderBackend : null;
-            if (backendBegin !is null) {
-                backendBegin.beginDynamicComposite(this);
+            immediatePass = prepareDynamicCompositePass();
+            if (backendBegin !is null && immediatePass !is null) {
+                backendBegin.beginDynamicComposite(immediatePass);
             }
         }
 
@@ -491,8 +516,8 @@ public:
 
         version (InDoesRender) {
             auto backendEnd = puppet ? puppet.renderBackend : null;
-            if (backendEnd !is null) {
-                backendEnd.endDynamicComposite(this);
+            if (backendEnd !is null && immediatePass !is null) {
+                backendEnd.endDynamicComposite(immediatePass);
             }
         }
 
@@ -579,7 +604,13 @@ public:
         }
 
         selfSort();
-        dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, zSort());
+        auto passData = prepareDynamicCompositePass();
+        if (passData is null) {
+            reuseCachedTextureThisFrame = true;
+            loggedFirstRenderAttempt = true;
+            return;
+        }
+        dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
         dynamicScopeActive = true;
 
         queuedOffscreenParts.length = 0;

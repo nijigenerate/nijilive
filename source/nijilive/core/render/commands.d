@@ -5,7 +5,6 @@ import nijilive.core.nodes.part;
 import nijilive.core.nodes.composite;
 import nijilive.core.nodes.drawable;
 import nijilive.core.nodes.mask : Mask;
-import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.math;
 import nijilive.core.texture : Texture;
 
@@ -73,7 +72,7 @@ struct RenderCommandData {
     RenderCommandKind kind;
     PartDrawPacket partPacket;
     MaskDrawPacket maskDrawPacket;
-    DynamicComposite dynamicComposite;
+    DynamicCompositePass dynamicCompositePass;
     bool maskUsesStencil;
     MaskApplyPacket maskPacket;
     CompositeDrawPacket compositePacket;
@@ -85,6 +84,21 @@ struct CompositeDrawPacket {
     vec3 tint;
     vec3 screenTint;
     BlendMode blendingMode;
+}
+
+class DynamicCompositeSurface {
+    Texture[3] textures;
+    size_t textureCount;
+    Texture stencil;
+    uint framebuffer;
+}
+
+class DynamicCompositePass {
+    DynamicCompositeSurface surface;
+    vec2 scale;
+    float rotationZ;
+    int origBuffer;
+    int[4] origViewport;
 }
 
 PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {
@@ -109,17 +123,17 @@ RenderCommandData makeDrawMaskCommand(MaskDrawPacket packet) {
     return data;
 }
 
-RenderCommandData makeBeginDynamicCompositeCommand(DynamicComposite composite) {
+RenderCommandData makeBeginDynamicCompositeCommand(DynamicCompositePass pass) {
     RenderCommandData data;
     data.kind = RenderCommandKind.BeginDynamicComposite;
-    data.dynamicComposite = composite;
+    data.dynamicCompositePass = pass;
     return data;
 }
 
-RenderCommandData makeEndDynamicCompositeCommand(DynamicComposite composite) {
+RenderCommandData makeEndDynamicCompositeCommand(DynamicCompositePass pass) {
     RenderCommandData data;
     data.kind = RenderCommandKind.EndDynamicComposite;
-    data.dynamicComposite = composite;
+    data.dynamicCompositePass = pass;
     return data;
 }
 

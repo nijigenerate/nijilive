@@ -31,7 +31,9 @@ enum TaskKind {
 
 import nijilive.core.render.queue;
 import nijilive.core.render.graph_builder;
-import nijilive.core.render.backends : RenderBackend, RenderGpuState;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
+
+alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 
 /// Context shared by task handlers for per-frame data.
 struct RenderContext {
