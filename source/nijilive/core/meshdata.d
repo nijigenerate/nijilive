@@ -20,13 +20,13 @@ struct MeshData {
     /**
         Vertices in the mesh
     */
-    vec2[] vertices;
+    Vec2Array vertices;
 
     /**
         Base uvs
     */
     @Optional
-    vec2[] uvs;
+    Vec2Array uvs;
 
     /**
         Indices in the mesh
@@ -135,12 +135,10 @@ struct MeshData {
         MeshData newData;
 
         // Copy verts
-        newData.vertices.length = vertices.length;
-        newData.vertices[] = vertices[];
+        newData.vertices = vertices.dup;
 
         // Copy UVs
-        newData.uvs.length = uvs.length;
-        newData.uvs[] = uvs[];
+        newData.uvs = uvs.dup;
 
         // Copy UVs
         newData.indices.length = indices.length;

@@ -119,7 +119,8 @@ uint oglCreatePartUvBuffer() {
 
 void oglUpdatePartUvBuffer(uint uvbo, ref MeshData data) {
     glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-    glBufferData(GL_ARRAY_BUFFER, data.uvs.length * vec2.sizeof, data.uvs.ptr, GL_STATIC_DRAW);
+    auto uvArray = data.uvs.toArray();
+    glBufferData(GL_ARRAY_BUFFER, uvArray.length * vec2.sizeof, uvArray.ptr, GL_STATIC_DRAW);
 }
 
 void oglDrawPartPacket(ref PartDrawPacket packet) {

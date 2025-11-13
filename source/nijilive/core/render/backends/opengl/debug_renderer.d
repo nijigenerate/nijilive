@@ -1,6 +1,6 @@
 module nijilive.core.render.backends.opengl.debug_renderer;
 
-import nijilive.math : vec3, vec4, mat4;
+import nijilive.math : vec3, vec4, mat4, Vec3Array;
 
 version (InDoesRender) {
 
@@ -49,7 +49,7 @@ package(nijilive) void oglSetDebugLineWidth(float size) {
     glLineWidth(size);
 }
 
-package(nijilive) void oglUploadDebugBuffer(vec3[] points, ushort[] indices) {
+package(nijilive) void oglUploadDebugBuffer(Vec3Array points, ushort[] indices) {
     ensureInitialized();
     if (points.length == 0 || indices.length == 0) {
         indexCount = 0;
@@ -58,7 +58,8 @@ package(nijilive) void oglUploadDebugBuffer(vec3[] points, ushort[] indices) {
 
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, points.length * vec3.sizeof, points.ptr, GL_DYNAMIC_DRAW);
+    auto buffer = points.toArray();
+    glBufferData(GL_ARRAY_BUFFER, buffer.length * vec3.sizeof, buffer.ptr, GL_DYNAMIC_DRAW);
     currentVbo = vbo;
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
@@ -129,7 +130,7 @@ package(nijilive) void oglDrawDebugLines(vec4 color, mat4 mvp) {
 package(nijilive) void oglInitDebugRenderer() {}
 package(nijilive) void oglSetDebugPointSize(float) {}
 package(nijilive) void oglSetDebugLineWidth(float) {}
-package(nijilive) void oglUploadDebugBuffer(vec3[], ushort[]) {}
+package(nijilive) void oglUploadDebugBuffer(Vec3Array, ushort[]) {}
 package(nijilive) void oglSetDebugExternalBuffer(uint, uint, int) {}
 package(nijilive) void oglDrawDebugPoints(vec4, mat4) {}
 package(nijilive) void oglDrawDebugLines(vec4, mat4) {}

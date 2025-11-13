@@ -91,7 +91,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
     float[] initialAngles;
     float[] angularVelocities;
     float[] lengths;
-    vec2[] physDeformation;
+    Vec2Array physDeformation;
     float damping = 1.0;
     float restoreConstant = 300;
     float timeStep = 0.01;
@@ -123,10 +123,8 @@ class ConnectedPendulumDriver : PhysicsDriver {
         foreach (i; 0..angularVelocities.length) {
             angularVelocities[i] = 0;
         }
-        physDeformation = new vec2[deformer.vertices.length];
-        foreach (i; 0..physDeformation.length) {
-            physDeformation[i] = vec2(0, 0);
-        }
+        physDeformation.length = deformer.vertices.length;
+        physDeformation[] = vec2(0, 0);
         base = vec2(deformer.originalCurve.controlPoints[0].x, screenToPhysicsY(deformer.originalCurve.controlPoints[0].y));
         if (!guardFinite(deformer, "pendulum:base", base, 0)) {
             return;
@@ -135,7 +133,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
 
     override
     void updateDefaultShape() {
-        vec2[] physicsControlPoints;
+        Vec2Array physicsControlPoints;
         foreach (i, p; deformer.originalCurve.controlPoints) {
             vec2 phys = vec2(p.x, screenToPhysicsY(p.y));
             if (!guardFinite(deformer, "pendulum:controlPoint", phys, i)) {
@@ -183,9 +181,10 @@ class ConnectedPendulumDriver : PhysicsDriver {
         if (deformer is null || deformer.driver() !is cast(PhysicsDriver)this) return;
 
         // Update deformation based on new angles
-        auto newPositions = calculatePositions(base, angles, lengths).map!(p => vec2(p.x, physicsToScreenY(p.y)));
-        for (int i = 0; i < newPositions.length; i++) {
-            auto newPos = newPositions[i];
+        auto newPositionsAoS = calculatePositions(base, angles, lengths).toArray();
+        for (int i = 0; i < newPositionsAoS.length; i++) {
+            auto physPos = newPositionsAoS[i];
+            auto newPos = vec2(physPos.x, physicsToScreenY(physPos.y));
             if (!guardFinite(deformer, "pendulum:newPosition", newPos, i)) {
                 physDeformation[i] = vec2(0, 0);
                 continue;
@@ -250,7 +249,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
     }
 
     private:
-    auto extractAnglesAndLengths(vec2[] controlPoints) {
+    auto extractAnglesAndLengths(Vec2Array controlPoints) {
         float[] angles;
         float[] lengths;
         bool degenerate = false;
@@ -277,8 +276,8 @@ class ConnectedPendulumDriver : PhysicsDriver {
         return tuple(angles, lengths);
     }
 
-    vec2[] calculatePositions(vec2 base, float[] angles, float[] lengths) {
-        vec2[] positions = [base];
+    Vec2Array calculatePositions(vec2 base, float[] angles, float[] lengths) {
+        Vec2Array positions = Vec2Array([base]);
         float x = base.x;
         float y = base.y;
         for (int i = 0; i < angles.length; i++) {
@@ -359,11 +358,11 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
         externalForce = force;
     }
     PathDeformer deformer;
-    vec2[] positions;
-    vec2[] velocities;
-    vec2[] initialPositions;  // 初期形状を保存
+    Vec2Array positions;
+    Vec2Array velocities;
+    Vec2Array initialPositions;  // 初期形状を保存
     float[] lengths;
-    vec2[] physDeformation;
+    Vec2Array physDeformation;
     float damping = 0.3;
     float springConstant = 10;
     float restorationConstant = 0.; // 初期形状への復元力
@@ -379,11 +378,10 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
         updateDefaultShape();
         if (deformer is null) return;
         positions = initialPositions.dup;
-        velocities = new vec2[positions.length];
-        foreach (i; 0..velocities.length) {
-            velocities[i] = vec2(0, 0);
-        }
-        physDeformation = new vec2[deformer.vertices.length];
+        velocities.length = positions.length;
+        velocities[] = vec2(0, 0);
+        physDeformation.length = deformer.vertices.length;
+        physDeformation[] = vec2(0, 0);
         lengths = new float[positions.length - 1];
         bool degenerate = false;
         enum float lengthEpsilon = 1e-6f;
@@ -420,13 +418,14 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
 
     override
     void updateDefaultShape() {
-        auto physicsControlPoints = deformer.originalCurve.controlPoints.map!(p => vec2(p.x, screenToPhysicsY(p.y))).array;
+        auto originalPoints = deformer.originalCurve.controlPoints.toArray();
+        auto physicsControlPoints = originalPoints.map!(p => vec2(p.x, screenToPhysicsY(p.y))).array;
         foreach (i, pt; physicsControlPoints) {
             if (!guardFinite(deformer, "springPendulum:controlPoint", pt, i)) {
                 return;
             }
         }
-        initialPositions = physicsControlPoints.dup; // 初期形状を保存
+        initialPositions = Vec2Array(physicsControlPoints); // 初期形状を保存
     }
 
     override
@@ -501,9 +500,9 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
     
 private:
     void updateSpringPendulum(
-        ref vec2[] positions,
-        ref vec2[] velocities,
-        vec2[] initialPositions, // 初期形状を参照
+        ref Vec2Array positions,
+        ref Vec2Array velocities,
+        Vec2Array initialPositions, // 初期形状を参照
         float[] lengths,
         float damping,
         float springConstant,

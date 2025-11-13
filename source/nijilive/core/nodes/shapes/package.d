@@ -26,7 +26,7 @@ struct ShapeNode {
     /**
         The shape data
     */
-    vec2[] shapeData;
+    Vec2Array shapeData;
 }
 
 /**
@@ -86,7 +86,7 @@ public:
             }
 
             // Make sure our vertices buffer is ready
-            vec2[] vertices = new vec2[part.vertices.length];
+            Vec2Array vertices = Vec2Array(part.vertices.length);
             foreach(i; 0..vertices.length) {
                 vertices[i] = vec2(0);
             }

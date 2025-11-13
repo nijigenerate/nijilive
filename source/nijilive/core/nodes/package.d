@@ -226,7 +226,7 @@ protected:
     }
     MatrixHolder overrideTransformMatrix = null;
 
-    alias Filter = Tuple!(int, Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*));
+    alias Filter = Tuple!(int, Tuple!(Vec2Array, mat4*, bool) delegate(Node, Vec2Array, Vec2Array, mat4*));
     Filter[] preProcessFilters;
     Filter[] postProcessFilters;
 
@@ -237,8 +237,10 @@ protected:
         preProcessed = true;
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
-            auto filterResult = preProcessFilter[1](this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
-            if (filterResult[0] !is null && filterResult[0].length > 0) {
+            Vec2Array localTrans = Vec2Array([localTransform.translation.xy]);
+            Vec2Array offsetTrans = Vec2Array([offsetTransform.translation.xy]);
+            auto filterResult = preProcessFilter[1](this, localTrans, offsetTrans, &matrix);
+            if (!filterResult[0].empty) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
             }
@@ -258,8 +260,10 @@ protected:
         foreach (postProcessFilter; postProcessFilters) {
             if (postProcessFilter[0] != id) continue;
             mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
-            auto filterResult = postProcessFilter[1](this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
-            if (filterResult[0] !is null && filterResult[0].length > 0) {
+            Vec2Array localTrans = Vec2Array([localTransform.translation.xy]);
+            Vec2Array offsetTrans = Vec2Array([offsetTransform.translation.xy]);
+            auto filterResult = postProcessFilter[1](this, localTrans, offsetTrans, &matrix);
+            if (!filterResult[0].empty) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
                 overrideTransformMatrix = new MatrixHolder(transform.matrix);
@@ -1094,15 +1098,15 @@ public:
         inDbgLineWidth(4);
 
         // X
-        inDbgSetBuffer([vec3(0, 0, 0), vec3(32, 0, 0)], [0, 1]);
+        inDbgSetBuffer(Vec3Array([vec3(0, 0, 0), vec3(32, 0, 0)]), [0, 1]);
         inDbgDrawLines(vec4(1, 0, 0, 0.7), trans);
 
         // Y
-        inDbgSetBuffer([vec3(0, 0, 0), vec3(0, -32, 0)], [0, 1]);
+        inDbgSetBuffer(Vec3Array([vec3(0, 0, 0), vec3(0, -32, 0)]), [0, 1]);
         inDbgDrawLines(vec4(0, 1, 0, 0.7), trans);
         
         // Z
-        inDbgSetBuffer([vec3(0, 0, 0), vec3(0, 0, -32)], [0, 1]);
+        inDbgSetBuffer(Vec3Array([vec3(0, 0, 0), vec3(0, 0, -32)]), [0, 1]);
         inDbgDrawLines(vec4(0, 0, 1, 0.7), trans);
 
         inDbgLineWidth(1);
@@ -1116,7 +1120,7 @@ public:
 
         float width = bounds.z-bounds.x;
         float height = bounds.w-bounds.y;
-        inDbgSetBuffer([
+        Vec3Array boundsPoints = Vec3Array([
             vec3(bounds.x, bounds.y, 0),
             vec3(bounds.x + width, bounds.y, 0),
             
@@ -1129,6 +1133,7 @@ public:
             vec3(bounds.x, bounds.y+height, 0),
             vec3(bounds.x, bounds.y, 0),
         ]);
+        inDbgSetBuffer(boundsPoints);
         inDbgLineWidth(3);
         if (oneTimeTransform !is null)
             inDbgDrawLines(vec4(.5, .5, .5, 1), (*oneTimeTransform));
@@ -1237,7 +1242,7 @@ public:
         }
 
         vec4 bounds;
-        vec4[] childTranslations;
+        Vec4Array childTranslations;
         if (children.length > 0) {
             bounds = children[0].getCombinedBounds();
             foreach (child; children) {

@@ -20,27 +20,28 @@ float binomial(long n, long k) {
 interface Curve {
     vec2 point(float t);
     float closestPoint(vec2 point, int nSamples = 100);
-    ref vec2[] controlPoints();
-    void controlPoints(ref vec2[] points);
+    ref Vec2Array controlPoints();
+    void controlPoints(ref Vec2Array points);
     vec2 derivative(float t);
 }
 
 class BezierCurve : Curve{
-    vec2[] _controlPoints;
-    vec2[] derivatives; // Precomputed Bezier curve derivatives
+    Vec2Array _controlPoints;
+    Vec2Array derivatives; // Precomputed Bezier curve derivatives
     vec2[float] pointCache;
 public:
-    this(vec2[] controlPoints) {
+    this(Vec2Array controlPoints) {
         this.controlPoints = controlPoints.dup;
-        this.derivatives = new vec2[controlPoints.length > 0? controlPoints.length - 1: 0];
+        auto derivativeLength = controlPoints.length > 0 ? controlPoints.length - 1 : 0;
+        this.derivatives = Vec2Array(derivativeLength);
         calculateDerivatives();
     }
 
     override
-    ref vec2[] controlPoints() { return _controlPoints; }
+    ref Vec2Array controlPoints() { return _controlPoints; }
     
     override
-    void controlPoints(ref vec2[] points) { this._controlPoints = points; }
+    void controlPoints(ref Vec2Array points) { this._controlPoints = points; }
 
     // Compute the point on the Bezier curve
     override
@@ -110,7 +111,7 @@ public:
 
 class SplineCurve : Curve {
     // スプラインの制御点配列
-    vec2[] _controlPoints;
+    Vec2Array _controlPoints;
 
     // キャッシュ: 計算済みの t => point(t)
     vec2[float] pointCache;
@@ -119,7 +120,7 @@ class SplineCurve : Curve {
 
 public:
     // コンストラクタ
-    this(vec2[] controlPoints) {
+    this(Vec2Array controlPoints) {
         // 制御点をコピー
         this.controlPoints = controlPoints.dup;
         // キャッシュの初期化
@@ -129,13 +130,13 @@ public:
 
     // インターフェイス実装: 制御点のゲッター
     override
-    ref vec2[] controlPoints() { 
+    ref Vec2Array controlPoints() { 
         return _controlPoints; 
     }
 
     // インターフェイス実装: 制御点のセッター
     override
-    void controlPoints(ref vec2[] points) {
+    void controlPoints(ref Vec2Array points) {
         this._controlPoints = points;
         // 制御点変更時はキャッシュをクリア
         pointCache.clear();

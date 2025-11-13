@@ -10,7 +10,7 @@ import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
 import nijilive.core.texture_types : Filtering, Wrapping;
-import nijilive.math : vec2, vec3, vec4, rect, mat4;
+import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array, Vec4Array;
 import nijilive.math.camera : Camera;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 
@@ -57,8 +57,8 @@ class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.O
     void bindDrawableVao() { backendUnsupported(__FUNCTION__); }
     void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) { backendUnsupported(__FUNCTION__); }
     void uploadDrawableIndices(uint ibo, ushort[] indices) { backendUnsupported(__FUNCTION__); }
-    void uploadDrawableVertices(uint vbo, vec2[] vertices) { backendUnsupported(__FUNCTION__); }
-    void uploadDrawableDeform(uint dbo, vec2[] deform) { backendUnsupported(__FUNCTION__); }
+    void uploadDrawableVertices(uint vbo, Vec2Array vertices) { backendUnsupported(__FUNCTION__); }
+    void uploadDrawableDeform(uint dbo, Vec2Array deform) { backendUnsupported(__FUNCTION__); }
     void drawDrawableElements(uint ibo, size_t indexCount) { backendUnsupported(__FUNCTION__); }
 
     uint createPartUvBuffer() { return backendUnsupported!uint(__FUNCTION__); }
@@ -73,7 +73,7 @@ class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.O
     void initDebugRenderer() { backendUnsupported(__FUNCTION__); }
     void setDebugPointSize(float size) { backendUnsupported(__FUNCTION__); }
     void setDebugLineWidth(float size) { backendUnsupported(__FUNCTION__); }
-    void uploadDebugBuffer(vec3[] points, ushort[] indices) { backendUnsupported(__FUNCTION__); }
+    void uploadDebugBuffer(Vec3Array points, ushort[] indices) { backendUnsupported(__FUNCTION__); }
     void setDebugExternalBuffer(uint vbo, uint ibo, int count) { backendUnsupported(__FUNCTION__); }
     void drawDebugPoints(vec4 color, mat4 mvp) { backendUnsupported(__FUNCTION__); }
     void drawDebugLines(vec4 color, mat4 mvp) { backendUnsupported(__FUNCTION__); }

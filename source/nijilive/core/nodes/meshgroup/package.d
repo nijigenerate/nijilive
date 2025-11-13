@@ -57,7 +57,7 @@ protected:
     ushort[] bitMask;
     vec4 bounds;
     Triangle[] triangles;
-    vec2[] transformedVertices = [];
+    Vec2Array transformedVertices;
     mat4 forwardMatrix;
     mat4 inverseMatrix;
     bool translateChildren = true;
@@ -87,17 +87,17 @@ public:
         super(parent);
     }
 
-    Tuple!(vec2[], mat4*, bool) filterChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) filterChildren(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         if (!precalculated)
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
 
         if (auto deformer = cast(Deformer)target) {
             if (auto pathDeformer = cast(PathDeformer)deformer) {
                 if (!pathDeformer.physicsEnabled) {
-                    return Tuple!(vec2[], mat4*, bool)(null, null, false);
+                    return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
                 }
             } else if (cast(GridDeformer)deformer is null) {
-                return Tuple!(vec2[], mat4*, bool)(null, null, false);
+                return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
             }
         }
 
@@ -191,20 +191,20 @@ public:
         triangles.length = 0;
         foreach (i; 0..data.indices.length / 3) {
             Triangle t;
-            vec2[3] tvertices = [
+            Vec2Array tvertices = Vec2Array([
                 data.vertices[data.indices[3*i]],
                 data.vertices[data.indices[3*i+1]],
                 data.vertices[data.indices[3*i+2]]
-            ];
-            
-            vec2* p1 = &tvertices[0];
-            vec2* p2 = &tvertices[1];
-            vec2* p3 = &tvertices[2];
+            ]);
 
-            vec2 axis0 = *p2 - *p1;
+            vec2 p1 = tvertices[0];
+            vec2 p2 = tvertices[1];
+            vec2 p3 = tvertices[2];
+
+            vec2 axis0 = p2 - p1;
             float axis0len = axis0.length;
             axis0 /= axis0len;
-            vec2 axis1 = *p3 - *p1;
+            vec2 axis1 = p3 - p1;
             float axis1len = axis1.length;
             axis1 /= axis1len;
 
@@ -233,11 +233,11 @@ public:
         bitMask.length = width * height;
         bitMask[] = 0;
         foreach (size_t i, t; triangles) {
-            vec2[3] tvertices = [
+            Vec2Array tvertices = Vec2Array([
                 data.vertices[data.indices[3*i]],
                 data.vertices[data.indices[3*i+1]],
                 data.vertices[data.indices[3*i+2]]
-            ];
+            ]);
 
             vec4 tbounds = getBounds(tvertices);
             int bwidth  = cast(int)(ceil(tbounds.z) - floor(tbounds.x) + 1);
@@ -387,7 +387,7 @@ public:
         forwardMatrix = transform.matrix;
         inverseMatrix = globalTransform.matrix.inverse;
 
-        void update(vec2[] deformation) {
+        void update(Vec2Array deformation) {
             transformedVertices.length = vertices.length;
             foreach(i, vertex; vertices) {
                 transformedVertices[i] = vertex + deformation[i];
@@ -442,7 +442,7 @@ public:
     void centralize() {
         super.centralize();
         vec4 bounds;
-        vec4[] childTranslations;
+        Vec4Array childTranslations;
         if (children.length > 0) {
             bounds = children[0].getCombinedBounds();
             foreach (child; children) {
@@ -463,7 +463,7 @@ public:
         auto diff = center - localTransform.translation.xy;
         localTransform.translation.x = center.x;
         localTransform.translation.y = center.y;
-        foreach (ref v; vertices) {
+        foreach (v; vertices) {
             v -= diff;
         }
         transformChanged();
@@ -491,8 +491,9 @@ public:
             MeshData data;
             auto baseVerts = gdef.vertices;
             if (baseVerts.length >= 4) {
-                auto xs = baseVerts.map!(v => v.x).array.sort().uniq.array;
-                auto ys = baseVerts.map!(v => v.y).array.sort().uniq.array;
+                auto baseArray = baseVerts.toArray();
+                auto xs = baseArray.map!(v => v.x).array.sort().uniq.array;
+                auto ys = baseArray.map!(v => v.y).array.sort().uniq.array;
                 if (xs.length >= 2 && ys.length >= 2 && xs.length * ys.length == baseVerts.length) {
                     data.vertices = baseVerts.dup;
                     float[][] axes;
@@ -518,9 +519,7 @@ public:
             }
             rebuffer(data);
             deformation.length = gdef.deformation.length;
-            foreach (i; 0 .. deformation.length) {
-                deformation[i] = gdef.deformation[i];
-            }
+            deformation = gdef.deformation.dup;
             dynamic = gdef.dynamic;
             translateChildren = true;
             clearCache();

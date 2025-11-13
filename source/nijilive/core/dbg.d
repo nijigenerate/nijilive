@@ -1,6 +1,6 @@
 module nijilive.core.dbg;
 
-import nijilive.math : vec3, vec4, mat4;
+import nijilive.math : vec3, vec4, mat4, Vec3Array;
 import nijilive.core.render.backends : RenderingBackend, BackendEnum;
 import nijilive.core.runtime_state : inGetCamera, tryRenderBackend;
 
@@ -45,7 +45,7 @@ void inDbgLineWidth(float size) {
     }
 }
 
-void inDbgSetBuffer(vec3[] points) {
+void inDbgSetBuffer(Vec3Array points) {
     size_t vertexCount = points.length;
     size_t indexCount = vertexCount == 0 ? 0 : vertexCount + 1;
     ushort[] indices = new ushort[indexCount];
@@ -65,7 +65,7 @@ void inDbgSetBuffer(uint vbo, uint ibo, int count) {
     hasDebugBuffer = count > 0;
 }
 
-void inDbgSetBuffer(vec3[] points, ushort[] indices) {
+void inDbgSetBuffer(Vec3Array points, ushort[] indices) {
     if (points.length == 0 || indices.length == 0) {
         hasDebugBuffer = false;
         return;

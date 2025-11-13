@@ -63,7 +63,7 @@ enum ParamMergeMode {
 class Parameter : Resource {
 private:
     struct Combinator {
-        vec2[] ivalues;
+        Vec2Array ivalues;
         float[] iweights;
         int isum;
 

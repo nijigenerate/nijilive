@@ -76,13 +76,11 @@ protected:
 
         // Zero-fill the deformation delta
         this.deformation.length = vertices.length;
-        foreach(i; 0..deformation.length) {
-            this.deformation[i] = vec2(0, 0);
-        }
+        this.deformation[] = vec2(0, 0);
         this.updateDeform();
     }
 
-    Tuple!(vec2[], mat4*, bool) nodeAttachProcessor(Node node, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) nodeAttachProcessor(Node node, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         bool changed = false;
         vec2 nodeOrigin = (this.transform.matrix.inverse * vec4(node.transform.translation, 1));
 //        writefln("%s-->%s: nodeOrigin=%s", name, node.name, nodeOrigin);
@@ -104,21 +102,21 @@ protected:
 //            writefln("%s, %s, %s, %s", name, this.deformation[triangle[0]], this.deformation[triangle[1]], this.deformation[triangle[2]]);
 //            writefln("  ->%s: %s, %.2f, %.2f", node.name, transformedOrigin + nodeOrigin, rotateVert, rotateHorz);
 //            *newMat = newMat.translate(transformedOrigin.x, transformedOrigin.y, 0.0).rotateZ((rotateVert + rotateHorz) / 2.0);
-            return tuple(cast(vec2[])null, cast(mat4*)null, changed);
+            return tuple(Vec2Array.init, cast(mat4*)null, changed);
         } else {
-            return tuple(cast(vec2[])null, cast(mat4*)null, false);
+            return tuple(Vec2Array.init, cast(mat4*)null, false);
         }
     }
 
-    Tuple!(vec2[], mat4*, bool) weldingProcessor(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) weldingProcessor(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         auto linkIndex = welded.countUntil!((a)=>a.target == target)();
         bool changed = false;
         WeldingLink link = welded[linkIndex];
         if (postProcessed < 2)
-            return Tuple!(vec2[], mat4*, bool)(null, null, changed);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, changed);
         if (link.target in weldingApplied && weldingApplied[link.target] || 
             this in link.target.weldingApplied && link.target.weldingApplied[this])
-            return Tuple!(vec2[], mat4*, bool)(null, null, changed);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, changed);
 //        import std.stdio;
 //        writefln("welding: %s(%b) --> %s(%b)", name, postProcessed, target.name, target.postProcessed);
         weldingApplied[link.target] = true;
@@ -300,7 +298,7 @@ public:
     }
 
     override
-    ref vec2[] vertices() {
+    ref Vec2Array vertices() {
         return data.vertices;
     }
 
@@ -363,7 +361,7 @@ public:
         
         float width = bounds.z-bounds.x;
         float height = bounds.w-bounds.y;
-        inDbgSetBuffer([
+        Vec3Array boundsPoints = Vec3Array([
             vec3(bounds.x, bounds.y, 0),
             vec3(bounds.x + width, bounds.y, 0),
             
@@ -376,6 +374,7 @@ public:
             vec3(bounds.x, bounds.y+height, 0),
             vec3(bounds.x, bounds.y, 0),
         ]);
+        inDbgSetBuffer(boundsPoints);
         inDbgLineWidth(3);
         if (oneTimeTransform !is null)
             inDbgDrawLines(vec4(.5, .5, .5, 1), (*oneTimeTransform));
@@ -397,7 +396,8 @@ public:
 
             ushort[] indices = data.indices;
 
-            vec3[] points = new vec3[indices.length*2];
+            Vec3Array points;
+            points.length = indices.length * 2;
             foreach(i; 0..indices.length/3) {
                 size_t ix = i*3;
                 size_t iy = ix*2;
@@ -426,7 +426,8 @@ public:
             auto trans = getDynamicMatrix();
             if (oneTimeTransform !is null)
                 trans = (*oneTimeTransform) * trans;
-            vec3[] points = new vec3[vertices.length];
+            Vec3Array points;
+            points.length = vertices.length;
             foreach(i, point; vertices) {
                 points[i] = vec3(point-data.origin+deformation[i], 0);
             }
@@ -544,10 +545,11 @@ public:
         import std.algorithm: map;
         import std.algorithm: minElement, maxElement;
         if (data.uvs.length != 0) {
-            float minX = data.uvs.map!(a => a.x).minElement;
-            float maxX = data.uvs.map!(a => a.x).maxElement;
-            float minY = data.uvs.map!(a => a.y).minElement;
-            float maxY = data.uvs.map!(a => a.y).maxElement;
+            auto uvArray = data.uvs.toArray();
+            float minX = uvArray.map!(a => a.x).minElement;
+            float maxX = uvArray.map!(a => a.x).maxElement;
+            float minY = uvArray.map!(a => a.y).minElement;
+            float maxY = uvArray.map!(a => a.y).maxElement;
             float width = maxX - minX;
             float height = maxY - minY;
             float centerX = (minX + maxX) / 2 / width;

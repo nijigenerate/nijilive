@@ -190,10 +190,10 @@ public:
 
     override
     void drawDebug(mat4 trans = mat4.identity) {
-        vec3[] points = [
+        Vec3Array points = Vec3Array([
             vec3(driver.anchor.x, driver.anchor.y, 0),
             vec3(bob.x, bob.y, 0),
-        ];
+        ]);
 
         inDbgSetBuffer(points);
         inDbgLineWidth(3);
@@ -426,10 +426,10 @@ public:
 
     override
     void drawDebug(mat4 trans = mat4.identity) {
-        vec3[] points = [
+        Vec3Array points = Vec3Array([
             vec3(driver.anchor.x, driver.anchor.y, 0),
             vec3(bob.x, bob.y, 0),
-        ];
+        ]);
 
         inDbgSetBuffer(points);
         inDbgLineWidth(3);

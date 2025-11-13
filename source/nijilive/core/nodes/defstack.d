@@ -12,9 +12,9 @@ struct Deformation {
     /**
         Deformed values
     */
-    vec2[] vertexOffsets;
+    Vec2Array vertexOffsets;
 
-    void update(vec2[] points) {
+    void update(Vec2Array points) {
         vertexOffsets = points.dup;
     }
 
@@ -25,10 +25,8 @@ struct Deformation {
     Deformation opUnary(string op : "-")() @safe pure nothrow {
         Deformation new_;
 
-        new_.vertexOffsets.length = vertexOffsets.length;
-        foreach(i; 0..vertexOffsets.length) {
-            new_.vertexOffsets[i] = -vertexOffsets[i];
-        }
+        new_.vertexOffsets = vertexOffsets.dup;
+        new_.vertexOffsets *= -1;
 
         return new_;
     }
@@ -37,31 +35,22 @@ struct Deformation {
         static if (is(T == Deformation)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vertexOffsets[i] * other.vertexOffsets[i];
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets *= other.vertexOffsets;
 
             return new_;
         } else static if (is(T == vec2)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vec2(vertexOffsets[i].x * other.x, vertexOffsets[i].y * other.y);
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets *= other;
 
             return new_;
         } else {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vertexOffsets[i] * other;
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets *= other;
 
             return new_;
         }
@@ -71,31 +60,22 @@ struct Deformation {
         static if (is(T == Deformation)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = other.vertexOffsets[i] * vertexOffsets[i];
-            }
+            new_.vertexOffsets = other.vertexOffsets.dup;
+            new_.vertexOffsets *= vertexOffsets;
 
             return new_;
         } else static if (is(T == vec2)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vec2(other.x * vertexOffsets[i].x, other.y * vertexOffsets[i].y);
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets *= other;
 
             return new_;
         } else {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = other * vertexOffsets[i];
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets *= other;
 
             return new_;
         }
@@ -105,31 +85,22 @@ struct Deformation {
         static if (is(T == Deformation)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vertexOffsets[i] + other.vertexOffsets[i];
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets += other.vertexOffsets;
 
             return new_;
         } else static if (is(T == vec2)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vec2(vertexOffsets[i].x + other.x, vertexOffsets[i].y + other.y);
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets += other;
 
             return new_;
         } else {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vertexOffsets[i] + other;
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets += other;
 
             return new_;
         }
@@ -139,31 +110,22 @@ struct Deformation {
         static if (is(T == Deformation)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vertexOffsets[i] - other.vertexOffsets[i];
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets -= other.vertexOffsets;
 
             return new_;
         } else static if (is(T == vec2)) {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vec2(vertexOffsets[i].x - other.x, vertexOffsets[i].y - other.y);
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets -= other;
 
             return new_;
         } else {
             Deformation new_;
 
-            new_.vertexOffsets.length = vertexOffsets.length;
-
-            foreach(i; 0..vertexOffsets.length) {
-                new_.vertexOffsets[i] = vertexOffsets[i] - other;
-            }
+            new_.vertexOffsets = vertexOffsets.dup;
+            new_.vertexOffsets -= other;
 
             return new_;
         }
@@ -209,17 +171,12 @@ public:
     */
     void push(ref Deformation deformation) {
         if (this.parent.deformation.length != deformation.vertexOffsets.length) return;
-//        enforce(this.parent.deformation.length == deformation.vertexOffsets.length, "Mismatched lengths");
-        foreach(i; 0..this.parent.deformation.length) {
-            this.parent.deformation[i] += deformation.vertexOffsets[i];
-        }
+        this.parent.deformation += deformation.vertexOffsets;
         this.parent.notifyDeformPushed(deformation);
     }
     
     void preUpdate() {
-        foreach(i; 0..this.parent.deformation.length) {
-            this.parent.deformation[i] = vec2(0);
-        }
+        this.parent.deformation[] = vec2(0);
     }
 
     void update() {

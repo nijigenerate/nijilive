@@ -37,7 +37,7 @@ class GridDeformer : Deformable, NodeFilter, Deformer {
     mixin NodeFilterMixin;
 
 private:
-    vec2[] vertexBuffer;
+    Vec2Array vertexBuffer;
     float[] axisX;
     float[] axisY;
     GridFormation formation = GridFormation.Bilinear;
@@ -72,13 +72,13 @@ public:
     }
 
     override
-    ref vec2[] vertices() {
+    ref Vec2Array vertices() {
         return vertexBuffer;
     }
 
     override
-    void rebuffer(vec2[] gridPoints) {
-        if (gridPoints.length == 0 || !adoptFromVertices(gridPoints, false)) {
+    void rebuffer(Vec2Array gridPoints) {
+        if (gridPoints.length == 0 || !adoptFromVertices(gridPoints.toArray(), false)) {
             adoptGridFromAxes(DefaultAxis, DefaultAxis);
         }
         clearCache();
@@ -161,26 +161,26 @@ public:
     }
 
     override
-    Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) deformChildren(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         if (!hasValidGrid()) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
 
         if (auto pathTarget = cast(PathDeformer)target) {
             if (!pathTarget.physicsEnabled) {
-                return Tuple!(vec2[], mat4*, bool)(null, null, false);
+                return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
             }
         }
 
         auto targetName = target is null ? "(null)" : target.name;
         if (!matrixIsFinite(inverseMatrix)) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
         if (origTransform is null) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
         if (!matrixIsFinite(*origTransform)) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
 
         mat4 centerMatrix = inverseMatrix * (*origTransform);
@@ -188,11 +188,11 @@ public:
 
         GridCellCache[] caches;
         caches.length = origVertices.length;
-        vec2[] samplePoints;
+        Vec2Array samplePoints;
         samplePoints.length = origVertices.length;
 
         if (!matrixIsFinite(centerMatrix)) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
 
         bool invalidSamples = false;
@@ -211,7 +211,7 @@ public:
             caches[i] = computeCache(samplePoint);
         }
         if (invalidSamples) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
 
         foreach (i, vertex; origVertices) {
@@ -234,12 +234,12 @@ public:
             anyChanged = true;
         }
 
-        return Tuple!(vec2[], mat4*, bool)(origDeformation, null, anyChanged);
+        return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, anyChanged);
     }
 
     override
     void applyDeformToChildren(Parameter[] params, bool recursive = true) {
-        void update(vec2[] deformationValues) {
+        void update(Vec2Array deformationValues) {
             if (deformationValues.length != deformation.length) return;
             foreach (i, value; deformationValues) {
                 deformation[i] = value;
@@ -269,11 +269,11 @@ public:
             translateChildren = grid.translateChildren;
             initialized = true;
         } else if (auto drawable = cast(Drawable)src) {
-            if (adoptFromVertices(drawable.vertices, true)) {
+            if (adoptFromVertices(drawable.vertices.toArray(), true)) {
                 initialized = true;
             }
         } else if (auto deformable = cast(Deformable)src) {
-            if (adoptFromVertices(deformable.vertices, true)) {
+            if (adoptFromVertices(deformable.vertices.toArray(), true)) {
                 initialized = true;
             }
         }
@@ -408,7 +408,7 @@ private:
         if (axisY.length < 2) axisY = DefaultAxis.dup;
         vertexBuffer.length = cols() * rows();
         deformation.length = vertexBuffer.length;
-        foreach (ref d; deformation) {
+        foreach (d; deformation) {
             d = vec2(0, 0);
         }
         foreach (y; 0 .. rows()) {

@@ -1,6 +1,6 @@
 module nijilive.core.render.backends.opengl.drawable_buffers;
 
-import nijilive.math : vec2;
+import nijilive.math : vec2, Vec2Array;
 
 version (unittest) {
     alias GLuint = uint;
@@ -13,8 +13,8 @@ version (unittest) {
         dbo = 0;
     }
     void oglUploadDrawableIndices(GLuint, ushort[]) {}
-    void oglUploadDrawableVertices(GLuint, vec2[]) {}
-    void oglUploadDrawableDeform(GLuint, vec2[]) {}
+    void oglUploadDrawableVertices(GLuint, Vec2Array) {}
+    void oglUploadDrawableDeform(GLuint, Vec2Array) {}
     void oglDrawDrawableElements(GLuint, size_t) {}
 } else version (InDoesRender):
 
@@ -48,16 +48,18 @@ void oglUploadDrawableIndices(GLuint ibo, ushort[] indices) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.length * ushort.sizeof, indices.ptr, GL_STATIC_DRAW);
 }
 
-void oglUploadDrawableVertices(GLuint vbo, vec2[] vertices) {
+void oglUploadDrawableVertices(GLuint vbo, Vec2Array vertices) {
     if (vbo == 0 || vertices.length == 0) return;
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, vertices.length * vec2.sizeof, vertices.ptr, GL_DYNAMIC_DRAW);
+    auto buffer = vertices.toArray();
+    glBufferData(GL_ARRAY_BUFFER, buffer.length * vec2.sizeof, buffer.ptr, GL_DYNAMIC_DRAW);
 }
 
-void oglUploadDrawableDeform(GLuint dbo, vec2[] deformation) {
+void oglUploadDrawableDeform(GLuint dbo, Vec2Array deformation) {
     if (dbo == 0 || deformation.length == 0) return;
     glBindBuffer(GL_ARRAY_BUFFER, dbo);
-    glBufferData(GL_ARRAY_BUFFER, deformation.length * vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
+    auto buffer = deformation.toArray();
+    glBufferData(GL_ARRAY_BUFFER, buffer.length * vec2.sizeof, buffer.ptr, GL_DYNAMIC_DRAW);
 }
 
 void oglDrawDrawableElements(GLuint ibo, size_t indexCount) {

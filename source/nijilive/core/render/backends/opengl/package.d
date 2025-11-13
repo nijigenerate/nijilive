@@ -45,7 +45,7 @@ import nijilive.core.render.backends.opengl.diff_collect_impl :
     oglGetDifferenceAggregationRegion,
     oglEvaluateDifferenceAggregation,
     oglFetchDifferenceAggregationResult;
-import nijilive.math : vec2, vec3, vec4, rect, mat4;
+import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array;
 import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
@@ -163,11 +163,11 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglUploadDrawableIndices(ibo, indices);
     }
 
-    void uploadDrawableVertices(uint vbo, vec2[] vertices) {
+    void uploadDrawableVertices(uint vbo, Vec2Array vertices) {
         oglUploadDrawableVertices(vbo, vertices);
     }
 
-    void uploadDrawableDeform(uint dbo, vec2[] deform) {
+    void uploadDrawableDeform(uint dbo, Vec2Array deform) {
         oglUploadDrawableDeform(dbo, deform);
     }
 
@@ -219,7 +219,7 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglSetDebugLineWidth(size);
     }
 
-    void uploadDebugBuffer(vec3[] points, ushort[] indices) {
+    void uploadDebugBuffer(Vec3Array points, ushort[] indices) {
         oglUploadDebugBuffer(points, indices);
     }
 

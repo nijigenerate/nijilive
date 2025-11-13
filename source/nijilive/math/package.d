@@ -17,6 +17,7 @@ public import inmath.interpolate;
 
 public import nijilive.math.transform;
 public import nijilive.math.camera;
+public import nijilive.math.veca;
 
 // Unsigned short vectors
 alias vec2us = Vector!(ushort, 2); /// ditto

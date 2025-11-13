@@ -23,7 +23,7 @@ import std.string: format;
 */
 
 private {
-    vec2[] dummy = new vec2[1]; 
+    Vec2Array dummy;
 }
 @TypeId("Deformable")
 abstract class Deformable : Node {
@@ -52,13 +52,13 @@ abstract class Deformable : Node {
     }
 
 public:
-    ref vec2[] vertices() {  return dummy; }
+    ref Vec2Array vertices() {  return dummy; }
     void updateVertices() { };
 
     /**
         Deformation offset to apply
     */
-    vec2[] deformation;
+    Vec2Array deformation;
 
     /**
         Deformation stack
@@ -79,7 +79,7 @@ public:
         this.updateDeform();
     }
 
-    void rebuffer(vec2[] vertices) {
+    void rebuffer(Vec2Array vertices) {
         this.vertices = vertices;
         this.deformation.length = vertices.length;
     }
@@ -114,14 +114,12 @@ public:
     void updateDeform() {
         if (deformation.length != vertices.length) {
             deformation.length = vertices.length;
-            foreach (i; 0..deformation.length) {
-                deformation[i] = vec2(0, 0);
-            }
+            deformation[] = vec2(0, 0);
         }
     }
 
 protected:
-    void remapDeformationBindings(const size_t[] remap, const(vec2)[] replacement, size_t newLength) {
+    void remapDeformationBindings(const size_t[] remap, const Vec2Array replacement, size_t newLength) {
         import std.stdio : writefln;
         import std.algorithm: map;
         import std.array;
@@ -139,7 +137,7 @@ protected:
                     foreach (y; 0 .. deformBinding.values[x].length) {
                         auto offsets = deformBinding.values[x][y].vertexOffsets;
                         if (remap.length == offsets.length && remap.length > 0) {
-                            vec2[] reordered;
+                            Vec2Array reordered;
                             reordered.length = remap.length;
                             foreach (oldIdx, newIdx; remap) {
                                 reordered[newIdx] = offsets[oldIdx];
@@ -152,9 +150,7 @@ protected:
                             writefln("      Replaced keypoint (%s, %s) with new deformation.", x, y);
                         } else {
                             offsets.length = newLength;
-                            foreach (ref v; offsets) {
-                                v = vec2(0, 0);
-                            }
+                            offsets[] = vec2(0, 0);
                             deformBinding.values[x][y].vertexOffsets = offsets;
                             deformBinding.isSet_[x][y] = false;
                             writefln("      Reset keypoint (%s, %s) due to mismatch (%s -> %s)", x, y, offsets.length, newLength);
@@ -173,7 +169,7 @@ protected:
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = preProcessFilter[1](this, vertices, deformation, &matrix);
-            if (filterResult[0] !is null) {
+            if (!filterResult[0].empty) {
                 deformation = filterResult[0];
             } 
             if (filterResult[1] !is null) {
@@ -195,7 +191,7 @@ protected:
             if (postProcessFilter[0] != id) continue;
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = postProcessFilter[1](this, vertices, deformation, &matrix);
-            if (filterResult[0] !is null) {
+            if (!filterResult[0].empty) {
                 deformation = filterResult[0];
             } 
             if (filterResult[1] !is null) {

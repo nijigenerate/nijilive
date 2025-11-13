@@ -87,8 +87,8 @@ class RecordingBackend : RenderingBackendStub!(BackendEnum.Mock) {
         dbo = ++nextHandle;
     }
     override void uploadDrawableIndices(uint ibo, ushort[] indices) {}
-    override void uploadDrawableVertices(uint vbo, vec2[] vertices) {}
-    override void uploadDrawableDeform(uint dbo, vec2[] deform) {}
+    override void uploadDrawableVertices(uint vbo, Vec2Array vertices) {}
+    override void uploadDrawableDeform(uint dbo, Vec2Array deform) {}
     override void drawDrawableElements(uint ibo, size_t indexCount) {}
     override uint createPartUvBuffer() { return ++nextHandle; }
     override void updatePartUvBuffer(uint buffer, ref MeshData data) {}

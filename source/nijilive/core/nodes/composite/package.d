@@ -673,7 +673,7 @@ public:
         }
         super.centralize();
         vec4 bounds;
-        vec4[] childTranslations;
+        Vec4Array childTranslations;
         if (children.length > 0) {
             bounds = children[0].getCombinedBounds();
             foreach (child; children) {

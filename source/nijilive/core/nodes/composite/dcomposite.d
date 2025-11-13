@@ -378,27 +378,32 @@ protected:
         bool resizing = forceResize || textures[0] is null || textures[0].width != desiredWidth || textures[0].height != desiredHeight;
         forceResize = false;
 
-        vec2[4] vertices = [
+        Vec2Array vertexArray = Vec2Array([
             vec2(bounds.x, bounds.y),
             vec2(bounds.x, bounds.w),
             vec2(bounds.z, bounds.y),
             vec2(bounds.z, bounds.w)
-        ];
+        ]);
 
         if (resizing) {
-            MeshData newData = MeshData(vertices, data.uvs = [
+            MeshData newData;
+            newData.vertices = vertexArray;
+            newData.uvs = Vec2Array([
                 vec2(0, 0),
                 vec2(0, 1),
                 vec2(1, 0),
                 vec2(1, 1)
-            ], data.indices = [
+            ]);
+            newData.indices = [
                 0, 1, 2,
                 2, 1, 3
-            ], vec2(0, 0), []);
+            ];
+            newData.origin = vec2(0, 0);
+            newData.gridAxes = [];
             super.rebuffer(newData);
             shouldUpdateVertices = true;
         } else {
-            data.vertices = vertices;
+            data.vertices = vertexArray;
             shouldUpdateVertices = true;
             updateVertices();
         }
@@ -825,10 +830,11 @@ public:
         import std.algorithm: minElement, maxElement;
         data.uvs.length = data.vertices.length;
         if (data.uvs.length != 0) {
-            float minX = data.vertices.map!(a => a.x).minElement;
-            float maxX = data.vertices.map!(a => a.x).maxElement;
-            float minY = data.vertices.map!(a => a.y).minElement;
-            float maxY = data.vertices.map!(a => a.y).maxElement;
+            auto vertexArray = data.vertices.toArray();
+            float minX = vertexArray.map!(a => a.x).minElement;
+            float maxX = vertexArray.map!(a => a.x).maxElement;
+            float minY = vertexArray.map!(a => a.y).minElement;
+            float maxY = vertexArray.map!(a => a.y).maxElement;
             float width = maxX - minX;
             float height = maxY - minY;
             if (autoResizedMesh) {
@@ -842,8 +848,9 @@ public:
             float centerX = (minX + maxX) / 2 / width;
             float centerY = (minY + maxY) / 2 / height;
             foreach(i; 0..data.uvs.length) {
-                data.uvs[i].x = data.vertices[i].x / width;
-                data.uvs[i].y = data.vertices[i].y / height;
+                auto vert = vertexArray[i];
+                data.uvs[i].x = vert.x / width;
+                data.uvs[i].y = vert.y / height;
                 data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);
             }
         }
@@ -885,7 +892,7 @@ public:
     void centralize() {
         super.centralize();
         vec4 bounds;
-        vec4[] childTranslations;
+        Vec4Array childTranslations;
         if (children.length > 0) {
             bounds = children[0].getCombinedBounds();
             foreach (child; children) {
@@ -907,7 +914,7 @@ public:
         localTransform.translation.x = center.x;
         localTransform.translation.y = center.y;
         if (!autoResizedMesh) {
-            foreach (ref v; vertices) {
+            foreach (v; vertices) {
                 v -= diff;
             }
             updateBounds();
