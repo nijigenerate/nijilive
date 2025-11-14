@@ -6,6 +6,7 @@ version (InDoesRender) {
 
 import bindbc.opengl;
 import nijilive.core.shader : Shader;
+import nijilive.core.render.backends.opengl.soa_upload : glUploadFloatVecArray;
 
 private Shader lineShader;
 private Shader pointShader;
@@ -18,6 +19,8 @@ private int lineMvpLocation = -1;
 private int lineColorLocation = -1;
 private int pointMvpLocation = -1;
 private int pointColorLocation = -1;
+private __gshared int pointCount;
+private __gshared bool bufferIsSoA;
 
 private void ensureInitialized() {
     if (lineShader !is null) return;
@@ -53,14 +56,16 @@ package(nijilive) void oglUploadDebugBuffer(Vec3Array points, ushort[] indices) 
     ensureInitialized();
     if (points.length == 0 || indices.length == 0) {
         indexCount = 0;
+        pointCount = 0;
+        bufferIsSoA = false;
         return;
     }
 
     glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    auto buffer = points.toArray();
-    glBufferData(GL_ARRAY_BUFFER, buffer.length * vec3.sizeof, buffer.ptr, GL_DYNAMIC_DRAW);
+    glUploadFloatVecArray(vbo, points, GL_DYNAMIC_DRAW, "UploadDebug");
     currentVbo = vbo;
+    pointCount = cast(int)points.length;
+    bufferIsSoA = true;
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.length * ushort.sizeof, indices.ptr, GL_DYNAMIC_DRAW);
@@ -75,6 +80,8 @@ package(nijilive) void oglSetDebugExternalBuffer(uint vertexBuffer, uint indexBu
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
     currentVbo = vertexBuffer;
     indexCount = count;
+    bufferIsSoA = false;
+    pointCount = 0;
 }
 
 private void prepareDraw(Shader shader, int mvpLocation, int colorLocation, mat4 mvp, vec4 color) {
@@ -85,13 +92,32 @@ private void prepareDraw(Shader shader, int mvpLocation, int colorLocation, mat4
     shader.setUniform(colorLocation, color);
 
     glBindVertexArray(vao);
-    glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, currentVbo);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, null);
+    if (bufferIsSoA && pointCount > 0) {
+        auto laneBytes = cast(ptrdiff_t)pointCount * float.sizeof;
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, currentVbo);
+        glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+
+        glEnableVertexAttribArray(1);
+        glBindBuffer(GL_ARRAY_BUFFER, currentVbo);
+        glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+
+        glEnableVertexAttribArray(2);
+        glBindBuffer(GL_ARRAY_BUFFER, currentVbo);
+        glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)(laneBytes * 2));
+    } else {
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, currentVbo);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, null);
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(2);
+    }
 }
 
 private void finishDraw() {
     glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
     glBindVertexArray(0);
 }
 

@@ -8,6 +8,7 @@ import bindbc.opengl;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.backends.opengl.part : oglExecutePartPacket;
 import nijilive.core.shader : Shader;
+import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
 
 private __gshared Shader maskShader;
 private __gshared GLint maskOffsetUniform;
@@ -54,19 +55,33 @@ void oglExecuteMaskPacket(ref MaskDrawPacket packet) {
     maskShader.setUniform(maskOffsetUniform, packet.origin);
     maskShader.setUniform(maskMvpUniform, packet.mvp);
 
+    if (packet.vertexCount == 0) return;
+    auto laneBytes = cast(ptrdiff_t)packet.vertexCount * float.sizeof;
+
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, packet.vertexBuffer);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(1);
+    glBindBuffer(GL_ARRAY_BUFFER, packet.vertexBuffer);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+
+    glEnableVertexAttribArray(2);
     glBindBuffer(GL_ARRAY_BUFFER, packet.deformBuffer);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+
+    glEnableVertexAttribArray(3);
+    glBindBuffer(GL_ARRAY_BUFFER, packet.deformBuffer);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, packet.indexBuffer);
     glDrawElements(GL_TRIANGLES, cast(int)packet.indexCount, GL_UNSIGNED_SHORT, null);
+    markBufferInUse(packet.deformBuffer);
 
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glDisableVertexAttribArray(3);
 }
 
 void oglExecuteMaskApplyPacket(ref MaskApplyPacket packet) {

@@ -6,10 +6,13 @@
 */
 #version 330
 uniform mat4 mvp;
-layout(location = 0) in vec3 verts;
+layout(location = 0) in float vertX;
+layout(location = 1) in float vertY;
+layout(location = 2) in float vertZ;
 
 out vec2 texUVs;
 
 void main() {
-    gl_Position = mvp * vec4(verts.x, verts.y, verts.z, 1);
+    vec3 verts = vec3(vertX, vertY, vertZ);
+    gl_Position = mvp * vec4(verts, 1.0);
 }

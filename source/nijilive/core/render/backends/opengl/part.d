@@ -27,6 +27,8 @@ import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
 import nijilive.math : mat4, vec2;
+import nijilive.core.render.backends.opengl.soa_upload : glUploadFloatVecArray;
+import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
 
 package(nijilive) {
     __gshared Texture boundAlbedo;
@@ -119,8 +121,7 @@ uint oglCreatePartUvBuffer() {
 
 void oglUpdatePartUvBuffer(uint uvbo, ref MeshData data) {
     glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-    auto uvArray = data.uvs.toArray();
-    glBufferData(GL_ARRAY_BUFFER, uvArray.length * vec2.sizeof, uvArray.ptr, GL_STATIC_DRAW);
+    glUploadFloatVecArray(uvbo, data.uvs, GL_STATIC_DRAW, "UploadUV");
 }
 
 void oglDrawPartPacket(ref PartDrawPacket packet) {
@@ -295,26 +296,44 @@ private void renderStage(ref PartDrawPacket packet, bool advanced) {
     auto ibo = packet.indexBuffer;
     auto indexCount = packet.indexCount;
 
-    if (!vbo || !uvbo || !dbo || !ibo || indexCount == 0) return;
+    if (!vbo || !uvbo || !dbo || !ibo || indexCount == 0 || packet.vertexCount == 0) return;
+
+    auto laneBytes = cast(ptrdiff_t)packet.vertexCount * float.sizeof;
 
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
 
     glEnableVertexAttribArray(2);
+    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+
+    glEnableVertexAttribArray(3);
+    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+
+    glEnableVertexAttribArray(4);
     glBindBuffer(GL_ARRAY_BUFFER, dbo);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+
+    glEnableVertexAttribArray(5);
+    glBindBuffer(GL_ARRAY_BUFFER, dbo);
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
     glDrawElements(GL_TRIANGLES, cast(int)indexCount, GL_UNSIGNED_SHORT, null);
+    markBufferInUse(dbo);
 
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
     glDisableVertexAttribArray(2);
+    glDisableVertexAttribArray(3);
+    glDisableVertexAttribArray(4);
+    glDisableVertexAttribArray(5);
 
     if (advanced) {
         inBlendModeBarrier(packet.blendingMode);

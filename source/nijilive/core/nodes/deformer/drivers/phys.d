@@ -181,9 +181,9 @@ class ConnectedPendulumDriver : PhysicsDriver {
         if (deformer is null || deformer.driver() !is cast(PhysicsDriver)this) return;
 
         // Update deformation based on new angles
-        auto newPositionsAoS = calculatePositions(base, angles, lengths).toArray();
-        for (int i = 0; i < newPositionsAoS.length; i++) {
-            auto physPos = newPositionsAoS[i];
+        auto newPositions = calculatePositions(base, angles, lengths);
+        for (size_t i = 0; i < newPositions.length; i++) {
+            vec2 physPos = newPositions[i];
             auto newPos = vec2(physPos.x, physicsToScreenY(physPos.y));
             if (!guardFinite(deformer, "pendulum:newPosition", newPos, i)) {
                 physDeformation[i] = vec2(0, 0);
@@ -418,14 +418,18 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
 
     override
     void updateDefaultShape() {
-        auto originalPoints = deformer.originalCurve.controlPoints.toArray();
-        auto physicsControlPoints = originalPoints.map!(p => vec2(p.x, screenToPhysicsY(p.y))).array;
-        foreach (i, pt; physicsControlPoints) {
+        auto originalPoints = deformer.originalCurve.controlPoints;
+        initialPositions.length = originalPoints.length;
+        foreach (i; 0 .. originalPoints.length) {
+            vec2 pt = originalPoints[i];
+            pt.y = screenToPhysicsY(pt.y);
             if (!guardFinite(deformer, "springPendulum:controlPoint", pt, i)) {
+                initialPositions.length = 0;
                 return;
             }
+            initialPositions[i] = pt;
         }
-        initialPositions = Vec2Array(physicsControlPoints); // 初期形状を保存
+        // 初期形状を保存済み
     }
 
     override

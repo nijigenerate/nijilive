@@ -78,7 +78,7 @@ public:
 
     override
     void rebuffer(Vec2Array gridPoints) {
-        if (gridPoints.length == 0 || !adoptFromVertices(gridPoints.toArray(), false)) {
+        if (gridPoints.length == 0 || !adoptFromVertices(gridPoints, false)) {
             adoptGridFromAxes(DefaultAxis, DefaultAxis);
         }
         clearCache();
@@ -269,11 +269,11 @@ public:
             translateChildren = grid.translateChildren;
             initialized = true;
         } else if (auto drawable = cast(Drawable)src) {
-            if (adoptFromVertices(drawable.vertices.toArray(), true)) {
+            if (adoptFromVertices(drawable.vertices, true)) {
                 initialized = true;
             }
         } else if (auto deformable = cast(Deformable)src) {
-            if (adoptFromVertices(deformable.vertices.toArray(), true)) {
+            if (adoptFromVertices(deformable.vertices, true)) {
                 initialized = true;
             }
         }
@@ -429,14 +429,16 @@ private:
         setGridAxes(xs, ys);
     }
 
-    bool deriveAxes(const(vec2)[] points, out float[] xs, out float[] ys) const {
-        if (points.length < 4) return false;
+    bool deriveAxes(Points)(auto ref Points points, out float[] xs, out float[] ys) const {
+        auto count = points.length;
+        if (count < 4) return false;
 
         float[] xCandidates;
-        xCandidates.length = points.length;
+        xCandidates.length = count;
         float[] yCandidates;
-        yCandidates.length = points.length;
-        foreach (i, point; points) {
+        yCandidates.length = count;
+        foreach (i; 0 .. count) {
+            auto point = points[i];
             xCandidates[i] = point.x;
             yCandidates[i] = point.y;
         }
@@ -445,11 +447,12 @@ private:
         ys = normalizeAxis(yCandidates);
 
         if (xs.length < 2 || ys.length < 2) return false;
-        if (xs.length * ys.length != points.length) return false;
+        if (xs.length * ys.length != count) return false;
 
         bool[] seen;
         seen.length = xs.length * ys.length;
-        foreach (point; points) {
+        foreach (i; 0 .. count) {
+            auto point = points[i];
             int xi = axisIndexOfValue(xs, point.x);
             int yi = axisIndexOfValue(ys, point.y);
             if (xi < 0 || yi < 0) return false;
@@ -462,7 +465,7 @@ private:
         return true;
     }
 
-    bool adoptFromVertices(const(vec2)[] points, bool preserveShape) {
+    bool adoptFromVertices(Points)(auto ref Points points, bool preserveShape) {
         float[] xs;
         float[] ys;
         if (!deriveAxes(points, xs, ys)) {
@@ -480,8 +483,9 @@ private:
         return true;
     }
 
-    bool fillDeformationFromPositions(const(vec2)[] positions) {
-        if (positions.length != deformation.length) {
+    bool fillDeformationFromPositions(Points)(auto ref Points positions) {
+        auto count = positions.length;
+        if (count != deformation.length) {
             deformation[] = vec2(0, 0);
             return false;
         }
@@ -490,7 +494,8 @@ private:
         seen.length = deformation.length;
         deformation[] = vec2(0, 0);
 
-        foreach (pos; positions) {
+        foreach (i; 0 .. count) {
+            auto pos = positions[i];
             int xi = axisIndexOfValue(axisX, pos.x);
             int yi = axisIndexOfValue(axisY, pos.y);
             if (xi < 0 || yi < 0) return false;

@@ -491,17 +491,27 @@ public:
             MeshData data;
             auto baseVerts = gdef.vertices;
             if (baseVerts.length >= 4) {
-                auto baseArray = baseVerts.toArray();
-                auto xs = baseArray.map!(v => v.x).array.sort().uniq.array;
-                auto ys = baseArray.map!(v => v.y).array.sort().uniq.array;
-                if (xs.length >= 2 && ys.length >= 2 && xs.length * ys.length == baseVerts.length) {
+                float[] xs;
+                float[] ys;
+                xs.reserve(baseVerts.length);
+                ys.reserve(baseVerts.length);
+                foreach (i; 0 .. baseVerts.length) {
+                    auto vert = baseVerts[i];
+                    xs ~= vert.x;
+                    ys ~= vert.y;
+                }
+                auto xsSorted = xs.sort();
+                auto ysSorted = ys.sort();
+                auto xsUnique = xsSorted.uniq.array;
+                auto ysUnique = ysSorted.uniq.array;
+                if (xsUnique.length >= 2 && ysUnique.length >= 2 && xsUnique.length * ysUnique.length == baseVerts.length) {
                     data.vertices = baseVerts.dup;
                     float[][] axes;
-                    axes ~= ys.dup;
-                    axes ~= xs.dup;
+                    axes ~= ysUnique.dup;
+                    axes ~= xsUnique.dup;
                     data.gridAxes = axes;
-                    size_t rows = ys.length;
-                    size_t cols = xs.length;
+                    size_t rows = ysUnique.length;
+                    size_t cols = xsUnique.length;
                     auto reserveCount = (cols - 1) * (rows - 1) * 6;
                     data.indices.reserve(reserveCount);
                     foreach (x; 0 .. cols - 1) {

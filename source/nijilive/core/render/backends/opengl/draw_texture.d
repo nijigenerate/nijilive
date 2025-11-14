@@ -37,25 +37,41 @@ void oglDrawTextureAtPart(Texture texture, Part part) {
 
     texture.bind();
 
+    enum vertexCount = 4;
+    float[vertexCount * 2] vertexSoa;
+    auto vx = vertexSoa[0 .. vertexCount];
+    auto vy = vertexSoa[vertexCount .. $];
+    vx[] = [-texWidthP, texWidthP, -texWidthP, texWidthP];
+    vy[] = [-texHeightP, -texHeightP, texHeightP, texHeightP];
+    float[vertexCount * 2] uvSoa;
+    auto ux = uvSoa[0 .. vertexCount];
+    auto uy = uvSoa[vertexCount .. $];
+    ux[] = [0f, 1f, 0f, 1f];
+    uy[] = [0f, 0f, 1f, 1f];
+    auto laneBytes = cast(ptrdiff_t)vertexCount * float.sizeof;
+
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        -texWidthP, -texHeightP,
-        texWidthP, -texHeightP,
-        -texWidthP, texHeightP,
-        texWidthP, texHeightP,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glBufferData(GL_ARRAY_BUFFER, vertexSoa.length * float.sizeof, vertexSoa.ptr, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(1);
+    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+
+    glEnableVertexAttribArray(2);
     glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        0, 0,
-        1, 0,
-        0, 1,
-        1, 1,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glBufferData(GL_ARRAY_BUFFER, uvSoa.length * float.sizeof, uvSoa.ptr, GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+
+    glEnableVertexAttribArray(3);
+    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+
+    glDisableVertexAttribArray(4);
+    glVertexAttrib1f(4, 0);
+    glDisableVertexAttribArray(5);
+    glVertexAttrib1f(5, 0);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
@@ -66,6 +82,8 @@ void oglDrawTextureAtPart(Texture texture, Part part) {
 
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glDisableVertexAttribArray(3);
 }
 
 void oglDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, vec3 color = vec3(1, 1, 1), vec3 screenColor = vec3(0, 0, 0)) {
@@ -105,25 +123,41 @@ void oglDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1
 
     texture.bind();
 
+    enum vertexCount = 4;
+    float[vertexCount * 2] vertexSoa;
+    auto vx = vertexSoa[0 .. vertexCount];
+    auto vy = vertexSoa[vertexCount .. $];
+    vx[] = [area.left, area.right, area.left, area.right];
+    vy[] = [area.top, area.top, area.bottom, area.bottom];
+    float[vertexCount * 2] uvSoa;
+    auto ux = uvSoa[0 .. vertexCount];
+    auto uy = uvSoa[vertexCount .. $];
+    ux[] = [uvs.x, uvs.width, uvs.x, uvs.width];
+    uy[] = [uvs.y, uvs.y, uvs.height, uvs.height];
+    auto laneBytes = cast(ptrdiff_t)vertexCount * float.sizeof;
+
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        area.left, area.top,
-        area.right, area.top,
-        area.left, area.bottom,
-        area.right, area.bottom,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glBufferData(GL_ARRAY_BUFFER, vertexSoa.length * float.sizeof, vertexSoa.ptr, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(1);
+    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+
+    glEnableVertexAttribArray(2);
     glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        uvs.x, uvs.y,
-        uvs.width, uvs.y,
-        uvs.x, uvs.height,
-        uvs.width, uvs.height,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
+    glBufferData(GL_ARRAY_BUFFER, uvSoa.length * float.sizeof, uvSoa.ptr, GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+
+    glEnableVertexAttribArray(3);
+    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+
+    glDisableVertexAttribArray(4);
+    glVertexAttrib1f(4, 0);
+    glDisableVertexAttribArray(5);
+    glVertexAttrib1f(5, 0);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
@@ -134,4 +168,6 @@ void oglDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1
 
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glDisableVertexAttribArray(3);
 }

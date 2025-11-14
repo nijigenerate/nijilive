@@ -118,9 +118,11 @@ protected:
     }
 
     private
-    float computeCurveScale(const(vec2)[] points) {
+    float computeCurveScale(Points)(auto ref Points points) {
         float scale = 0;
-        foreach (pt; points) {
+        auto len = points.length;
+        foreach (i; 0 .. len) {
+            auto pt = points[i];
             if (isNaN(pt.x) || isNaN(pt.y)) continue;
             float magnitude = sqrt(pt.x * pt.x + pt.y * pt.y);
             if (magnitude > scale) {
@@ -131,7 +133,7 @@ protected:
     }
 
     private
-    string summarizePoints(const(vec2)[] points, size_t maxCount = 4) {
+    string summarizePoints(Points)(auto ref Points points, size_t maxCount = 4) {
         auto buffer = appender!string();
         formattedWrite(buffer, "len=%s [", points.length);
         size_t limit = points.length < maxCount ? points.length : maxCount;
@@ -279,12 +281,13 @@ protected:
     }
 
     private
-    bool logCurveHealth(string context, Curve reference, Curve target, const(vec2)[] deformationSnapshot) {
+    bool logCurveHealth(Points)(string context, Curve reference, Curve target, auto ref Points deformationSnapshot) {
         if (target is null) return false;
 
-        auto targetPoints = target.controlPoints.toArray();
+        auto targetPoints = target.controlPoints;
         bool hasNaN = false;
-        foreach (pt; targetPoints) {
+        foreach (i; 0 .. targetPoints.length) {
+            auto pt = targetPoints[i];
             if (isNaN(pt.x) || isNaN(pt.y)) {
                 hasNaN = true;
                 break;
@@ -293,9 +296,9 @@ protected:
 
         float targetScale = computeCurveScale(targetPoints);
         float referenceScale = 0;
-        const(vec2)[] referencePoints;
+        auto referencePoints = Vec2Array.init;
         if (reference !is null) {
-            referencePoints = reference.controlPoints.toArray();
+            referencePoints = reference.controlPoints;
             referenceScale = computeCurveScale(referencePoints);
         }
 
@@ -378,7 +381,7 @@ protected:
 
     private
     void logCurveState(string context) {
-        auto deformationSnapshot = deformation.toArray();
+        auto deformationSnapshot = deformation;
         bool logged = false;
         if (originalCurve !is null && prevCurve !is null) {
             logged = logCurveHealth(context ~ ":prev", originalCurve, prevCurve, deformationSnapshot) || logged;
@@ -558,7 +561,7 @@ protected:
     }
 
     private
-    void checkBaselineDegeneracy(const(vec2)[] points) {
+    void checkBaselineDegeneracy(Points)(auto ref Points points) {
         hasDegenerateBaseline = false;
         degenerateSegmentIndices.length = 0;
         if (points.length < 2) return;
@@ -728,7 +731,7 @@ public:
         driverInitialized = false;
         prevCurve = originalCurve;
         ensureDiagnosticCapacity(this.deformation.length);
-        checkBaselineDegeneracy(originalCurve.controlPoints.toArray());
+        checkBaselineDegeneracy(originalCurve.controlPoints);
         logCurveState("rebuffer");
     }
 
@@ -833,7 +836,7 @@ public:
                 prevCandidate += diffDeform;
                 prevCurve = createCurve(prevCandidate);
                 clearCache();
-                logCurveHealth("applyPathDeform:driverPrev", originalCurve, prevCurve, deformation.toArray());
+                logCurveHealth("applyPathDeform:driverPrev", originalCurve, prevCurve, deformation);
                 if (driver !is null && puppet !is null && puppet.enableDrivers)
                     driver.updateDefaultShape();
                 if (driver is null) {
@@ -860,7 +863,7 @@ public:
                                 return;
                             }
                             prevCurve = createCurve(vertices);
-                            logCurveHealth("applyPathDeform:physicsPrev", originalCurve, prevCurve, deformation.toArray());
+                            logCurveHealth("applyPathDeform:physicsPrev", originalCurve, prevCurve, deformation);
                             deformation -= prevDeform;
                             sanitizeOffsets(deformation);
                         } else
@@ -1049,7 +1052,7 @@ public:
                 pathLog("[PathDeformer][CurveDiag] node=", name,
                         " context=tangentOriginalDegenerate",
                         " t=", t,
-                        " controlPoints=", summarizePoints((prevCurve? prevCurve: originalCurve).controlPoints.toArray()));
+                        " controlPoints=", summarizePoints((prevCurve? prevCurve: originalCurve).controlPoints));
             }
             vec2 normalOriginal = vec2(-tangentOriginal.y, tangentOriginal.x);
             float originalNormalDistance = dot(cVertex - closestPointOriginal, normalOriginal); 
@@ -1080,7 +1083,7 @@ public:
                 pathLog("[PathDeformer][CurveDiag] node=", name,
                         " context=tangentDeformedDegenerate",
                         " t=", t,
-                        " controlPoints=", summarizePoints(deformedCurve.controlPoints.toArray()));
+                        " controlPoints=", summarizePoints(deformedCurve.controlPoints));
             }
             vec2 normalDeformed = vec2(-tangentDeformed.y, tangentDeformed.x);
 
@@ -1231,6 +1234,6 @@ public:
     }
 
     private string deformationSnapshot() {
-        return summarizePoints(deformation.toArray());
+        return summarizePoints(deformation);
     }
 }

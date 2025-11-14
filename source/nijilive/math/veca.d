@@ -145,6 +145,13 @@ if (N > 0) {
         return result;
     }
 
+    /// Write the SoA data into a provided AoS buffer.
+    void toArrayInto(ref Element[] target) const {
+        target.length = length;
+        foreach (i; 0 .. length)
+            target[i] = this[i].toVector();
+    }
+
     /// Duplicate the SoA buffer.
     veca dup() const {
         veca copy;
@@ -197,6 +204,12 @@ if (N > 0) {
 
     veca opSlice() const {
         return dup();
+    }
+
+    /// Direct access to a component lane.
+    inout(T)[] lane(size_t component) inout {
+        assert(component < N, "veca lane index out of range");
+        return lanes[component];
     }
 
     void opSliceAssign(veca rhs) {

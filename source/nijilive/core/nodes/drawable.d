@@ -542,14 +542,19 @@ public:
 
     override
     void normalizeUV(MeshData* data) {
-        import std.algorithm: map;
-        import std.algorithm: minElement, maxElement;
+        import std.algorithm.comparison : min, max;
         if (data.uvs.length != 0) {
-            auto uvArray = data.uvs.toArray();
-            float minX = uvArray.map!(a => a.x).minElement;
-            float maxX = uvArray.map!(a => a.x).maxElement;
-            float minY = uvArray.map!(a => a.y).minElement;
-            float maxY = uvArray.map!(a => a.y).maxElement;
+            float minX = data.uvs[0].x;
+            float maxX = minX;
+            float minY = data.uvs[0].y;
+            float maxY = minY;
+            foreach (i; 1 .. data.uvs.length) {
+                auto uv = data.uvs[i];
+                minX = min(minX, uv.x);
+                maxX = max(maxX, uv.x);
+                minY = min(minY, uv.y);
+                maxY = max(maxY, uv.y);
+            }
             float width = maxX - minX;
             float height = maxY - minY;
             float centerX = (minX + maxX) / 2 / width;

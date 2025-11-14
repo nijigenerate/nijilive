@@ -826,15 +826,20 @@ public:
 
     override
     void normalizeUV(MeshData* data) {
-        import std.algorithm: map;
-        import std.algorithm: minElement, maxElement;
         data.uvs.length = data.vertices.length;
         if (data.uvs.length != 0) {
-            auto vertexArray = data.vertices.toArray();
-            float minX = vertexArray.map!(a => a.x).minElement;
-            float maxX = vertexArray.map!(a => a.x).maxElement;
-            float minY = vertexArray.map!(a => a.y).minElement;
-            float maxY = vertexArray.map!(a => a.y).maxElement;
+            import std.algorithm.comparison : min, max;
+            float minX = data.vertices[0].x;
+            float maxX = minX;
+            float minY = data.vertices[0].y;
+            float maxY = minY;
+            foreach (i; 1 .. data.vertices.length) {
+                auto vert = data.vertices[i];
+                minX = min(minX, vert.x);
+                maxX = max(maxX, vert.x);
+                minY = min(minY, vert.y);
+                maxY = max(maxY, vert.y);
+            }
             float width = maxX - minX;
             float height = maxY - minY;
             if (autoResizedMesh) {
@@ -848,7 +853,7 @@ public:
             float centerX = (minX + maxX) / 2 / width;
             float centerY = (minY + maxY) / 2 / height;
             foreach(i; 0..data.uvs.length) {
-                auto vert = vertexArray[i];
+                auto vert = data.vertices[i];
                 data.uvs[i].x = vert.x / width;
                 data.uvs[i].y = vert.y / height;
                 data.uvs[i] += vec2(0.5 - centerX, 0.5 - centerY);

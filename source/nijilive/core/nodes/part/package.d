@@ -692,6 +692,7 @@ public:
         packet.deformBuffer = dbo;
         packet.indexBuffer = ibo;
         packet.indexCount = cast(uint)data.indices.length;
+        packet.vertexCount = cast(uint)data.vertices.length;
     }
 
     package(nijilive) mat4 immediateModelMatrix() {

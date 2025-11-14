@@ -48,6 +48,7 @@ struct PartDrawPacket {
     uint deformBuffer;
     uint indexBuffer;
     uint indexCount;
+    uint vertexCount;
 }
 
 struct MaskDrawPacket {
@@ -58,6 +59,7 @@ struct MaskDrawPacket {
     uint deformBuffer;
     uint indexBuffer;
     uint indexCount;
+    uint vertexCount;
 }
 
 struct MaskApplyPacket {

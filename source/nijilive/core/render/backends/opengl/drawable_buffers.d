@@ -20,10 +20,10 @@ version (unittest) {
 
 import bindbc.opengl;
 import nijilive.core.meshdata : MeshData;
+import nijilive.core.render.backends.opengl.soa_upload : glUploadFloatVecArray;
 
 private __gshared GLuint drawableVAO;
 private __gshared bool drawableBuffersInitialized = false;
-
 void oglInitDrawableBackend() {
     if (drawableBuffersInitialized) return;
     drawableBuffersInitialized = true;
@@ -49,17 +49,11 @@ void oglUploadDrawableIndices(GLuint ibo, ushort[] indices) {
 }
 
 void oglUploadDrawableVertices(GLuint vbo, Vec2Array vertices) {
-    if (vbo == 0 || vertices.length == 0) return;
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    auto buffer = vertices.toArray();
-    glBufferData(GL_ARRAY_BUFFER, buffer.length * vec2.sizeof, buffer.ptr, GL_DYNAMIC_DRAW);
+    glUploadFloatVecArray(vbo, vertices, GL_DYNAMIC_DRAW, "UploadVertices");
 }
 
 void oglUploadDrawableDeform(GLuint dbo, Vec2Array deformation) {
-    if (dbo == 0 || deformation.length == 0) return;
-    glBindBuffer(GL_ARRAY_BUFFER, dbo);
-    auto buffer = deformation.toArray();
-    glBufferData(GL_ARRAY_BUFFER, buffer.length * vec2.sizeof, buffer.ptr, GL_DYNAMIC_DRAW);
+    glUploadFloatVecArray(dbo, deformation, GL_DYNAMIC_DRAW, "UploadDeform");
 }
 
 void oglDrawDrawableElements(GLuint ibo, size_t indexCount) {
