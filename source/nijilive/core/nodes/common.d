@@ -9,10 +9,45 @@
     Authors: Luna Nielsen
 */
 module nijilive.core.nodes.common;
-import bindbc.opengl;
 import nijilive.fmt.serialize;
-import bindbc.opengl.context;
 import std.string;
+
+version (InDoesRender) {
+    import nijilive.core.runtime_state : currentRenderBackend;
+
+    private auto blendBackend() { return currentRenderBackend(); }
+
+    void setAdvancedBlendCoherent(bool enabled) {
+        blendBackend().setAdvancedBlendCoherent(enabled);
+    }
+
+    void setLegacyBlendMode(BlendMode blendingMode) {
+        blendBackend().setLegacyBlendMode(blendingMode);
+    }
+
+    void setAdvancedBlendEquation(BlendMode blendingMode) {
+        blendBackend().setAdvancedBlendEquation(blendingMode);
+    }
+
+    void issueBlendBarrier() {
+        blendBackend().issueBlendBarrier();
+    }
+
+    bool hasAdvancedBlendSupport() {
+        return blendBackend().supportsAdvancedBlend();
+    }
+
+    bool hasAdvancedBlendCoherentSupport() {
+        return blendBackend().supportsAdvancedBlendCoherent();
+    }
+} else {
+    void setAdvancedBlendCoherent(bool) { }
+    void setLegacyBlendMode(BlendMode) { }
+    void setAdvancedBlendEquation(BlendMode) { }
+    void issueBlendBarrier() { }
+    bool hasAdvancedBlendSupport() { return false; }
+    bool hasAdvancedBlendCoherentSupport() { return false; }
+}
 
 private {
     bool inAdvancedBlending;
@@ -30,8 +65,7 @@ private {
         bool desiredCoherent = inAdvancedBlendingCoherentAvailable && !inForceTripleBufferFallback;
 
         if (desiredCoherent != inAdvancedBlendingCoherent) {
-            if (desiredCoherent) glEnable(GL_BLEND_ADVANCED_COHERENT_KHR);
-            else glDisable(GL_BLEND_ADVANCED_COHERENT_KHR);
+            setAdvancedBlendCoherent(desiredCoherent);
         }
 
         inAdvancedBlending = desiredAdvanced;
@@ -39,65 +73,7 @@ private {
     }
 
     void inSetBlendModeLegacy(BlendMode blendingMode) {
-        switch(blendingMode) {
-            
-            // If the advanced blending extension is not supported, force to Normal blending
-            default:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); break;
-
-            case BlendMode.Normal: 
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); break;
-
-            case BlendMode.Multiply: 
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA); break;
-
-            case BlendMode.Screen:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR); break;
-
-            case BlendMode.Lighten:
-                glBlendEquation(GL_MAX);
-                glBlendFunc(GL_ONE, GL_ONE); break;
-
-            case BlendMode.ColorDodge:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_DST_COLOR, GL_ONE); break;
-
-            case BlendMode.LinearDodge:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); break;
-                
-            case BlendMode.AddGlow:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); break;
-
-            case BlendMode.Subtract:
-                glBlendEquationSeparate(GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_ADD);
-                glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ONE); break;
-
-            case BlendMode.Exclusion:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFuncSeparate(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ONE); break;
-
-            case BlendMode.Inverse:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA); break;
-            
-            case BlendMode.DestinationIn:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_ZERO, GL_SRC_ALPHA); break;
-
-            case BlendMode.ClipToLower:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA); break;
-
-            case BlendMode.SliceFromLower:
-                glBlendEquation(GL_FUNC_ADD);
-                glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); break;
-        }
+        setLegacyBlendMode(blendingMode);
     }
 }
 
@@ -126,8 +102,8 @@ void nlApplyBlendingCapabilities() {
 
 void inInitBlending() {
     inForceTripleBufferFallback = inDefaultTripleBufferFallback;
-    inAdvancedBlendingAvailable = hasKHRBlendEquationAdvanced;
-    inAdvancedBlendingCoherentAvailable = hasKHRBlendEquationAdvancedCoherent;
+    inAdvancedBlendingAvailable = hasAdvancedBlendSupport();
+    inAdvancedBlendingCoherentAvailable = hasAdvancedBlendCoherentSupport();
     inApplyBlendingCapabilities();
 }
 
@@ -273,27 +249,12 @@ bool inIsAdvancedBlendMode(BlendMode mode) {
 
 void inSetBlendMode(BlendMode blendingMode, bool legacyOnly=false) {
     if (!inAdvancedBlending || legacyOnly) inSetBlendModeLegacy(blendingMode);
-    else switch(blendingMode) {
-        case BlendMode.Multiply: glBlendEquation(GL_MULTIPLY_KHR); break;
-        case BlendMode.Screen: glBlendEquation(GL_SCREEN_KHR); break;
-        case BlendMode.Overlay: glBlendEquation(GL_OVERLAY_KHR); break;
-        case BlendMode.Darken: glBlendEquation(GL_DARKEN_KHR); break;
-        case BlendMode.Lighten: glBlendEquation(GL_LIGHTEN_KHR); break;
-        case BlendMode.ColorDodge: glBlendEquation(GL_COLORDODGE_KHR); break;
-        case BlendMode.ColorBurn: glBlendEquation(GL_COLORBURN_KHR); break;
-        case BlendMode.HardLight: glBlendEquation(GL_HARDLIGHT_KHR); break;
-        case BlendMode.SoftLight: glBlendEquation(GL_SOFTLIGHT_KHR); break;
-        case BlendMode.Difference: glBlendEquation(GL_DIFFERENCE_KHR); break;
-        case BlendMode.Exclusion: glBlendEquation(GL_EXCLUSION_KHR); break;
-        
-        // Fallback to legacy
-        default: inSetBlendModeLegacy(blendingMode); break;
-    }
+    else setAdvancedBlendEquation(blendingMode);
 }
 
 void inBlendModeBarrier(BlendMode mode) {
     if (inAdvancedBlending && !inAdvancedBlendingCoherent && inIsAdvancedBlendMode(mode)) 
-        glBlendBarrierKHR();
+        issueBlendBarrier();
 }
 
 /**

@@ -32,13 +32,8 @@ protected:
 
 public:
     override
-    void beginUpdate() {
-        super.beginUpdate();
-    }
-
-    override
-    void update() {
-        super.update();
+    protected void runBeginTask() {
+        super.runBeginTask();
     }
 
     Parameter[] getAffectedParameters() {

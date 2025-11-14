@@ -27,9 +27,12 @@ public import nijilive.core.nodes.deformer.path;
 public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
+import nijilive.core.render.graph_builder;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
+import nijilive.core.render.scheduler;
 import std.string;
+import std.math : isFinite;
 
 // Flags to control which Node properties get serialized
 enum SerializeNodeFlags : uint {
@@ -561,6 +564,7 @@ public:
         return parent_ !is null ? parent_.puppet : puppet_;
     }
 
+
     /**
         Removes all children from this node
     */
@@ -696,39 +700,69 @@ public:
         Sets offset value
     */
     bool setValue(string key, float value) {
+        if (!value.isFinite) {
+            return false;
+        }
         switch(key) {
             case "zSort":
+                if (!offsetSort.isFinite) {
+                    offsetSort = 0;
+                }
                 offsetSort += value;
                 return true;
             case "transform.t.x":
+                if (!offsetTransform.translation.x.isFinite) {
+                    offsetTransform.translation.x = 0;
+                }
                 offsetTransform.translation.x += value;
                 transformChanged();
                 return true;
             case "transform.t.y":
+                if (!offsetTransform.translation.y.isFinite) {
+                    offsetTransform.translation.y = 0;
+                }
                 offsetTransform.translation.y += value;
                 transformChanged();
                 return true;
             case "transform.t.z":
+                if (!offsetTransform.translation.z.isFinite) {
+                    offsetTransform.translation.z = 0;
+                }
                 offsetTransform.translation.z += value;
                 transformChanged();
                 return true;
             case "transform.r.x":
+                if (!offsetTransform.rotation.x.isFinite) {
+                    offsetTransform.rotation.x = 0;
+                }
                 offsetTransform.rotation.x += value;
                 transformChanged();
                 return true;
             case "transform.r.y":
+                if (!offsetTransform.rotation.y.isFinite) {
+                    offsetTransform.rotation.y = 0;
+                }
                 offsetTransform.rotation.y += value;
                 transformChanged();
                 return true;
             case "transform.r.z":
+                if (!offsetTransform.rotation.z.isFinite) {
+                    offsetTransform.rotation.z = 0;
+                }
                 offsetTransform.rotation.z += value;
                 transformChanged();
                 return true;
             case "transform.s.x":
+                if (!offsetTransform.scale.x.isFinite || offsetTransform.scale.x == 0) {
+                    offsetTransform.scale.x = 1;
+                }
                 offsetTransform.scale.x *= value;
                 transformChanged();
                 return true;
             case "transform.s.y":
+                if (!offsetTransform.scale.y.isFinite || offsetTransform.scale.y == 0) {
+                    offsetTransform.scale.y = 1;
+                }
                 offsetTransform.scale.y *= value;
                 transformChanged();
                 return true;
@@ -816,7 +850,7 @@ public:
         }
     }
 
-    void beginUpdate() {
+    protected void runBeginTask() {
         preProcessed  = false;
         postProcessed = -1;
         changed = false;
@@ -826,33 +860,82 @@ public:
         offsetSort = 0;
         offsetTransform.clear();
         overrideTransformMatrix = null;
-
-        // Iterate through children
-        foreach(child; children_) {
-            child.beginUpdate();
-        }
     }
 
     /**
         Updates the node
     */
-    void update() {
+    protected void runPreProcessTask() {
         preProcess();
-
-        if (!enabled) return;
-
-        foreach(child; children) {
-            child.update();
-        }
     }
 
-    void endUpdate(int id = 0) {
+    protected void runDynamicTask() {
+    }
+
+    protected void runPostTask(int id) {
         postProcess(id);
-        foreach (child; children) {
-            child.endUpdate(id);
+    }
+
+    protected void runFinalTask() {
+        postProcess(-1);
+        flushNotifyChange();
+    }
+
+    protected void runRenderTask(RenderContext ctx) {
+        // 基底ノードは直接描画しない。描画が必要なノードは個別にオーバーライドして
+        // RenderQueue へコマンドを積む。
+    }
+
+    protected void runRenderBeginTask(RenderContext ctx) {
+    }
+
+    protected void runRenderEndTask(RenderContext ctx) {
+    }
+
+    void registerRenderTasks(TaskScheduler scheduler) {
+        if (scheduler is null) return;
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+        scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
+        scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+
+        auto orderedChildren = children.dup;
+        if (orderedChildren.length > 1) {
+            import std.algorithm.sorting : sort;
+            orderedChildren.sort!((a, b) => a.zSort > b.zSort);
         }
-        if (id == -1)
-            flushNotifyChange();
+
+        foreach(child; orderedChildren) {
+            child.registerRenderTasks(scheduler);
+        }
+
+        scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
+    }
+
+    protected RenderScopeHint determineRenderScopeHint() {
+        Node current = parent;
+        while (current !is null) {
+            if (auto dyn = cast(DynamicComposite)current) {
+                if (dyn.dynamicScopeActive) {
+                    return RenderScopeHint.forDynamic(dyn.dynamicScopeTokenValue());
+                }
+                if (dyn.reuseCachedTextureThisFrame) {
+                    return RenderScopeHint.skipHint();
+                }
+            }
+            if (auto comp = cast(Composite)current) {
+                if (comp.isCompositeScopeActive()) {
+                    return RenderScopeHint.forComposite(comp.compositeScopeTokenValue());
+                }
+            }
+            current = current.parent;
+        }
+        return RenderScopeHint.root();
     }
 
     /**
@@ -1088,10 +1171,16 @@ public:
         setupSelf();
     }
 
-    bool setupChild(Node child) { return false; }
-    bool releaseChild(Node child) { return false; }
-    void setupSelf() { }
-    void releaseSelf() { }
+    bool setupChild(Node child) {
+        return false;
+    }
+    bool releaseChild(Node child) {
+        return false;
+    }
+    void setupSelf() {
+    }
+    void releaseSelf() {
+    }
 
     mat4 getDynamicMatrix() {
         if (overrideTransformMatrix !is null) {

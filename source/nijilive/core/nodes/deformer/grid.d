@@ -10,8 +10,9 @@ import nijilive.core;
 import nijilive.fmt.serialize;
 import nijilive.math;
 import std.algorithm : sort;
-import std.math : isClose;
+import std.math : isClose, isFinite;
 import std.typecons : tuple, Tuple;
+import nijilive.core.render.scheduler : RenderContext;
 
 enum GridFormation {
     Bilinear,
@@ -43,6 +44,7 @@ private:
     mat4 inverseMatrix;
 
     enum DefaultAxis = [-0.5f, 0.5f];
+    enum float BoundaryTolerance = 1e-4f;
 
 public:
     bool dynamic = false;
@@ -86,12 +88,11 @@ public:
     string typeId() { return "GridDeformer"; }
 
     override
-    void update() {
-        preProcess();
-        deformStack.update();
-        auto worldMatrix = transform.matrix; // ensure translateChildren updates are applied
-        inverseMatrix = worldMatrix.inverse;
-        Node.update();
+    protected void runPreProcessTask() {
+        super.runPreProcessTask();
+        localTransform.update();
+        transform();
+        inverseMatrix = globalTransform.matrix.inverse;
         updateDeform();
     }
 
@@ -155,6 +156,11 @@ public:
     }
 
     override
+    protected void runRenderTask(RenderContext ctx) {
+        // GridDeformer does not emit GPU commands.
+    }
+
+    override
     Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
         if (!hasValidGrid()) {
             return Tuple!(vec2[], mat4*, bool)(null, null, false);
@@ -166,14 +172,30 @@ public:
             }
         }
 
+        auto targetName = target is null ? "(null)" : target.name;
+        if (!matrixIsFinite(inverseMatrix)) {
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+        if (origTransform is null) {
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+        if (!matrixIsFinite(*origTransform)) {
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+
         mat4 centerMatrix = inverseMatrix * (*origTransform);
         bool anyChanged = false;
 
         GridCellCache[] caches;
         caches.length = origVertices.length;
-        vec2[] baseLocals;
-        baseLocals.length = origVertices.length;
+        vec2[] samplePoints;
+        samplePoints.length = origVertices.length;
 
+        if (!matrixIsFinite(centerMatrix)) {
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+        }
+
+        bool invalidSamples = false;
         foreach (i, vertex; origVertices) {
             vec2 samplePoint;
             if (dynamic && i < origDeformation.length) {
@@ -181,8 +203,15 @@ public:
             } else {
                 samplePoint = vec2(centerMatrix * vec4(vertex, 0, 1));
             }
-            baseLocals[i] = samplePoint;
+            if (!isFinite(samplePoint.x) || !isFinite(samplePoint.y)) {
+                invalidSamples = true;
+                break;
+            }
+            samplePoints[i] = samplePoint;
             caches[i] = computeCache(samplePoint);
+        }
+        if (invalidSamples) {
+            return Tuple!(vec2[], mat4*, bool)(null, null, false);
         }
 
         foreach (i, vertex; origVertices) {
@@ -190,7 +219,11 @@ public:
             if (!cache.valid) continue;
 
             vec2 targetPos = sampleDeformed(cache);
-            vec2 offsetLocal = targetPos - baseLocals[i];
+            vec2 originalPos = sampleOriginal(cache);
+            vec2 offsetLocal = targetPos - originalPos;
+            if (!isFinite(offsetLocal.x) || !isFinite(offsetLocal.y)) {
+                continue;
+            }
             if (offsetLocal == vec2(0, 0)) continue;
 
             mat4 inv = centerMatrix.inverse;
@@ -211,10 +244,13 @@ public:
             foreach (i, value; deformationValues) {
                 deformation[i] = value;
             }
-            inverseMatrix = globalTransform.matrix.inverse;
         }
 
         bool transfer() { return translateChildren; }
+
+        localTransform.update();
+        transform();
+        inverseMatrix = globalTransform.matrix.inverse;
 
         _applyDeformToChildren(tuple(1, &deformChildren), &update, &transfer, params, recursive);
     }
@@ -472,21 +508,56 @@ private:
         return true;
     }
 
-    GridCellCache computeCache(vec2 localPoint) const {
+    bool matrixIsFinite(const mat4 matrix) const {
+        foreach (row; matrix.matrix) {
+            foreach (val; row) {
+                if (!isFinite(val)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    GridCellCache computeCache(vec2 localPoint) {
         GridCellCache cache;
         cache.valid = false;
         if (!hasValidGrid()) {
             return cache;
         }
 
-        auto resultX = locateInterval(axisX, localPoint.x);
-        auto resultY = locateInterval(axisY, localPoint.y);
+        if (!isFinite(localPoint.x) || !isFinite(localPoint.y)) {
+            return cache;
+        }
+
+        float clampedX = localPoint.x;
+        if (clampedX < axisX[0]) {
+            clampedX = axisX[0];
+        } else if (clampedX > axisX[$ - 1]) {
+            clampedX = axisX[$ - 1];
+        }
+
+        float clampedY = localPoint.y;
+        if (clampedY < axisY[0]) {
+            clampedY = axisY[0];
+        } else if (clampedY > axisY[$ - 1]) {
+            clampedY = axisY[$ - 1];
+        }
+
+        auto resultX = locateInterval(axisX, clampedX);
+        auto resultY = locateInterval(axisY, clampedY);
 
         if (resultX.valid && resultY.valid) {
             cache.cellX = cast(ushort)resultX.index;
             cache.cellY = cast(ushort)resultY.index;
-            cache.u = resultX.weight;
-            cache.v = resultY.weight;
+            float u = resultX.weight;
+            float v = resultY.weight;
+            if (u <= BoundaryTolerance) u = 0;
+            else if (u >= 1 - BoundaryTolerance) u = 1;
+            if (v <= BoundaryTolerance) v = 0;
+            else if (v >= 1 - BoundaryTolerance) v = 1;
+            cache.u = u;
+            cache.v = v;
             cache.valid = true;
         } else {
             cache.valid = false;

@@ -10,96 +10,21 @@
 */
 module nijilive.core.nodes.composite;
 import nijilive.core.nodes.common;
+import nijilive.core.render.commands : makeCompositeDrawPacket, tryMakeMaskApplyPacket,
+    MaskApplyPacket;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes;
 import nijilive.fmt;
 import nijilive.core;
 import nijilive.math;
-import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
+import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 //import std.stdio;
-
-private {
-    GLuint cVAO;
-    GLuint cBuffer;
-    Shader cShader;
-    Shader cShaderMask;
-
-    GLint gopacity;
-    GLint gMultColor;
-    GLint gScreenColor;
-
-    GLint mthreshold;
-    GLint mopacity;
-}
-
 package(nijilive) {
     void inInitComposite() {
         inRegisterNodeType!Composite;
 
-        version(InDoesRender) {
-            cShader = new Shader(
-                import("basic/composite.vert"),
-                import("basic/composite.frag")
-            );
-
-            cShader.use();
-            gopacity = cShader.getUniformLocation("opacity");
-            gMultColor = cShader.getUniformLocation("multColor");
-            gScreenColor = cShader.getUniformLocation("screenColor");
-            cShader.setUniform(cShader.getUniformLocation("albedo"), 0);
-            cShader.setUniform(cShader.getUniformLocation("emissive"), 1);
-            cShader.setUniform(cShader.getUniformLocation("bumpmap"), 2);
-
-            cShaderMask = new Shader(
-                import("basic/composite.vert"),
-                import("basic/composite-mask.frag")
-            );
-            cShaderMask.use();
-            mthreshold = cShader.getUniformLocation("threshold");
-            mopacity = cShader.getUniformLocation("opacity");
-
-            glGenVertexArrays(1, &cVAO);
-            glGenBuffers(1, &cBuffer);
-
-            // Clip space vertex data since we'll just be superimposing
-            // Our composite framebuffer over the main framebuffer
-            float[] vertexData = [
-                // verts
-                -1f, -1f,
-                -1f, 1f,
-                1f, -1f,
-                1f, -1f,
-                -1f, 1f,
-                1f, 1f,
-
-                // uvs
-                0f, 0f,
-                0f, 1f,
-                1f, 0f,
-                1f, 0f,
-                0f, 1f,
-                1f, 1f,
-            ];
-
-            glBindVertexArray(cVAO);
-            glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
-            glBufferData(GL_ARRAY_BUFFER, float.sizeof*vertexData.length, vertexData.ptr, GL_STATIC_DRAW);
-
-            // Pre-configure attribute layout so the VAO can be reused across passes
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-            glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
-
-            glBindVertexArray(0);
-            glBindBuffer(GL_ARRAY_BUFFER, 0);
-        }
-    }
-
-    GLuint inGetCompositeVAO() {
-        return cVAO;
     }
 }
 
@@ -111,6 +36,20 @@ class Composite : Node {
 public:
     DynamicComposite delegated = null;
 private:
+    bool compositeScopeActive = false;
+    size_t compositeScopeToken = size_t.max;
+    package(nijilive) void markCompositeScopeClosed() {
+        compositeScopeActive = false;
+        compositeScopeToken = size_t.max;
+    }
+
+    package(nijilive) bool isCompositeScopeActive() const {
+        return compositeScopeActive;
+    }
+
+    package(nijilive) size_t compositeScopeTokenValue() const {
+        return compositeScopeToken;
+    }
 
     this() { }
 
@@ -135,13 +74,17 @@ private:
         // Optimization: Nothing to be drawn, skip context switching
         if (subParts.length == 0) return;
 
-        inBeginComposite();
+        version(InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
+            backend.beginComposite();
 
             foreach(Part child; subParts) {
                 child.drawOne();
             }
 
-        inEndComposite();
+            backend.endComposite();
+        }
     }
 
     /*
@@ -150,42 +93,20 @@ private:
     void drawSelf() {
         if (delegated) {
             synchronizeDelegated();
-//            writefln("%s: delegate drawSelf", name);
             delegated.drawSelf();
             return;
-        } else {
-//            writefln("%s: drawSelf", name);
         }
-        if (subParts.length == 0) return;
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glBindVertexArray(cVAO);
+        drawSelfImmediate();
+    }
 
-        cShader.use();
-        cShader.setUniform(gopacity, clamp(offsetOpacity * opacity, 0, 1));
-        incCompositePrepareRender();
-        
-        vec3 clampedColor = tint;
-        if (!offsetTint.x.isNaN) clampedColor.x = clamp(tint.x*offsetTint.x, 0, 1);
-        if (!offsetTint.y.isNaN) clampedColor.y = clamp(tint.y*offsetTint.y, 0, 1);
-        if (!offsetTint.z.isNaN) clampedColor.z = clamp(tint.z*offsetTint.z, 0, 1);
-        cShader.setUniform(gMultColor, clampedColor);
-
-        clampedColor = screenTint;
-        if (!offsetScreenTint.x.isNaN) clampedColor.x = clamp(screenTint.x+offsetScreenTint.x, 0, 1);
-        if (!offsetScreenTint.y.isNaN) clampedColor.y = clamp(screenTint.y+offsetScreenTint.y, 0, 1);
-        if (!offsetScreenTint.z.isNaN) clampedColor.z = clamp(screenTint.z+offsetScreenTint.z, 0, 1);
-        cShader.setUniform(gScreenColor, clampedColor);
-        inSetBlendMode(blendingMode, true);
-
-        // Enable points array
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
-
-        // Bind the texture
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+    void drawSelfImmediate() {
+        version(InDoesRender) {
+            if (subParts.length == 0) return;
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
+            auto packet = makeCompositeDrawPacket(this);
+            backend.drawCompositeQuad(packet);
+        }
     }
 
     void selfSort() {
@@ -196,10 +117,7 @@ private:
             return;
         }
 
-        import std.math : cmp;
-        sort!((a, b) => cmp(
-            a.zSort, 
-            b.zSort) > 0)(subParts);
+        sort!((a, b) => a.zSort > b.zSort)(subParts);
     }
 
     void scanPartsRecurse(ref Node node) {
@@ -221,6 +139,13 @@ private:
                 scanPartsRecurse(child);
             }
             
+        } else if (auto innerComp = cast(Composite)node) {
+            if (innerComp is this) return;
+            // Nested composites manage their own parts.
+            return;
+        } else if (auto innerDynamic = cast(DynamicComposite)node) {
+            // Dynamic composites manage their own parts.
+            return;
         } else {
 
             // Non-part nodes just need to be recursed through,
@@ -233,42 +158,6 @@ private:
 
 protected:
     Part[] subParts;
-    
-    void renderMask() {
-        inBeginComposite();
-
-            // Enable writing to stencil buffer and disable writing to color buffer
-            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);
-            glStencilMask(0xFF);
-
-            foreach(Part child; subParts) {
-                child.drawOneDirect(true);
-            }
-
-            // Disable writing to stencil buffer and enable writing to color buffer
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        inEndComposite();
-
-
-        glBindVertexArray(cVAO);
-        cShaderMask.use();
-        cShaderMask.setUniform(mopacity, opacity);
-        cShaderMask.setUniform(mthreshold, threshold);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
-        // Enable points array
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glBindBuffer(GL_ARRAY_BUFFER, cBuffer);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cast(void*)(12*float.sizeof));
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, inGetCompositeImage());
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-    }
 
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
@@ -327,6 +216,7 @@ protected:
     //
     //      PARAMETER OFFSETS
     //
+public:
     float offsetOpacity = 1;
     vec3 offsetTint = vec3(0);
     vec3 offsetScreenTint = vec3(0);
@@ -345,6 +235,26 @@ protected:
         size_t c;
         foreach(m; masks) if (m.mode == MaskingMode.DodgeMask) c++;
         return c;
+    }
+
+    float effectiveOpacity() const {
+        return clamp(offsetOpacity * opacity, 0, 1);
+    }
+
+    vec3 computeClampedTint() const {
+        vec3 clamped = tint;
+        if (!offsetTint.x.isNaN) clamped.x = clamp(tint.x * offsetTint.x, 0, 1);
+        if (!offsetTint.y.isNaN) clamped.y = clamp(tint.y * offsetTint.y, 0, 1);
+        if (!offsetTint.z.isNaN) clamped.z = clamp(tint.z * offsetTint.z, 0, 1);
+        return clamped;
+    }
+
+    vec3 computeClampedScreenTint() const {
+        vec3 clamped = screenTint;
+        if (!offsetScreenTint.x.isNaN) clamped.x = clamp(screenTint.x + offsetScreenTint.x, 0, 1);
+        if (!offsetScreenTint.y.isNaN) clamped.y = clamp(screenTint.y + offsetScreenTint.y, 0, 1);
+        if (!offsetScreenTint.z.isNaN) clamped.z = clamp(screenTint.z + offsetScreenTint.z, 0, 1);
+        return clamped;
     }
 
     override
@@ -520,60 +430,134 @@ public:
     }
 
     override
-    void beginUpdate() {
-        if (delegated) {
-            delegated.beginUpdate();
-        }
+    protected void runBeginTask() {
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
-        super.beginUpdate();
+        super.runBeginTask();
     }
 
     override
-    void update() {
-        super.update();
+    protected void runRenderBeginTask(RenderContext ctx) {
+        if (!renderEnabled() || ctx.renderGraph is null) return;
         if (delegated) {
-            delegated.update();
+            delegated.delegatedRunRenderBeginTask(ctx);
+            return;
         }
+        selfSort();
+        if (subParts.length == 0) {
+            // 万が一スキャンが漏れていた場合に備え、その場で更新して描画を継続できるようにする
+            scanParts();
+            if (subParts.length == 0) return;
+        }
+
+        MaskApplyPacket[] maskPackets;
+        bool useStencil = false;
+        if (masks.length > 0) {
+            useStencil = maskCount() > 0;
+            foreach (ref mask; masks) {
+                if (mask.maskSrc !is null) {
+                    bool isDodge = mask.mode == MaskingMode.DodgeMask;
+                    MaskApplyPacket applyPacket;
+                    if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
+                        maskPackets ~= applyPacket;
+                    }
+                }
+            }
+        }
+
+        auto drawPacket = makeCompositeDrawPacket(this);
+        compositeScopeToken = ctx.renderGraph.pushComposite(this, zSort(), drawPacket, useStencil, maskPackets);
+        compositeScopeActive = true;
+    }
+
+    override
+    protected void runRenderTask(RenderContext ctx) {
+        if (delegated) {
+            delegated.delegatedRunRenderTask(ctx);
+        }
+    }
+
+    override
+    protected void runRenderEndTask(RenderContext ctx) {
+        if (ctx.renderGraph is null) return;
+        if (delegated) {
+            delegated.delegatedRunRenderEndTask(ctx);
+            return;
+        }
+
+        if (!compositeScopeActive) return;
+
+        ctx.renderGraph.popComposite(compositeScopeToken);
+        markCompositeScopeClosed();
+    }
+
+    override
+    void registerRenderTasks(TaskScheduler scheduler) {
+        if (scheduler is null) return;
+
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+        scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
+        scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+
+        if (delegated !is null) {
+            delegated.registerDelegatedTasks(scheduler);
+        }
+
+        auto orderedChildren = children.dup;
+        if (orderedChildren.length > 1) {
+            import std.algorithm.sorting : sort;
+            orderedChildren.sort!((a, b) => a.zSort > b.zSort);
+        }
+
+        foreach (child; orderedChildren) {
+            child.registerRenderTasks(scheduler);
+        }
+
+        scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
     }
 
     override
     void drawOne() {
         if (delegated) {
             synchronizeDelegated();
-//            writefln("%s: delegate: drawOne", name);
             delegated.drawOne();
             return;
-        } else {
-//            writefln("%s: drawOne", name);
         }
         if (!enabled) return;
         
         this.selfSort();
         this.drawContents();
 
-        size_t cMasks = maskCount;
+        version(InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
 
-        if (masks.length > 0) {
-            inBeginMask(cMasks > 0);
+            size_t cMasks = maskCount;
 
-            foreach(ref mask; masks) {
-                mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
+            if (masks.length > 0) {
+                backend.beginMask(cMasks > 0);
+
+                foreach(ref mask; masks) {
+                    mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
+                }
+
+                backend.beginMaskContent();
+
+                drawSelfImmediate();
+
+                backend.endMask();
+                return;
             }
 
-            inBeginMaskContent();
-
-            // We are the content
-            this.drawSelf();
-
-            inEndMask();
-            return;
+            drawSelfImmediate();
         }
-
-        // No masks, draw normally
-        super.drawOne();
-        this.drawSelf();
     }
 
     override
@@ -617,8 +601,8 @@ public:
             return;
         }
         subParts.length = 0;
-        if (children.length > 0) {
-            scanPartsRecurse(children[0].parent);
+        foreach (child; children) {
+            scanPartsRecurse(child);
         }
     }
 

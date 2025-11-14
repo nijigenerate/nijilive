@@ -1134,6 +1134,7 @@ public:
 
 @("TestInterpolation")
 unittest {
+    import std.stdio : writefln, writeln;
     void printArray(float[][] arr) {
         foreach(row; arr) {
             writefln(" %s", row);

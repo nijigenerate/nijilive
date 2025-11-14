@@ -9,6 +9,14 @@ import std.format;
 import std.file;
 import std.path : extension;
 import std.json;
+import nijilive.core.render.queue;
+import nijilive.core.render.graph_builder;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
+import nijilive.core.runtime_state : currentRenderBackend;
+
+alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
+import nijilive.core.render.scheduler;
+import nijilive.core.texture_types : Filtering;
 
 /**
     Magic value meaning that the model has no thumbnail
@@ -231,6 +239,11 @@ private:
         A dictionary of named animations
     */
     Animation[string] animations;
+    RenderQueue renderQueue;
+    RenderGraphBuilder renderGraph;
+    package(nijilive) RenderBackend renderBackend;
+    TaskScheduler renderScheduler;
+    RenderContext renderContext;
 
     void scanPartsRecurse(ref Node node, bool driversOnly = false) {
 
@@ -297,10 +310,7 @@ private:
     }
 
     void selfSort() {
-        import std.math : cmp;
-        sort!((a, b) => cmp(
-            a.zSort, 
-            b.zSort) > 0, SwapStrategy.stable)(rootParts);
+        sort!((a, b) => a.zSort > b.zSort, SwapStrategy.stable)(rootParts);
     }
 
     Node findNode(Node n, string name) {
@@ -407,6 +417,14 @@ public:
         root = new Node(this.puppetRootNode); 
         root.name = "Root";
         transform = Transform(vec3(0, 0, 0));
+        renderQueue = new RenderQueue();
+        renderGraph = new RenderGraphBuilder();
+        renderBackend = currentRenderBackend();
+        renderScheduler = new TaskScheduler();
+        renderContext.renderQueue = &renderQueue;
+        renderContext.renderGraph = &renderGraph;
+        renderContext.renderBackend = renderBackend;
+        renderContext.gpuState = RenderGpuState.init;
     }
 
     /**
@@ -421,6 +439,14 @@ public:
         this.scanParts!true(this.root);
         transform = Transform(vec3(0, 0, 0));
         this.selfSort();
+        renderQueue = new RenderQueue();
+        renderGraph = new RenderGraphBuilder();
+        renderBackend = currentRenderBackend();
+        renderScheduler = new TaskScheduler();
+        renderContext.renderQueue = &renderQueue;
+        renderContext.renderGraph = &renderGraph;
+        renderContext.renderBackend = renderBackend;
+        renderContext.gpuState = RenderGpuState.init;
     }
 
     Node actualRoot() {
@@ -440,34 +466,42 @@ public:
             auto_.update();
         }
 
-        actualRoot.beginUpdate();
+        auto rootNode = actualRoot();
+        if (rootNode is null) return;
 
-        if (renderParameters) {
+        renderContext.renderQueue = &renderQueue;
+        renderContext.renderGraph = &renderGraph;
+        renderContext.renderBackend = renderBackend;
+        renderContext.gpuState = RenderGpuState.init;
+        renderGraph.beginFrame();
+        renderScheduler.clearTasks();
+        rootNode.registerRenderTasks(renderScheduler);
 
-            // Update parameters
-            foreach(parameter; parameters) {
-
-                if (!enableDrivers || parameter !in drivenParameters)
-                    parameter.update();
+        auto rootForTasks = rootNode;
+        renderScheduler.addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
+            if (renderParameters) {
+                foreach(parameter; parameters) {
+                    if (!enableDrivers || parameter !in drivenParameters) {
+                        parameter.update();
+                    }
+                }
             }
-        }
 
-        // Ensure the transform tree is updated
-        actualRoot.transformChanged();
+            rootForTasks.transformChanged();
 
-        if (renderParameters && enableDrivers) {
-            // Update parameter/node driver nodes (e.g. physics)
-            foreach(driver; drivers) {
-                driver.updateDriver();
+            if (renderParameters && enableDrivers) {
+                foreach (driver; drivers) {
+                    if (driver is null) continue;
+                    if (!driver.renderEnabled()) continue;
+                    driver.updateDriver();
+                }
             }
-        }
+        });
 
-        // Update nodes
-        actualRoot.update();
+        renderScheduler.execute(renderContext);
 
-        foreach (id; [0, 1, 2, -1]) {
-            actualRoot.endUpdate(id);
-        }
+        auto builtCommands = renderGraph.takeCommands();
+        renderQueue.setCommands(builtCommands);
     }
 
     /**
@@ -521,12 +555,16 @@ public:
         Draws the puppet
     */
     final void draw() {
-        this.selfSort();
-
-        foreach(rootPart; rootParts) {
-            if (!rootPart.renderEnabled) continue;
-            rootPart.drawOne();
+        if (renderQueue is null || renderBackend is null || renderQueue.empty()) {
+            this.selfSort();
+            foreach(rootPart; rootParts) {
+                if (!rootPart.renderEnabled) continue;
+                rootPart.drawOne();
+            }
+            return;
         }
+
+        renderQueue.flush(renderBackend, renderContext.gpuState);
         /*
         // debug
         foreach (c; findNodesType!Composite(actualRoot())) {
@@ -722,7 +760,8 @@ public:
 
             string iden = getLineSet();
 
-            string s = "%s[%s] %s <%s>\n".format(n.children.length > 0 ? "╭─" : "", n.typeId, n.name, n.uuid);
+            string s = "%s[%s] %s <%s>
+".format(n.children.length > 0 ? "╭─" : "", n.typeId, n.name, n.uuid);
             foreach(i, child; n.children) {
                 string term = "├→";
                 if (i == n.children.length-1) {
