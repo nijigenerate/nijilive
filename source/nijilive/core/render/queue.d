@@ -2,6 +2,7 @@ module nijilive.core.render.queue;
 
 import nijilive.core.render.commands;
 import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
+import nijilive.core.render.profiler : profileScope;
 
 alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 
@@ -38,6 +39,7 @@ public:
         }
 
         state = RenderGpuState.init;
+        auto profiling = profileScope("RenderQueue.Flush");
         foreach (ref command; commands) {
             final switch (command.kind) {
                 case RenderCommandKind.DrawPart:

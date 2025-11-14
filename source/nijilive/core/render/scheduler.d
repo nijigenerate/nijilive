@@ -32,6 +32,8 @@ enum TaskKind {
 import nijilive.core.render.queue;
 import nijilive.core.render.graph_builder;
 import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
+import nijilive.core.render.profiler : profileScope;
+import std.conv : to;
 
 alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 
@@ -83,6 +85,8 @@ public:
         foreach (order; orderSequence) {
             foreach (task; queues[order]) {
                 if (task.handler !is null) {
+                    auto label = "Task." ~ order.to!string ~ "." ~ task.kind.to!string;
+                    auto profiling = profileScope(label);
                     task.handler(ctx);
                 }
             }
