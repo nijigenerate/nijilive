@@ -8,11 +8,13 @@ import std.stdio : writeln;
 
 private class RenderProfiler {
     long[string] accumUsec;
+    size_t[string] callCounts;
     MonoTime lastReport = MonoTime.init;
     size_t frameCount;
 
     void addSample(string label, Duration sample) {
         accumUsec[label] += sample.total!"usecs";
+        callCounts[label] += 1;
     }
 
     void frameCompleted() {
@@ -26,6 +28,7 @@ private class RenderProfiler {
         if (elapsed >= 1.seconds) {
             report(elapsed);
             accumUsec = typeof(accumUsec).init;
+            callCounts = typeof(callCounts).init;
             frameCount = 0;
             lastReport = now;
         }
@@ -40,9 +43,10 @@ private:
         sort!((a, b) => a.value > b.value)(entries);
         foreach (entry; entries) {
             double totalMs = entry.value / 1000.0;
-            double avgMs = frameCount ? totalMs / cast(double)frameCount : totalMs;
-            writeln(format!"  %-18s total=%8.3f ms  avg=%6.3f ms"(
-                entry.key, totalMs, avgMs));
+            auto count = entry.key in callCounts ? callCounts[entry.key] : 0;
+            double avgMs = count ? totalMs / cast(double)count : totalMs;
+            writeln(format!"  %-18s total=%8.3f ms  avg=%6.3f ms  calls=%6s"(
+                entry.key, totalMs, avgMs, count));
         }
         if (entries.length == 0) {
             writeln("  (no instrumented passes recorded)");

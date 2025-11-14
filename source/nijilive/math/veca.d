@@ -11,6 +11,48 @@ struct veca(T, size_t N)
 if (N > 0) {
     alias Element = Vector!(T, N);
     package(nijilive) T[][N] lanes;
+private:
+    T[] backing;
+    size_t logicalLength;
+
+    void rebindLanes() @trusted {
+        foreach (laneIdx; 0 .. N) {
+            if (logicalLength == 0 || backing.length == 0) {
+                lanes[laneIdx] = null;
+            } else {
+                auto start = laneIdx * logicalLength;
+                lanes[laneIdx] = backing[start .. start + logicalLength];
+            }
+        }
+    }
+
+    void allocateBacking(size_t len) {
+        if (len == 0) {
+            backing.length = 0;
+            logicalLength = 0;
+            rebindLanes();
+            return;
+        }
+        auto newBacking = new T[len * N];
+        size_t copyLen = 0;
+        static if (N) {
+            if (logicalLength && len) {
+                copyLen = logicalLength < len ? logicalLength : len;
+            }
+        }
+        if (copyLen && backing.length) {
+            foreach (laneIdx; 0 .. N) {
+                auto dstStart = laneIdx * len;
+                auto srcStart = laneIdx * logicalLength;
+                newBacking[dstStart .. dstStart + copyLen] =
+                    backing[srcStart .. srcStart + copyLen];
+            }
+        }
+        backing = newBacking;
+        logicalLength = len;
+        rebindLanes();
+    }
+public:
 
     this(size_t length) {
         ensureLength(length);
@@ -27,17 +69,12 @@ if (N > 0) {
 
     /// Number of logical vectors stored.
     @property size_t length() const {
-        static if (N)
-            return lanes[0].length;
-        else
-            return 0;
+        return logicalLength;
     }
 
     /// Update logical vector count (behaves like dynamic array length).
     @property void length(size_t newLength) {
-        foreach (ref lane; lanes) {
-            lane.length = newLength;
-        }
+        ensureLength(newLength);
     }
 
     @property size_t opDollar() const {
@@ -46,11 +83,10 @@ if (N > 0) {
 
     /// Ensure every component lane has the given length.
     void ensureLength(size_t len) {
-        foreach (ref lane; lanes) {
-            if (lane.length != len) {
-                lane.length = len;
-            }
+        if (logicalLength == len) {
+            return;
         }
+        allocateBacking(len);
     }
 
     /// Append a new vector value to the storage.
@@ -155,15 +191,17 @@ if (N > 0) {
     /// Duplicate the SoA buffer.
     veca dup() const {
         veca copy;
-        foreach (i; 0 .. N) {
-            copy.lanes[i] = lanes[i].dup;
-        }
+        copy.logicalLength = logicalLength;
+        copy.backing = backing.dup;
+        copy.rebindLanes();
         return copy;
     }
 
     /// Clear all stored vectors.
     void clear() {
-        length = 0;
+        logicalLength = 0;
+        backing.length = 0;
+        rebindLanes();
     }
 
     /// Append element(s) using array-like syntax.
@@ -212,6 +250,10 @@ if (N > 0) {
         return lanes[component];
     }
 
+    package(nijilive) inout(T)[] rawStorage() inout {
+        return backing;
+    }
+
     void opSliceAssign(veca rhs) {
         ensureLength(rhs.length);
         foreach (laneIdx; 0 .. N) {
@@ -224,8 +266,8 @@ if (N > 0) {
     }
 
     void opSliceAssign(Element value) {
-        foreach (i; 0 .. length) {
-            this[i] = value;
+        foreach (laneIdx; 0 .. N) {
+            lanes[laneIdx][] = value.vector[laneIdx];
         }
     }
 

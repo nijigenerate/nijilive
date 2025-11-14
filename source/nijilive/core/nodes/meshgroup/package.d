@@ -140,10 +140,9 @@ public:
         if (!precalculated) {
             precalculate();
         }
-        transformedVertices.length = vertices.length;
-        foreach(i, vertex; vertices) {
-            transformedVertices[i] = vertex + this.deformation[i];
-        }
+        transformedVertices.ensureLength(vertices.length);
+        transformedVertices[] = vertices;
+        transformedVertices += this.deformation;
         foreach (index; 0..triangles.length) {
             auto p1 = transformedVertices[data.indices[index * 3]];
             auto p2 = transformedVertices[data.indices[index * 3 + 1]];
@@ -388,10 +387,9 @@ public:
         inverseMatrix = globalTransform.matrix.inverse;
 
         void update(Vec2Array deformation) {
-            transformedVertices.length = vertices.length;
-            foreach(i, vertex; vertices) {
-                transformedVertices[i] = vertex + deformation[i];
-            }
+            transformedVertices.ensureLength(vertices.length);
+            transformedVertices[] = vertices;
+            transformedVertices += deformation;
             foreach (index; 0..triangles.length) {
                 auto p1 = transformedVertices[data.indices[index * 3]];
                 auto p2 = transformedVertices[data.indices[index * 3 + 1]];
