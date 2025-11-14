@@ -118,6 +118,7 @@ import nijilive.core.render.backends.opengl.handles :
     GLTextureHandle,
     requireGLShader,
     requireGLTexture;
+import nijilive.core.render.profiler : profileScope, renderProfilerFrameCompleted;
 
 class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     void initializeRenderer() {
@@ -136,14 +137,18 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     }
 
     void beginScene() {
+        auto profile = profileScope("BeginScene");
         oglBeginScene();
     }
 
     void endScene() {
+        auto profile = profileScope("EndScene");
         oglEndScene();
+        renderProfilerFrameCompleted();
     }
 
     void postProcessScene() {
+        auto profile = profileScope("PostProcess");
         oglPostProcessScene();
     }
 
@@ -164,10 +169,12 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     }
 
     void uploadDrawableVertices(uint vbo, vec2[] vertices) {
+        auto profile = profileScope("UploadVertices");
         oglUploadDrawableVertices(vbo, vertices);
     }
 
     void uploadDrawableDeform(uint dbo, vec2[] deform) {
+        auto profile = profileScope("UploadDeform");
         oglUploadDrawableDeform(dbo, deform);
     }
 
@@ -236,10 +243,12 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     }
 
     void drawPartPacket(ref PartDrawPacket packet) {
+        auto profile = profileScope("DrawPart");
         oglDrawPartPacket(packet);
     }
 
     void drawMaskPacket(ref MaskDrawPacket packet) {
+        auto profile = profileScope("DrawMask");
         oglExecuteMaskPacket(packet);
     }
 
@@ -256,29 +265,36 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     }
 
     void beginMask(bool useStencil) {
+        auto profile = profileScope("BeginMask");
         oglBeginMask(useStencil);
     }
 
     void applyMask(ref MaskApplyPacket packet) {
+        auto profile = profileScope("ApplyMask");
         oglExecuteMaskApplyPacket(packet);
     }
 
     void beginMaskContent() {
+        auto profile = profileScope("BeginMaskContent");
         oglBeginMaskContent();
     }
 
     void endMask() {
+        auto profile = profileScope("EndMask");
         oglEndMask();
     }
     void beginComposite() {
+        auto profile = profileScope("BeginComposite");
         oglBeginComposite();
     }
 
     void drawCompositeQuad(ref CompositeDrawPacket packet) {
+        auto profile = profileScope("DrawComposite");
         oglDrawCompositeQuad(packet);
     }
 
     void endComposite() {
+        auto profile = profileScope("EndComposite");
         oglEndComposite();
     }
 
