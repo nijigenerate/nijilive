@@ -10,6 +10,7 @@ public import nijilive.core.nodes.deformer.curve;
 import nijilive.core.nodes.deformer.base;
 import nijilive.core.nodes.deformer.grid;
 import inmath.linalg;
+import nijilive.math.veca_ops : transformAssign, transformAdd;
 
 //import std.stdio;
 import std.math : sqrt, isNaN, isFinite, fabs;
@@ -22,6 +23,7 @@ import nijilive.core;
 import nijilive.core.render.scheduler : RenderContext;
 import nijilive.core.dbg;
 import core.exception;
+import mir.ndslice.slice : sliced;
 
 enum CurveType {
     Bezier,
@@ -1010,98 +1012,152 @@ public:
         centerMatrix = requireFiniteMatrix(centerMatrix, "deformChildren:centerMatrix:" ~ target.name);
         sanitizeOffsets(origDeformation);
 
+        size_t vertexCount = origVertices.length;
         Vec2Array cVertices;
-        Vec2Array deformedClosestPointsA;
-        deformedClosestPointsA.length = origVertices.length;
         Vec2Array deformedVertices;
         deformedVertices.length = origVertices.length;
+        if (origDeformation.length < origVertices.length) {
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
 
-        if (target !in meshCaches)
+        transformAssign(cVertices, origVertices, centerMatrix);
+        transformAdd(cVertices, origDeformation, centerMatrix);
+
+        auto deformLaneX = origDeformation.lane(0);
+        auto deformLaneY = origDeformation.lane(1);
+        auto origLaneX = origVertices.lane(0);
+        auto origLaneY = origVertices.lane(1);
+        auto centerLaneX = cVertices.lane(0);
+        auto centerLaneY = cVertices.lane(1);
+        auto invalidCenterIdx = firstNonFiniteIndex(cVertices);
+        if (invalidCenterIdx >= 0) {
+            vec2 deformationValue = vec2(deformLaneX[invalidCenterIdx], deformLaneY[invalidCenterIdx]);
+            markInvalidOffset("deformChildren:cVertexNaN", invalidCenterIdx, deformationValue);
+            pathLog("[PathDeformer][CurveDiag] node=", name,
+                    " context=deformChildren:cVertexNaN",
+                    " index=", invalidCenterIdx,
+                    " vertex=", formatVec2(vec2(origLaneX[invalidCenterIdx], origLaneY[invalidCenterIdx])),
+                    " deformation=", formatVec2(deformationValue),
+                    " target=", target.name);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
+
+        if (target !in meshCaches || meshCaches[target].length < vertexCount)
             cacheClosestPoints(target);
-        foreach (i, vertex; origVertices) {
-            vec2 cVertex;
-            vec2 deformationValue = origDeformation[i];
-            cVertex = vec2(centerMatrix * vec4(vertex + deformationValue, 0, 1));
-            if (!cVertex.isFinite) {
-                markInvalidOffset("deformChildren:cVertexNaN", i, deformationValue);
-                pathLog("[PathDeformer][CurveDiag] node=", name,
-                        " context=deformChildren:cVertexNaN",
-                        " index=", i,
-                        " vertex=", formatVec2(vertex),
-                        " deformation=", formatVec2(deformationValue),
-                        " target=", target.name);
-                return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
-            }
-            cVertices ~= cVertex;
+        if (target !in meshCaches || meshCaches[target].length < vertexCount) {
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
 
-            float t;
-            if (target !in meshCaches || i>= meshCaches[target].length ) {
-                meshCaches.remove(target);
-                cacheClosestPoints(target);
-            }
-            t = meshCaches[target][i];
-            vec2 closestPointOriginal = (prevCurve? prevCurve: originalCurve).point(t);
-            debug(path_deform) closestPointsOriginal[target] ~= closestPointOriginal; // debug code
-            vec2 tangentOriginalRaw = (prevCurve? prevCurve: originalCurve).derivative(t);
-            float tangentOriginalLenSq = dot(tangentOriginalRaw, tangentOriginalRaw);
-            vec2 tangentOriginal;
-            if (tangentOriginalLenSq > tangentEpsilon) {
-                tangentOriginal = tangentOriginalRaw / sqrt(tangentOriginalLenSq);
-            } else {
-                tangentOriginal = vec2(1, 0);
+        float[] tSamples;
+        tSamples.length = vertexCount;
+        tSamples[] = meshCaches[target][0 .. vertexCount];
+
+        Vec2Array closestOriginal;
+        auto baseCurve = prevCurve ? prevCurve : originalCurve;
+        baseCurve.evaluatePoints(tSamples, closestOriginal);
+
+        Vec2Array closestDeformed;
+        deformedCurve.evaluatePoints(tSamples, closestDeformed);
+
+        Vec2Array tangentOriginalRaw;
+        baseCurve.evaluateDerivatives(tSamples, tangentOriginalRaw);
+
+        Vec2Array tangentDeformedRaw;
+        deformedCurve.evaluateDerivatives(tSamples, tangentDeformedRaw);
+
+        debug(path_deform) {
+            closestPointsOriginal[target] = closestOriginal.dup;
+            closestPointsDeformed[target] = closestDeformed.dup;
+        }
+
+        auto closestOrigX = closestOriginal.lane(0);
+        auto closestOrigY = closestOriginal.lane(1);
+        auto closestDefX = closestDeformed.lane(0);
+        auto closestDefY = closestDeformed.lane(1);
+
+        auto invalidIdx = firstNonFiniteIndex(closestDeformed);
+        if (invalidIdx >= 0) {
+            vec2 deformationValue = vec2(deformLaneX[invalidIdx], deformLaneY[invalidIdx]);
+            markInvalidOffset("deformChildren:closestPointDeformedNaN", invalidIdx, deformationValue);
+            pathLog("[PathDeformer][CurveDiag] node=", name,
+                    " context=closestPointDeformedNaN",
+                    " t=", tSamples[invalidIdx],
+                    " centerVertex=", formatVec2(vec2(centerLaneX[invalidIdx], centerLaneY[invalidIdx])),
+                    " origPoint=", formatVec2(vec2(closestOrigX[invalidIdx], closestOrigY[invalidIdx])),
+                    " deformedPoint=", formatVec2(vec2(closestDefX[invalidIdx], closestDefY[invalidIdx])),
+                    " deformation=", deformationSnapshot());
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
+
+        Vec2Array tangentOriginal = tangentOriginalRaw.dup;
+        normalizeVec2ArrayWithConstantFallback(
+            tangentOriginal,
+            tangentEpsilon,
+            vec2(1, 0),
+            (idx) {
                 pathLog("[PathDeformer][CurveDiag] node=", name,
                         " context=tangentOriginalDegenerate",
-                        " t=", t,
-                        " controlPoints=", summarizePoints((prevCurve? prevCurve: originalCurve).controlPoints));
-            }
-            vec2 normalOriginal = vec2(-tangentOriginal.y, tangentOriginal.x);
-            float originalNormalDistance = dot(cVertex - closestPointOriginal, normalOriginal); 
-            float tangentialDistance = dot(cVertex - closestPointOriginal, tangentOriginal);
+                        " t=", tSamples[idx],
+                        " controlPoints=", summarizePoints(baseCurve.controlPoints));
+            });
 
-            // Find the corresponding point on the deformed Bezier curve
-
-            vec2 closestPointDeformedA = deformedCurve.point(t); // 修正: deformedCurve を使用
-            debug(path_deform) closestPointsDeformed[target] ~= closestPointDeformedA; // debug code
-            if (!closestPointDeformedA.isFinite) {
-                markInvalidOffset("deformChildren:closestPointDeformedNaN", i, deformationValue);
-                pathLog("[PathDeformer][CurveDiag] node=", name,
-                        " context=closestPointDeformedNaN",
-                        " t=", t,
-                        " centerVertex=", cVertex,
-                        " origPoint=", closestPointOriginal,
-                        " deformedPoint=", closestPointDeformedA,
-                        " deformation=", deformationSnapshot());
-                return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
-            }
-            vec2 tangentDeformedRaw = deformedCurve.derivative(t);
-            float tangentDeformedLenSq = dot(tangentDeformedRaw, tangentDeformedRaw);
-            vec2 tangentDeformed;
-            if (tangentDeformedLenSq > tangentEpsilon) {
-                tangentDeformed = tangentDeformedRaw / sqrt(tangentDeformedLenSq);
-            } else {
-                tangentDeformed = tangentOriginal;
+        Vec2Array tangentDeformed = tangentDeformedRaw.dup;
+        normalizeVec2ArrayWithArrayFallback(
+            tangentDeformed,
+            tangentEpsilon,
+            tangentOriginal,
+            (idx) {
                 pathLog("[PathDeformer][CurveDiag] node=", name,
                         " context=tangentDeformedDegenerate",
-                        " t=", t,
+                        " t=", tSamples[idx],
                         " controlPoints=", summarizePoints(deformedCurve.controlPoints));
-            }
-            vec2 normalDeformed = vec2(-tangentDeformed.y, tangentDeformed.x);
+            });
 
-            // Adjust the vertex to maintain the same normal and tangential distances
-            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance + tangentDeformed * tangentialDistance;
+        Vec2Array normalOriginal;
+        buildNormals(normalOriginal, tangentOriginal);
+        Vec2Array normalDeformed;
+        buildNormals(normalDeformed, tangentDeformed);
 
-            deformedVertices[i] = deformedVertex;
-            deformedClosestPointsA[i] = closestPointOriginal;
-        }
+        float[] normalDistances;
+        float[] tangentialDistances;
+        normalDistances.length = vertexCount;
+        tangentialDistances.length = vertexCount;
+
+        auto normalOrigX = normalOriginal.lane(0);
+        auto normalOrigY = normalOriginal.lane(1);
+        auto tangentOrigX = tangentOriginal.lane(0);
+        auto tangentOrigY = tangentOriginal.lane(1);
+
+        auto diffX = centerLaneX.sliced - closestOrigX.sliced;
+        auto diffY = centerLaneY.sliced - closestOrigY.sliced;
+        auto normalDistSlice = normalDistances.sliced;
+        normalDistSlice[] = diffX[] * normalOrigX.sliced + diffY[] * normalOrigY.sliced;
+        auto tangentialDistSlice = tangentialDistances.sliced;
+        tangentialDistSlice[] = diffX[] * tangentOrigX.sliced + diffY[] * tangentOrigY.sliced;
+
+        auto normalDefX = normalDeformed.lane(0);
+        auto normalDefY = normalDeformed.lane(1);
+        auto tangentDefX = tangentDeformed.lane(0);
+        auto tangentDefY = tangentDeformed.lane(1);
+        auto deformVertexX = deformedVertices.lane(0);
+        auto deformVertexY = deformedVertices.lane(1);
+
+        auto deformXS = deformVertexX.sliced;
+        auto deformYS = deformVertexY.sliced;
+        deformXS[] = closestDefX.sliced
+            + normalDistSlice * normalDefX.sliced
+            + tangentialDistSlice * tangentDefX.sliced;
+        deformYS[] = closestDefY.sliced
+            + normalDistSlice * normalDefY.sliced
+            + tangentialDistSlice * tangentDefY.sliced;
 
         mat4 invCenter = safeInverse(centerMatrix, "deformChildren:centerInverse:" ~ target.name);
-        foreach (i, cVertex; cVertices) {
-            mat4 inv = invCenter;
-            inv[0][3] = 0;
-            inv[1][3] = 0;
-            inv[2][3] = 0;
-            origDeformation[i] += (inv * vec4(deformedVertices[i] - cVertex, 0, 1)).xy;
-        }
+        invCenter[0][3] = 0;
+        invCenter[1][3] = 0;
+        invCenter[2][3] = 0;
+        Vec2Array offsetLocal = deformedVertices.dup;
+        offsetLocal -= cVertices;
+        transformAdd(origDeformation, offsetLocal, invCenter, offsetLocal.length);
 
         if (driver) {
             target.notifyChange(target);
@@ -1235,5 +1291,65 @@ public:
 
     private string deformationSnapshot() {
         return summarizePoints(deformation);
+    }
+
+private:
+    int firstNonFiniteIndex(const Vec2Array data) const {
+        auto laneX = data.lane(0);
+        auto laneY = data.lane(1);
+        foreach (i; 0 .. data.length) {
+            if (!laneX[i].isFinite || !laneY[i].isFinite) {
+                return cast(int)i;
+            }
+        }
+        return -1;
+    }
+
+    void normalizeVec2ArrayWithConstantFallback(ref Vec2Array data, float epsilon, vec2 fallback, scope void delegate(size_t) onFallback) {
+        auto laneX = data.lane(0);
+        auto laneY = data.lane(1);
+        foreach (i; 0 .. data.length) {
+            float lenSq = laneX[i] * laneX[i] + laneY[i] * laneY[i];
+            if (lenSq > epsilon) {
+                float invLen = 1.0f / sqrt(lenSq);
+                laneX[i] *= invLen;
+                laneY[i] *= invLen;
+            } else {
+                laneX[i] = fallback.x;
+                laneY[i] = fallback.y;
+                if (onFallback !is null) onFallback(i);
+            }
+        }
+    }
+
+    void normalizeVec2ArrayWithArrayFallback(ref Vec2Array data, float epsilon, const Vec2Array fallback, scope void delegate(size_t) onFallback) {
+        auto laneX = data.lane(0);
+        auto laneY = data.lane(1);
+        auto fallbackX = fallback.lane(0);
+        auto fallbackY = fallback.lane(1);
+        foreach (i; 0 .. data.length) {
+            float lenSq = laneX[i] * laneX[i] + laneY[i] * laneY[i];
+            if (lenSq > epsilon) {
+                float invLen = 1.0f / sqrt(lenSq);
+                laneX[i] *= invLen;
+                laneY[i] *= invLen;
+            } else {
+                laneX[i] = fallbackX[i];
+                laneY[i] = fallbackY[i];
+                if (onFallback !is null) onFallback(i);
+            }
+        }
+    }
+
+    void buildNormals(ref Vec2Array normals, const Vec2Array tangents) {
+        normals.length = tangents.length;
+        auto normX = normals.lane(0);
+        auto normY = normals.lane(1);
+        auto tanX = tangents.lane(0);
+        auto tanY = tangents.lane(1);
+        foreach (i; 0 .. tangents.length) {
+            normX[i] = -tanY[i];
+            normY[i] = tanX[i];
+        }
     }
 }

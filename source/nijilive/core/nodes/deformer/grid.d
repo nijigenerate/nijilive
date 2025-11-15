@@ -9,6 +9,7 @@ import nijilive.core.param;
 import nijilive.core;
 import nijilive.fmt.serialize;
 import nijilive.math;
+import nijilive.math.veca_ops : transformAssign, transformAdd;
 import std.algorithm : sort;
 import std.math : isClose, isFinite;
 import std.typecons : tuple, Tuple;
@@ -184,55 +185,68 @@ public:
         }
 
         mat4 centerMatrix = inverseMatrix * (*origTransform);
-        bool anyChanged = false;
-
         GridCellCache[] caches;
         caches.length = origVertices.length;
         Vec2Array samplePoints;
-        samplePoints.length = origVertices.length;
+        bool anyChanged = false;
 
         if (!matrixIsFinite(centerMatrix)) {
             return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
 
+        transformAssign(samplePoints, origVertices, centerMatrix);
+        if (dynamic && origDeformation.length && samplePoints.length) {
+            auto overlap = origDeformation.length < samplePoints.length ? origDeformation.length : samplePoints.length;
+            transformAdd(samplePoints, origDeformation, centerMatrix, overlap);
+        }
+
         bool invalidSamples = false;
-        foreach (i, vertex; origVertices) {
-            vec2 samplePoint;
-            if (dynamic && i < origDeformation.length) {
-                samplePoint = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
-            } else {
-                samplePoint = vec2(centerMatrix * vec4(vertex, 0, 1));
-            }
-            if (!isFinite(samplePoint.x) || !isFinite(samplePoint.y)) {
+        auto laneX = samplePoints.lane(0);
+        auto laneY = samplePoints.lane(1);
+        foreach (i; 0 .. samplePoints.length) {
+            auto x = laneX[i];
+            auto y = laneY[i];
+            if (!isFinite(x) || !isFinite(y)) {
                 invalidSamples = true;
                 break;
             }
-            samplePoints[i] = samplePoint;
-            caches[i] = computeCache(samplePoint);
+            caches[i] = computeCache(x, y);
         }
         if (invalidSamples) {
             return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
 
-        foreach (i, vertex; origVertices) {
-            auto cache = caches[i];
-            if (!cache.valid) continue;
+        Vec2Array originalSample;
+        Vec2Array targetSample;
+        sampleGridPoints(originalSample, caches, false);
+        sampleGridPoints(targetSample, caches, true);
+        Vec2Array offsetLocal = targetSample.dup;
+        offsetLocal -= originalSample;
 
-            vec2 targetPos = sampleDeformed(cache);
-            vec2 originalPos = sampleOriginal(cache);
-            vec2 offsetLocal = targetPos - originalPos;
-            if (!isFinite(offsetLocal.x) || !isFinite(offsetLocal.y)) {
+        auto offsetLaneX = offsetLocal.lane(0);
+        auto offsetLaneY = offsetLocal.lane(1);
+        foreach (i; 0 .. offsetLocal.length) {
+            if (!caches[i].valid ||
+                !isFinite(offsetLaneX[i]) ||
+                !isFinite(offsetLaneY[i])) {
+                offsetLaneX[i] = 0;
+                offsetLaneY[i] = 0;
                 continue;
             }
-            if (offsetLocal == vec2(0, 0)) continue;
-
-            mat4 inv = centerMatrix.inverse;
-            inv[0][3] = 0;
-            inv[1][3] = 0;
-            inv[2][3] = 0;
-            origDeformation[i] += (inv * vec4(offsetLocal, 0, 1)).xy;
-            anyChanged = true;
+            if (offsetLaneX[i] != 0 || offsetLaneY[i] != 0) {
+                anyChanged = true;
+            }
         }
+
+        if (!anyChanged) {
+            return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, false);
+        }
+
+        mat4 invCenter = centerMatrix.inverse;
+        invCenter[0][3] = 0;
+        invCenter[1][3] = 0;
+        invCenter[2][3] = 0;
+        transformAdd(origDeformation, offsetLocal, invCenter, offsetLocal.length);
 
         return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, anyChanged);
     }
@@ -362,15 +376,6 @@ private:
 
     size_t gridIndex(size_t x, size_t y) const {
         return y * cols() + x;
-    }
-
-    vec2 gridPointOriginal(size_t x, size_t y) const {
-        return vertexBuffer[gridIndex(x, y)];
-    }
-
-    vec2 gridPointDeformed(size_t x, size_t y) const {
-        auto idx = gridIndex(x, y);
-        return vertexBuffer[idx] + deformation[idx];
     }
 
     static float[] normalizeAxis(const(float)[] values) {
@@ -524,25 +529,25 @@ private:
         return true;
     }
 
-    GridCellCache computeCache(vec2 localPoint) {
+    GridCellCache computeCache(float localX, float localY) {
         GridCellCache cache;
         cache.valid = false;
         if (!hasValidGrid()) {
             return cache;
         }
 
-        if (!isFinite(localPoint.x) || !isFinite(localPoint.y)) {
+        if (!isFinite(localX) || !isFinite(localY)) {
             return cache;
         }
 
-        float clampedX = localPoint.x;
+        float clampedX = localX;
         if (clampedX < axisX[0]) {
             clampedX = axisX[0];
         } else if (clampedX > axisX[$ - 1]) {
             clampedX = axisX[$ - 1];
         }
 
-        float clampedY = localPoint.y;
+        float clampedY = localY;
         if (clampedY < axisY[0]) {
             clampedY = axisY[0];
         } else if (clampedY > axisY[$ - 1]) {
@@ -603,36 +608,63 @@ private:
         return r;
     }
 
-    vec2 sampleOriginal(GridCellCache cache) const {
-        auto x = cache.cellX;
-        auto y = cache.cellY;
-        return bilinear(
-            gridPointOriginal(x, y),
-            gridPointOriginal(x + 1, y),
-            gridPointOriginal(x, y + 1),
-            gridPointOriginal(x + 1, y + 1),
-            cache.u,
-            cache.v
-        );
-    }
+    void sampleGridPoints(ref Vec2Array dst, const GridCellCache[] caches, bool includeDeformation) const {
+        dst.length = caches.length;
+        if (caches.length == 0) return;
 
-    vec2 sampleDeformed(GridCellCache cache) const {
-        auto x = cache.cellX;
-        auto y = cache.cellY;
-        return bilinear(
-            gridPointDeformed(x, y),
-            gridPointDeformed(x + 1, y),
-            gridPointDeformed(x, y + 1),
-            gridPointDeformed(x + 1, y + 1),
-            cache.u,
-            cache.v
-        );
-    }
+        auto dstX = dst.lane(0);
+        auto dstY = dst.lane(1);
+        auto baseX = vertexBuffer.lane(0);
+        auto baseY = vertexBuffer.lane(1);
+        auto deformX = deformation.lane(0);
+        auto deformY = deformation.lane(1);
 
-    vec2 bilinear(vec2 p00, vec2 p10, vec2 p01, vec2 p11, float u, float v) const {
-        auto a = p00 * (1 - u) + p10 * u;
-        auto b = p01 * (1 - u) + p11 * u;
-        return a * (1 - v) + b * v;
+        foreach (i; 0 .. caches.length) {
+            auto cache = caches[i];
+            if (!cache.valid) {
+                dstX[i] = 0;
+                dstY[i] = 0;
+                continue;
+            }
+            auto x = cache.cellX;
+            auto y = cache.cellY;
+            auto idx00 = gridIndex(x, y);
+            auto idx10 = gridIndex(x + 1, y);
+            auto idx01 = gridIndex(x, y + 1);
+            auto idx11 = gridIndex(x + 1, y + 1);
+
+            float p00x = baseX[idx00];
+            float p00y = baseY[idx00];
+            float p10x = baseX[idx10];
+            float p10y = baseY[idx10];
+            float p01x = baseX[idx01];
+            float p01y = baseY[idx01];
+            float p11x = baseX[idx11];
+            float p11y = baseY[idx11];
+
+            if (includeDeformation) {
+                p00x += deformX[idx00];
+                p00y += deformY[idx00];
+                p10x += deformX[idx10];
+                p10y += deformY[idx10];
+                p01x += deformX[idx01];
+                p01y += deformY[idx01];
+                p11x += deformX[idx11];
+                p11y += deformY[idx11];
+            }
+
+            float u = cache.u;
+            float v = cache.v;
+            float wu0 = 1 - u;
+            float wv0 = 1 - v;
+            float w00 = wu0 * wv0;
+            float w10 = u * wv0;
+            float w01 = wu0 * v;
+            float w11 = u * v;
+
+            dstX[i] = p00x * w00 + p10x * w10 + p01x * w01 + p11x * w11;
+            dstY[i] = p00y * w00 + p10y * w10 + p01y * w01 + p11y * w11;
+        }
     }
 
     void setupChildNoRecurse(bool prepend = false)(Node node) {

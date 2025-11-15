@@ -17,6 +17,7 @@ import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
 import nijilive.math.triangle;
+import nijilive.math.veca_ops : transformAssign, transformAdd;
 import std.exception;
 import nijilive.core.dbg;
 import nijilive.core;
@@ -103,28 +104,75 @@ public:
 
         mat4 centerMatrix = inverseMatrix * (*origTransform);
 
-        // Transform children vertices in MeshGroup coordinates.
-        auto r = rect(bounds.x, bounds.y, (ceil(bounds.z) - floor(bounds.x) + 1), (ceil(bounds.w) - floor(bounds.y) + 1));
-        foreach(i, vertex; origVertices) {
-            vec2 cVertex;
-            if (dynamic)
-                cVertex = vec2(centerMatrix * vec4(vertex+origDeformation[i], 0, 1));
-            else
-                cVertex = vec2(centerMatrix * vec4(vertex, 0, 1));
-            int index = -1;
-            if (bounds.x <= cVertex.x && cVertex.x < bounds.z && bounds.y <= cVertex.y && cVertex.y < bounds.w) {
-                ushort bit = bitMask[cast(int)(cVertex.y - bounds.y) * cast(int)r.width + cast(int)(cVertex.x - bounds.x)];
-                index = bit - 1;
-            }
-            vec2 newPos = (index < 0)? cVertex: (triangles[index].transformMatrix * vec3(cVertex, 1)).xy;
-            mat4 inv = centerMatrix.inverse;
-            inv[0][3] = 0;
-            inv[1][3] = 0;
-            inv[2][3] = 0;
-            origDeformation[i] += (inv * vec4(newPos - cVertex, 0, 1)).xy;
+        Vec2Array centered;
+        transformAssign(centered, origVertices, centerMatrix);
+        if (dynamic && origDeformation.length) {
+            transformAdd(centered, origDeformation, centerMatrix, centered.length);
         }
 
-        return tuple(origDeformation, cast(mat4*)null, changed);
+        Vec2Array mapped = centered.dup;
+        auto centeredX = centered.lane(0);
+        auto centeredY = centered.lane(1);
+        auto mappedX = mapped.lane(0);
+        auto mappedY = mapped.lane(1);
+
+        const float minX = bounds.x;
+        const float maxX = bounds.z;
+        const float minY = bounds.y;
+        const float maxY = bounds.w;
+        size_t maskWidth = cast(size_t)(ceil(bounds.z) - floor(bounds.x) + 1);
+        size_t maskHeight = cast(size_t)(ceil(bounds.w) - floor(bounds.y) + 1);
+
+        bool anyChanged = false;
+        foreach (i; 0 .. centered.length) {
+            float cx = centeredX[i];
+            float cy = centeredY[i];
+            float outX = cx;
+            float outY = cy;
+            if (cx >= minX && cx < maxX && cy >= minY && cy < maxY &&
+                maskWidth && maskHeight && bitMask.length) {
+                ptrdiff_t localX = cast(ptrdiff_t)floor(cx - minX);
+                ptrdiff_t localY = cast(ptrdiff_t)floor(cy - minY);
+                if (localX >= 0 && localY >= 0) {
+                    size_t maskX = cast(size_t)localX;
+                    size_t maskY = cast(size_t)localY;
+                    if (maskX < maskWidth && maskY < maskHeight) {
+                        size_t maskIndex = maskY * maskWidth + maskX;
+                        if (maskIndex < bitMask.length) {
+                            ushort bit = bitMask[maskIndex];
+                            int triIndex = bit ? (bit - 1) : -1;
+                            if (triIndex >= 0 && triIndex < cast(int)triangles.length) {
+                                auto mat = triangles[triIndex].transformMatrix.matrix;
+                                float nx = mat[0][0] * cx + mat[0][1] * cy + mat[0][2];
+                                float ny = mat[1][0] * cx + mat[1][1] * cy + mat[1][2];
+                                outX = nx;
+                                outY = ny;
+                            }
+                        }
+                    }
+                }
+            }
+            mappedX[i] = outX;
+            mappedY[i] = outY;
+            if (outX != cx || outY != cy) {
+                anyChanged = true;
+            }
+        }
+
+        if (!anyChanged) {
+            return tuple(origDeformation, cast(mat4*)null, false);
+        }
+
+        Vec2Array offsetLocal = mapped.dup;
+        offsetLocal -= centered;
+
+        mat4 inv = centerMatrix.inverse;
+        inv[0][3] = 0;
+        inv[1][3] = 0;
+        inv[2][3] = 0;
+        transformAdd(origDeformation, offsetLocal, inv, offsetLocal.length);
+
+        return tuple(origDeformation, cast(mat4*)null, true);
     }
 
     /**

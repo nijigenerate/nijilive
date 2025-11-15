@@ -23,6 +23,8 @@ interface Curve {
     ref Vec2Array controlPoints();
     void controlPoints(ref Vec2Array points);
     vec2 derivative(float t);
+    void evaluatePoints(const float[] samples, ref Vec2Array dst);
+    void evaluateDerivatives(const float[] samples, ref Vec2Array dst);
 }
 
 class BezierCurve : Curve{
@@ -48,21 +50,11 @@ public:
     vec2 point(float t) {
         if (t in pointCache)
             return pointCache[t];
-        long n = controlPoints.length - 1;
-        vec2 result = vec2(0.0, 0.0);
-        float oneMinusT = 1 - t;
-        float[] tPowers = new float[n + 1];
-        float[] oneMinusTPowers = new float[n + 1];
-        tPowers[0] = 1;
-        oneMinusTPowers[0] = 1;
-        for (int i = 1; i <= n; ++i) {
-            tPowers[i] = tPowers[i - 1] * t;
-            oneMinusTPowers[i] = oneMinusTPowers[i - 1] * oneMinusT;
-        }
-        for (int i = 0; i <= n; ++i) {
-            float binomialCoeff = float(binomial(n, i));
-            result += binomialCoeff * oneMinusTPowers[n - i] * tPowers[i] * controlPoints[i];
-        }
+        Vec2Array tmp;
+        float[1] sampleBuf;
+        sampleBuf[0] = t;
+        evaluatePoints(sampleBuf[], tmp);
+        auto result = tmp[0].toVector();
         pointCache[t] = result;
         return result;
     }
@@ -78,22 +70,90 @@ public:
     // Compute the point of the derivative of the Bezier curve
     override
     vec2 derivative(float t) {
-        long n = derivatives.length;
-        vec2 result = vec2(0.0, 0.0);
-        float oneMinusT = 1 - t;
-        float[] tPowers = new float[n];
-        float[] oneMinusTPowers = new float[n];
-        tPowers[0] = 1;
-        oneMinusTPowers[0] = 1;
-        for (int i = 1; i < n; ++i) {
-            tPowers[i] = tPowers[i - 1] * t;
-            oneMinusTPowers[i] = oneMinusTPowers[i - 1] * oneMinusT;
+        Vec2Array tmp;
+        float[1] sampleBuf;
+        sampleBuf[0] = t;
+        evaluateDerivatives(sampleBuf[], tmp);
+        return tmp[0].toVector();
+    }
+
+    override
+    void evaluatePoints(const float[] samples, ref Vec2Array dst) {
+        dst.length = samples.length;
+        if (samples.length == 0 || _controlPoints.length == 0) {
+            return;
         }
-        for (int i = 0; i < n; ++i) {
-            float binomialCoeff = float(binomial(n - 1, i));
-            result += binomialCoeff * oneMinusTPowers[n - 1 - i] * tPowers[i] * derivatives[i];
+        long n = _controlPoints.length - 1;
+        auto dstX = dst.lane(0);
+        auto dstY = dst.lane(1);
+        auto cpX = _controlPoints.lane(0);
+        auto cpY = _controlPoints.lane(1);
+        float[] tPowers;
+        float[] oneMinusTPowers;
+        tPowers.length = cast(size_t)(n + 1);
+        oneMinusTPowers.length = cast(size_t)(n + 1);
+
+        foreach (idx, t; samples) {
+            float resX = 0;
+            float resY = 0;
+            float oneMinusT = 1 - t;
+            if (tPowers.length)
+                tPowers[0] = 1;
+            if (oneMinusTPowers.length)
+                oneMinusTPowers[0] = 1;
+            for (int i = 1; i <= n; ++i) {
+                tPowers[i] = tPowers[i - 1] * t;
+                oneMinusTPowers[i] = oneMinusTPowers[i - 1] * oneMinusT;
+            }
+            for (int i = 0; i <= n; ++i) {
+                float binomialCoeff = cast(float)binomial(n, i);
+                float coeff = binomialCoeff * oneMinusTPowers[n - i] * tPowers[i];
+                resX += coeff * cpX[i];
+                resY += coeff * cpY[i];
+            }
+            dstX[idx] = resX;
+            dstY[idx] = resY;
         }
-        return result;
+    }
+
+    override
+    void evaluateDerivatives(const float[] samples, ref Vec2Array dst) {
+        dst.length = samples.length;
+        size_t derivCount = derivatives.length;
+        if (samples.length == 0 || derivCount == 0) {
+            return;
+        }
+        long n = cast(long)derivCount;
+        auto dstX = dst.lane(0);
+        auto dstY = dst.lane(1);
+        auto derivX = derivatives.lane(0);
+        auto derivY = derivatives.lane(1);
+        float[] tPowers;
+        float[] oneMinusTPowers;
+        tPowers.length = cast(size_t)(n);
+        oneMinusTPowers.length = cast(size_t)(n);
+
+        foreach (idx, t; samples) {
+            float resX = 0;
+            float resY = 0;
+            float oneMinusT = 1 - t;
+            if (tPowers.length)
+                tPowers[0] = 1;
+            if (oneMinusTPowers.length)
+                oneMinusTPowers[0] = 1;
+            for (int i = 1; i < n; ++i) {
+                tPowers[i] = tPowers[i - 1] * t;
+                oneMinusTPowers[i] = oneMinusTPowers[i - 1] * oneMinusT;
+            }
+            for (int i = 0; i < n; ++i) {
+                float binomialCoeff = cast(float)binomial(n - 1, i);
+                float coeff = binomialCoeff * oneMinusTPowers[n - 1 - i] * tPowers[i];
+                resX += coeff * derivX[i];
+                resY += coeff * derivY[i];
+            }
+            dstX[idx] = resX;
+            dstY[idx] = resY;
+        }
     }
 
     // Find the closest point on the Bezier curve
@@ -150,59 +210,11 @@ public:
         if (t in pointCache)
             return pointCache[t];
 
-        int p0, p1, p2, p3;
-        float lt;
-
-        // 制御点が2つ未満の場合 (1点 or 0点)
-        // → (0,0) を返す
-        if (_controlPoints.length < 2) {
-            vec2 fallback = vec2(0.0, 0.0);
-            pointCache[t] = fallback;
-            return fallback;
-        }
-
-        // 制御点がちょうど2点の場合 → 線形補間 (Lerp)
-        if (_controlPoints.length == 2) {
-            vec2 a = _controlPoints[0];
-            vec2 b = _controlPoints[1];
-            vec2 linear = a * (1 - t) + b * t;
-            pointCache[t] = linear;
-            return linear;
-        }
-
-        // 3点以上 → 通常の Catmull-Rom スプライン
-        float segment = t * (_controlPoints.length - 1);
-        int segmentIndex = cast(int)segment;
-
-        // p1 が「該当セグメントの始点」を指す
-        // p0, p2, p3 はその前後の点
-        p1 = clamp(segmentIndex, 0, cast(int)_controlPoints.length - 2);
-        p0 = max(0, p1 - 1);
-        p2 = min(_controlPoints.length - 1, p1 + 1);
-        p3 = min(_controlPoints.length - 1, p2 + 1);
-
-        // ローカル t (セグメント内の進捗)
-        lt = segment - segmentIndex;
-
-        // Catmull-Rom スプライン (t=0.5) の標準係数
-        vec2 A = 2.0 * _controlPoints[p1];
-        vec2 B = _controlPoints[p2] - _controlPoints[p0];
-        vec2 C = 2.0 * _controlPoints[p0]
-               - 5.0 * _controlPoints[p1]
-               + 4.0 * _controlPoints[p2]
-               - _controlPoints[p3];
-        vec2 D = -_controlPoints[p0]
-               + 3.0 * _controlPoints[p1]
-               - 3.0 * _controlPoints[p2]
-               + _controlPoints[p3];
-
-        // p(t) = 0.5 * [A + B t + C t^2 + D t^3]
-        vec2 result = 0.5 * (A
-                           + B * lt
-                           + C * lt * lt
-                           + D * lt * lt * lt);
-
-        // キャッシュに保存
+        Vec2Array tmp;
+        float[1] sampleBuf;
+        sampleBuf[0] = t;
+        evaluatePoints(sampleBuf[], tmp);
+        vec2 result = tmp.length ? tmp[0].toVector() : vec2(0, 0);
         pointCache[t] = result;
         return result;
     }
@@ -214,55 +226,11 @@ public:
         if (t in derivativeCache)
             return derivativeCache[t];
 
-        int p0, p1, p2, p3;
-        float lt;
-
-        // 制御点が2つ未満 → (0,0) を返す
-        if (_controlPoints.length < 2) {
-            vec2 fallback = vec2(0.0, 0.0);
-            derivativeCache[t] = fallback;
-            return fallback;
-        }
-
-        // 制御点が2点しかない → 接線は一定 (b - a)
-        if (_controlPoints.length == 2) {
-            vec2 deriv2 = _controlPoints[1] - _controlPoints[0];
-            derivativeCache[t] = deriv2;
-            return deriv2;
-        }
-
-        // 3点以上 → 通常の Catmull-Rom
-        float segment = t * (_controlPoints.length - 1);
-        int segmentIndex = cast(int)segment;
-
-        p1 = clamp(segmentIndex, 0, cast(int)_controlPoints.length - 2);
-        p0 = max(0, p1 - 1);
-        p2 = min(_controlPoints.length - 1, p1 + 1);
-        p3 = min(_controlPoints.length - 1, p2 + 1);
-
-        lt = segment - segmentIndex;
-
-        // point() で使った A, B, C, D のうち、
-        // derivative で必要なのは B, C, D のみ
-        // (C, D は掛け算を外しておく)
-        vec2 B = _controlPoints[p2] - _controlPoints[p0];
-        vec2 C = 2.0 * _controlPoints[p0]
-               - 5.0 * _controlPoints[p1]
-               + 4.0 * _controlPoints[p2]
-               - _controlPoints[p3];
-        vec2 D = -_controlPoints[p0]
-               + 3.0 * _controlPoints[p1]
-               - 3.0 * _controlPoints[p2]
-               + _controlPoints[p3];
-
-        // p(t) = 0.5 * [A + B t + C t^2 + D t^3]
-        // → p'(t) = 0.5 * [B + 2 C t + 3 D t^2]
-        vec2 result = 0.5 * (
-            B
-          + 2.0 * C * lt
-          + 3.0 * D * lt * lt
-        );
-
+        Vec2Array tmp;
+        float[1] sampleBuf;
+        sampleBuf[0] = t;
+        evaluateDerivatives(sampleBuf[], tmp);
+        vec2 result = tmp.length ? tmp[0].toVector() : vec2(0, 0);
         derivativeCache[t] = result;
         return result;
     }
@@ -276,5 +244,116 @@ public:
         auto result = findLocalMin((float t)=>(this.point(t) - point).lengthSquared, 0f, 1f);
         closestT = result[0];
         return closestT;
+    }
+
+    override
+    void evaluatePoints(const float[] samples, ref Vec2Array dst) {
+        dst.length = samples.length;
+        if (samples.length == 0) return;
+        auto dstX = dst.lane(0);
+        auto dstY = dst.lane(1);
+        auto cpX = _controlPoints.lane(0);
+        auto cpY = _controlPoints.lane(1);
+        size_t len = _controlPoints.length;
+
+        foreach (idx, t; samples) {
+            if (len < 2) {
+                dstX[idx] = 0;
+                dstY[idx] = 0;
+                continue;
+            }
+            if (len == 2) {
+                float ax = cpX[0];
+                float ay = cpY[0];
+                float bx = cpX[1];
+                float by = cpY[1];
+                dstX[idx] = ax * (1 - t) + bx * t;
+                dstY[idx] = ay * (1 - t) + by * t;
+                continue;
+            }
+
+            float segment = t * (len - 1);
+            int segmentIndex = cast(int)segment;
+            int p1 = clamp(segmentIndex, 0, cast(int)len - 2);
+            int p0 = max(0, p1 - 1);
+            int p2 = min(cast(int)len - 1, p1 + 1);
+            int p3 = min(cast(int)len - 1, p2 + 1);
+            float lt = segment - segmentIndex;
+            float lt2 = lt * lt;
+            float lt3 = lt2 * lt;
+
+            float p0x = cpX[p0];
+            float p0y = cpY[p0];
+            float p1x = cpX[p1];
+            float p1y = cpY[p1];
+            float p2x = cpX[p2];
+            float p2y = cpY[p2];
+            float p3x = cpX[p3];
+            float p3y = cpY[p3];
+
+            float Ax = 2.0f * p1x;
+            float Ay = 2.0f * p1y;
+            float Bx = p2x - p0x;
+            float By = p2y - p0y;
+            float Cx = 2.0f * p0x - 5.0f * p1x + 4.0f * p2x - p3x;
+            float Cy = 2.0f * p0y - 5.0f * p1y + 4.0f * p2y - p3y;
+            float Dx = -p0x + 3.0f * p1x - 3.0f * p2x + p3x;
+            float Dy = -p0y + 3.0f * p1y - 3.0f * p2y + p3y;
+
+            dstX[idx] = 0.5f * (Ax + Bx * lt + Cx * lt2 + Dx * lt3);
+            dstY[idx] = 0.5f * (Ay + By * lt + Cy * lt2 + Dy * lt3);
+        }
+    }
+
+    override
+    void evaluateDerivatives(const float[] samples, ref Vec2Array dst) {
+        dst.length = samples.length;
+        if (samples.length == 0) return;
+        auto dstX = dst.lane(0);
+        auto dstY = dst.lane(1);
+        auto cpX = _controlPoints.lane(0);
+        auto cpY = _controlPoints.lane(1);
+        size_t len = _controlPoints.length;
+
+        foreach (idx, t; samples) {
+            if (len < 2) {
+                dstX[idx] = 0;
+                dstY[idx] = 0;
+                continue;
+            }
+            if (len == 2) {
+                dstX[idx] = cpX[1] - cpX[0];
+                dstY[idx] = cpY[1] - cpY[0];
+                continue;
+            }
+
+            float segment = t * (len - 1);
+            int segmentIndex = cast(int)segment;
+            int p1 = clamp(segmentIndex, 0, cast(int)len - 2);
+            int p0 = max(0, p1 - 1);
+            int p2 = min(cast(int)len - 1, p1 + 1);
+            int p3 = min(cast(int)len - 1, p2 + 1);
+            float lt = segment - segmentIndex;
+            float lt2 = lt * lt;
+
+            float p0x = cpX[p0];
+            float p0y = cpY[p0];
+            float p1x = cpX[p1];
+            float p1y = cpY[p1];
+            float p2x = cpX[p2];
+            float p2y = cpY[p2];
+            float p3x = cpX[p3];
+            float p3y = cpY[p3];
+
+            float Bx = p2x - p0x;
+            float By = p2y - p0y;
+            float Cx = 2.0f * p0x - 5.0f * p1x + 4.0f * p2x - p3x;
+            float Cy = 2.0f * p0y - 5.0f * p1y + 4.0f * p2y - p3y;
+            float Dx = -p0x + 3.0f * p1x - 3.0f * p2x + p3x;
+            float Dy = -p0y + 3.0f * p1y - 3.0f * p2y + p3y;
+
+            dstX[idx] = 0.5f * (Bx + 2.0f * Cx * lt + 3.0f * Dx * lt2);
+            dstY[idx] = 0.5f * (By + 2.0f * Cy * lt + 3.0f * Dy * lt2);
+        }
     }
 }
