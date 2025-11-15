@@ -1,5 +1,7 @@
 module nijilive.core.render.profiler;
 
+version (NijiliveRenderProfiler) {
+
 import core.time : MonoTime, Duration, seconds, dur;
 import std.algorithm : sort;
 import std.array : array;
@@ -91,4 +93,19 @@ RenderProfileScope profileScope(string label) {
 
 void renderProfilerFrameCompleted() {
     profiler().frameCompleted();
+}
+
+} else {
+
+struct RenderProfileScope {
+    this(string) {}
+    void stop() {}
+}
+
+RenderProfileScope profileScope(string label) {
+    return RenderProfileScope(label);
+}
+
+void renderProfilerFrameCompleted() {}
+
 }
