@@ -12,6 +12,7 @@ module nijilive.core.nodes.drawable;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
+import nijilive.math.veca_ops : transformAssign, transformAdd;
 import nijilive.math.triangle;
 import std.exception;
 import nijilive.core.dbg;
@@ -122,35 +123,78 @@ protected:
         weldingApplied[link.target] = true;
         link.target.weldingApplied[this] = true;
         float weldingWeight = min(1, max(0, link.weight));
-        foreach(i, vertex; vertices) {
-            if (i >= link.indices.length)
-                break;
-            auto index = link.indices[i];
-            if (index == NOINDEX)
-                continue;
-            vec2 selfVertex = vertex + deformation[i];
-            mat4 selfMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
-            selfVertex = (selfMatrix * vec4(selfVertex, 0, 1)).xy;
-
-            vec2 targetVertex = origVertices[index] + origDeformation[index];
-            targetVertex = ((*origTransform) * vec4(targetVertex, 0, 1)).xy;
-
-            vec2 newPos = targetVertex * (1 - weldingWeight) + selfVertex * (weldingWeight);
-
-            changed = newPos != selfVertex;
-
-            auto selfMatrixInv = selfMatrix.inverse;
-            selfMatrixInv[0][3] = 0;
-            selfMatrixInv[1][3] = 0;
-            selfMatrixInv[2][3] = 0;
-            deformation[i] += (selfMatrixInv * vec4(newPos - selfVertex, 0, 1)).xy;
-
-            auto targetMatrixInv = (*origTransform).inverse;
-            targetMatrixInv[0][3] = 0;
-            targetMatrixInv[1][3] = 0;
-            targetMatrixInv[2][3] = 0;
-            origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
+        auto pairCount = link.indices.length < vertices.length ? link.indices.length : vertices.length;
+        if (pairCount == 0) {
+            return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, changed);
         }
+
+        size_t[] selfIndices;
+        size_t[] targetIndices;
+        selfIndices.reserve(pairCount);
+        targetIndices.reserve(pairCount);
+        for (size_t i = 0; i < pairCount; ++i) {
+            ptrdiff_t mapped = link.indices[i];
+            if (mapped == NOINDEX || mapped < 0) {
+                continue;
+            }
+            auto targetIdx = cast(size_t)mapped;
+            if (targetIdx >= origVertices.length) {
+                continue;
+            }
+            selfIndices ~= i;
+            targetIndices ~= targetIdx;
+        }
+
+        auto validCount = selfIndices.length;
+        if (validCount == 0) {
+            return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, false);
+        }
+
+        Vec2Array selfLocal = gatherVec2(vertices, selfIndices);
+        Vec2Array selfDelta = gatherVec2(deformation, selfIndices);
+        selfLocal += selfDelta;
+
+        Vec2Array targetLocal = gatherVec2(origVertices, targetIndices);
+        Vec2Array targetDelta = gatherVec2(origDeformation, targetIndices);
+        targetLocal += targetDelta;
+
+        mat4 selfMatrix = overrideTransformMatrix ? overrideTransformMatrix.matrix : transform.matrix;
+        mat4 targetMatrix = *origTransform;
+
+        Vec2Array selfWorld;
+        transformAssign(selfWorld, selfLocal, selfMatrix);
+
+        Vec2Array targetWorld;
+        transformAssign(targetWorld, targetLocal, targetMatrix);
+
+        Vec2Array blended = targetWorld.dup;
+        blended *= (1 - weldingWeight);
+        Vec2Array weightedSelf = selfWorld.dup;
+        weightedSelf *= weldingWeight;
+        blended += weightedSelf;
+
+        Vec2Array deltaSelf = blended.dup;
+        deltaSelf -= selfWorld;
+        Vec2Array deltaTarget = blended.dup;
+        deltaTarget -= targetWorld;
+
+        mat4 selfMatrixInv = selfMatrix.inverse;
+        selfMatrixInv[0][3] = 0;
+        selfMatrixInv[1][3] = 0;
+        selfMatrixInv[2][3] = 0;
+
+        mat4 targetMatrixInv = targetMatrix.inverse;
+        targetMatrixInv[0][3] = 0;
+        targetMatrixInv[1][3] = 0;
+        targetMatrixInv[2][3] = 0;
+
+        Vec2Array localSelf = makeZeroVecArray(validCount);
+        transformAdd(localSelf, deltaSelf, selfMatrixInv);
+        Vec2Array localTarget = makeZeroVecArray(validCount);
+        transformAdd(localTarget, deltaTarget, targetMatrixInv);
+
+        scatterAddVec2(localSelf, selfIndices, deformation, changed);
+        scatterAddVec2(localTarget, targetIndices, origDeformation, changed);
         version (InDoesRender) {
             currentRenderBackend().uploadDrawableDeform(dbo, deformation);
         }
@@ -200,9 +244,9 @@ protected:
         }
     }
 
-    /**
-        Allows serializing self data (with pretty serializer)
-    */
+        /**
+            Allows serializing self data (with pretty serializer)
+        */
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
         super.serializeSelfImpl(serializer, recursive, flags);
@@ -268,6 +312,48 @@ public:
 
         version(InDoesRender) {
             currentRenderBackend().createDrawableBuffers(vbo, ibo, dbo);
+        }
+    }
+
+    private Vec2Array gatherVec2(const Vec2Array source, const size_t[] indices) {
+        Vec2Array result;
+        result.length = indices.length;
+        auto resX = result.lane(0);
+        auto resY = result.lane(1);
+        auto srcX = source.lane(0);
+        auto srcY = source.lane(1);
+        for (size_t i = 0; i < indices.length; ++i) {
+            auto idx = indices[i];
+            resX[i] = srcX[idx];
+            resY[i] = srcY[idx];
+        }
+        return result;
+    }
+
+    private Vec2Array makeZeroVecArray(size_t count) {
+        Vec2Array result;
+        result.length = count;
+        auto rx = result.lane(0);
+        auto ry = result.lane(1);
+        rx[] = 0;
+        ry[] = 0;
+        return result;
+    }
+
+    private void scatterAddVec2(const Vec2Array delta, const size_t[] indices, ref Vec2Array target, ref bool changed) {
+        auto deltaX = delta.lane(0);
+        auto deltaY = delta.lane(1);
+        auto targetX = target.lane(0);
+        auto targetY = target.lane(1);
+        for (size_t i = 0; i < indices.length; ++i) {
+            auto idx = indices[i];
+            auto dx = deltaX[i];
+            auto dy = deltaY[i];
+            if (dx != 0 || dy != 0) {
+                changed = true;
+            }
+            targetX[idx] += dx;
+            targetY[idx] += dy;
         }
     }
 
