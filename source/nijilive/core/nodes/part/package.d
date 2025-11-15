@@ -14,6 +14,7 @@ import nijilive.fmt;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.profiler : profileScope;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.mutation : copy;
@@ -312,6 +313,8 @@ protected:
         RENDERING
     */
     void drawSelf(bool isMask = false)() {
+        auto profiling = profileScope(isMask ? "DrawPart.Mask" : "DrawPart");
+        scope (exit) profiling.stop();
 
         // In some cases this may happen
         if (textures.length == 0) return;

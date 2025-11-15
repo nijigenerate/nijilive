@@ -15,6 +15,7 @@ import nijilive.core.nodes;
 import nijilive.fmt;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.profiler : profileScope;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.sorting;
@@ -148,6 +149,8 @@ private:
         RENDERING
     */
     void drawSelf() {
+        auto profiling = profileScope("DrawComposite");
+        scope (exit) profiling.stop();
         if (delegated) {
             synchronizeDelegated();
 //            writefln("%s: delegate drawSelf", name);

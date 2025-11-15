@@ -24,6 +24,7 @@ public import nijilive.core.diff_collect : DifferenceEvaluationRegion, Differenc
 public import nijilive.integration;
 import nijilive.core.dbg;
 import nijilive.core.diff_collect;
+import nijilive.core.render.profiler : profileScope, renderProfilerFrameCompleted;
 
 import bindbc.opengl;
 import nijilive.math;
@@ -111,6 +112,8 @@ private {
     Shader[BlendMode] blendShaders;
 
     void renderScene(vec4 area, PostProcessingShader shaderToUse, GLuint albedo, GLuint emissive, GLuint bump) {
+        auto profiling = profileScope("RenderScene");
+        scope (exit) profiling.stop();
         glViewport(0, 0, cast(int)area.z, cast(int)area.w);
 
         // Bind our vertex array
@@ -299,6 +302,8 @@ vec3 inSceneAmbientLight = vec3(1, 1, 1);
     Begins rendering to the framebuffer
 */
 void inBeginScene() {
+    auto profiling = profileScope("BeginScene");
+    scope (exit) profiling.stop();
     glBindVertexArray(sceneVAO);
     glEnable(GL_BLEND);
     glEnablei(GL_BLEND, 0);
@@ -373,6 +378,8 @@ void inEndComposite() {
     Ends rendering to the framebuffer
 */
 void inEndScene() {
+    auto profiling = profileScope("EndScene");
+    scope (exit) profiling.stop();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     glDisablei(GL_BLEND, 0);
@@ -386,12 +393,15 @@ void inEndScene() {
 
 //    import std.stdio;
 //    writefln("end render");
+    renderProfilerFrameCompleted();
 }
 
 /**
     Runs post processing on the scene
 */
 void inPostProcessScene() {
+    auto profiling = profileScope("PostProcessScene");
+    scope (exit) profiling.stop();
     if (postProcessingStack.length == 0) return;
     
     bool targetBuffer;
@@ -500,6 +510,8 @@ void inSetCamera(Camera camera) {
     Draw scene to area
 */
 void inDrawScene(vec4 area) {
+    auto profiling = profileScope("DrawScene");
+    scope (exit) profiling.stop();
     float[] data = [
         area.x,         area.y+area.w,          0, 0,
         area.x,         area.y,                 0, 1,
@@ -615,6 +627,8 @@ package void inBlendToBuffer(
     GLuint bgAlbedo, GLuint bgEmissive, GLuint bgBump,
     GLuint fgAlbedo, GLuint fgEmissive, GLuint fgBump
 ) {
+    auto profiling = profileScope("BlendToBuffer");
+    scope (exit) profiling.stop();
     glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
 

@@ -12,6 +12,7 @@ module nijilive.core.nodes.mask;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.profiler : profileScope;
 import bindbc.opengl;
 import std.exception;
 import std.algorithm.mutation : copy;
@@ -50,6 +51,8 @@ private:
         RENDERING
     */
     void drawSelf() {
+        auto profiling = profileScope("DrawMask");
+        scope (exit) profiling.stop();
 
         // Bind the vertex array
         incDrawableBindVAO();
