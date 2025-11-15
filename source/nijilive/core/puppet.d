@@ -16,6 +16,7 @@ import nijilive.core.runtime_state : currentRenderBackend;
 
 alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 import nijilive.core.render.scheduler;
+import nijilive.core.render.profiler : profileScope;
 import nijilive.core.texture_types : Filtering;
 
 /**
@@ -459,26 +460,38 @@ public:
         Updates the nodes
     */
     final void update() {
-        transform.update();
+        auto profilingFrame = profileScope("Puppet.Update");
+
+        {
+            auto profiling = profileScope("Puppet.Update.Transform");
+            transform.update();
+        }
 
         // Update Automators
-        foreach(auto_; automation) {
-            auto_.update();
+        {
+            auto profiling = profileScope("Puppet.Update.Automation");
+            foreach(auto_; automation) {
+                auto_.update();
+            }
         }
 
         auto rootNode = actualRoot();
         if (rootNode is null) return;
 
-        renderContext.renderQueue = &renderQueue;
-        renderContext.renderGraph = &renderGraph;
-        renderContext.renderBackend = renderBackend;
-        renderContext.gpuState = RenderGpuState.init;
-        renderGraph.beginFrame();
-        renderScheduler.clearTasks();
-        rootNode.registerRenderTasks(renderScheduler);
+        {
+            auto profiling = profileScope("Puppet.Update.Setup");
+            renderContext.renderQueue = &renderQueue;
+            renderContext.renderGraph = &renderGraph;
+            renderContext.renderBackend = renderBackend;
+            renderContext.gpuState = RenderGpuState.init;
+            renderGraph.beginFrame();
+            renderScheduler.clearTasks();
+            rootNode.registerRenderTasks(renderScheduler);
+        }
 
         auto rootForTasks = rootNode;
         renderScheduler.addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
+            auto profiling = profileScope("Puppet.Update.Parameters");
             if (renderParameters) {
                 foreach(parameter; parameters) {
                     if (!enableDrivers || parameter !in drivenParameters) {
@@ -498,10 +511,16 @@ public:
             }
         });
 
-        renderScheduler.execute(renderContext);
+        {
+            auto profiling = profileScope("Puppet.Update.ExecuteTasks");
+            renderScheduler.execute(renderContext);
+        }
 
-        auto builtCommands = renderGraph.takeCommands();
-        renderQueue.setCommands(builtCommands);
+        {
+            auto profiling = profileScope("Puppet.Update.BuildCommands");
+            auto builtCommands = renderGraph.takeCommands();
+            renderQueue.setCommands(builtCommands);
+        }
     }
 
     /**
