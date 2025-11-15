@@ -10,6 +10,7 @@ import nijilive.core;
 import nijilive.fmt.serialize;
 import nijilive.math;
 import nijilive.math.veca_ops : transformAssign, transformAdd;
+import nijilive.math.simd : SimdRepr, simdWidth, storeVec;
 import std.algorithm : sort;
 import std.math : isClose, isFinite;
 import std.typecons : tuple, Tuple;
@@ -609,8 +610,9 @@ private:
     }
 
     void sampleGridPoints(ref Vec2Array dst, const GridCellCache[] caches, bool includeDeformation) const {
-        dst.length = caches.length;
-        if (caches.length == 0) return;
+        auto len = caches.length;
+        dst.length = len;
+        if (len == 0) return;
 
         auto dstX = dst.lane(0);
         auto dstY = dst.lane(1);
@@ -619,7 +621,85 @@ private:
         auto deformX = deformation.lane(0);
         auto deformY = deformation.lane(1);
 
-        foreach (i; 0 .. caches.length) {
+        size_t i = 0;
+        for (; i + simdWidth <= len; i += simdWidth) {
+            SimdRepr weights00;
+            SimdRepr weights10;
+            SimdRepr weights01;
+            SimdRepr weights11;
+            SimdRepr p00x;
+            SimdRepr p10x;
+            SimdRepr p01x;
+            SimdRepr p11x;
+            SimdRepr p00y;
+            SimdRepr p10y;
+            SimdRepr p01y;
+            SimdRepr p11y;
+            foreach (laneIdx; 0 .. simdWidth) {
+                auto cache = caches[i + laneIdx];
+                if (!cache.valid) {
+                    continue;
+                }
+                float u = cache.u;
+                float v = cache.v;
+                float wu0 = 1 - u;
+                float wv0 = 1 - v;
+                weights00.scalars[laneIdx] = wu0 * wv0;
+                weights10.scalars[laneIdx] = u * wv0;
+                weights01.scalars[laneIdx] = wu0 * v;
+                weights11.scalars[laneIdx] = u * v;
+
+                auto x = cache.cellX;
+                auto y = cache.cellY;
+                auto idx00 = gridIndex(x, y);
+                auto idx10 = gridIndex(x + 1, y);
+                auto idx01 = gridIndex(x, y + 1);
+                auto idx11 = gridIndex(x + 1, y + 1);
+
+                float p00xVal = baseX[idx00];
+                float p00yVal = baseY[idx00];
+                float p10xVal = baseX[idx10];
+                float p10yVal = baseY[idx10];
+                float p01xVal = baseX[idx01];
+                float p01yVal = baseY[idx01];
+                float p11xVal = baseX[idx11];
+                float p11yVal = baseY[idx11];
+
+                if (includeDeformation) {
+                    p00xVal += deformX[idx00];
+                    p00yVal += deformY[idx00];
+                    p10xVal += deformX[idx10];
+                    p10yVal += deformY[idx10];
+                    p01xVal += deformX[idx01];
+                    p01yVal += deformY[idx01];
+                    p11xVal += deformX[idx11];
+                    p11yVal += deformY[idx11];
+                }
+
+                p00x.scalars[laneIdx] = p00xVal;
+                p00y.scalars[laneIdx] = p00yVal;
+                p10x.scalars[laneIdx] = p10xVal;
+                p10y.scalars[laneIdx] = p10yVal;
+                p01x.scalars[laneIdx] = p01xVal;
+                p01y.scalars[laneIdx] = p01yVal;
+                p11x.scalars[laneIdx] = p11xVal;
+                p11y.scalars[laneIdx] = p11yVal;
+            }
+
+            auto blendX = weights00.vec * p00x.vec
+                + weights10.vec * p10x.vec
+                + weights01.vec * p01x.vec
+                + weights11.vec * p11x.vec;
+            auto blendY = weights00.vec * p00y.vec
+                + weights10.vec * p10y.vec
+                + weights01.vec * p01y.vec
+                + weights11.vec * p11y.vec;
+
+            storeVec(dstX, i, blendX);
+            storeVec(dstY, i, blendY);
+        }
+
+        for (; i < len; ++i) {
             auto cache = caches[i];
             if (!cache.valid) {
                 dstX[i] = 0;
@@ -633,24 +713,24 @@ private:
             auto idx01 = gridIndex(x, y + 1);
             auto idx11 = gridIndex(x + 1, y + 1);
 
-            float p00x = baseX[idx00];
-            float p00y = baseY[idx00];
-            float p10x = baseX[idx10];
-            float p10y = baseY[idx10];
-            float p01x = baseX[idx01];
-            float p01y = baseY[idx01];
-            float p11x = baseX[idx11];
-            float p11y = baseY[idx11];
+            float p00xVal = baseX[idx00];
+            float p00yVal = baseY[idx00];
+            float p10xVal = baseX[idx10];
+            float p10yVal = baseY[idx10];
+            float p01xVal = baseX[idx01];
+            float p01yVal = baseY[idx01];
+            float p11xVal = baseX[idx11];
+            float p11yVal = baseY[idx11];
 
             if (includeDeformation) {
-                p00x += deformX[idx00];
-                p00y += deformY[idx00];
-                p10x += deformX[idx10];
-                p10y += deformY[idx10];
-                p01x += deformX[idx01];
-                p01y += deformY[idx01];
-                p11x += deformX[idx11];
-                p11y += deformY[idx11];
+                p00xVal += deformX[idx00];
+                p00yVal += deformY[idx00];
+                p10xVal += deformX[idx10];
+                p10yVal += deformY[idx10];
+                p01xVal += deformX[idx01];
+                p01yVal += deformY[idx01];
+                p11xVal += deformX[idx11];
+                p11yVal += deformY[idx11];
             }
 
             float u = cache.u;
@@ -662,8 +742,8 @@ private:
             float w01 = wu0 * v;
             float w11 = u * v;
 
-            dstX[i] = p00x * w00 + p10x * w10 + p01x * w01 + p11x * w11;
-            dstY[i] = p00y * w00 + p10y * w10 + p01y * w01 + p11y * w11;
+            dstX[i] = p00xVal * w00 + p10xVal * w10 + p01xVal * w01 + p11xVal * w11;
+            dstY[i] = p00yVal * w00 + p10yVal * w10 + p01yVal * w01 + p11yVal * w11;
         }
     }
 

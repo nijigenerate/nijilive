@@ -10,7 +10,8 @@ public import nijilive.core.nodes.deformer.curve;
 import nijilive.core.nodes.deformer.base;
 import nijilive.core.nodes.deformer.grid;
 import inmath.linalg;
-import nijilive.math.veca_ops : transformAssign, transformAdd;
+import nijilive.math.veca_ops : transformAssign, transformAdd, projectVec2OntoAxes,
+    composeVec2FromAxes, rotateVec2TangentsToNormals;
 
 //import std.stdio;
 import std.math : sqrt, isNaN, isFinite, fabs;
@@ -23,7 +24,6 @@ import nijilive.core;
 import nijilive.core.render.scheduler : RenderContext;
 import nijilive.core.dbg;
 import core.exception;
-import mir.ndslice.slice : sliced;
 
 enum CurveType {
     Bezier,
@@ -1114,42 +1114,30 @@ public:
             });
 
         Vec2Array normalOriginal;
-        buildNormals(normalOriginal, tangentOriginal);
+        rotateVec2TangentsToNormals(normalOriginal, tangentOriginal);
         Vec2Array normalDeformed;
-        buildNormals(normalDeformed, tangentDeformed);
+        rotateVec2TangentsToNormals(normalDeformed, tangentDeformed);
 
         float[] normalDistances;
         float[] tangentialDistances;
         normalDistances.length = vertexCount;
         tangentialDistances.length = vertexCount;
 
-        auto normalOrigX = normalOriginal.lane(0);
-        auto normalOrigY = normalOriginal.lane(1);
-        auto tangentOrigX = tangentOriginal.lane(0);
-        auto tangentOrigY = tangentOriginal.lane(1);
+        projectVec2OntoAxes(
+            cVertices,
+            closestOriginal,
+            normalOriginal,
+            tangentOriginal,
+            normalDistances,
+            tangentialDistances);
 
-        auto diffX = centerLaneX.sliced - closestOrigX.sliced;
-        auto diffY = centerLaneY.sliced - closestOrigY.sliced;
-        auto normalDistSlice = normalDistances.sliced;
-        normalDistSlice[] = diffX[] * normalOrigX.sliced + diffY[] * normalOrigY.sliced;
-        auto tangentialDistSlice = tangentialDistances.sliced;
-        tangentialDistSlice[] = diffX[] * tangentOrigX.sliced + diffY[] * tangentOrigY.sliced;
-
-        auto normalDefX = normalDeformed.lane(0);
-        auto normalDefY = normalDeformed.lane(1);
-        auto tangentDefX = tangentDeformed.lane(0);
-        auto tangentDefY = tangentDeformed.lane(1);
-        auto deformVertexX = deformedVertices.lane(0);
-        auto deformVertexY = deformedVertices.lane(1);
-
-        auto deformXS = deformVertexX.sliced;
-        auto deformYS = deformVertexY.sliced;
-        deformXS[] = closestDefX.sliced
-            + normalDistSlice * normalDefX.sliced
-            + tangentialDistSlice * tangentDefX.sliced;
-        deformYS[] = closestDefY.sliced
-            + normalDistSlice * normalDefY.sliced
-            + tangentialDistSlice * tangentDefY.sliced;
+        composeVec2FromAxes(
+            deformedVertices,
+            closestDeformed,
+            normalDistances,
+            normalDeformed,
+            tangentialDistances,
+            tangentDeformed);
 
         mat4 invCenter = safeInverse(centerMatrix, "deformChildren:centerInverse:" ~ target.name);
         invCenter[0][3] = 0;
@@ -1341,15 +1329,4 @@ private:
         }
     }
 
-    void buildNormals(ref Vec2Array normals, const Vec2Array tangents) {
-        normals.length = tangents.length;
-        auto normX = normals.lane(0);
-        auto normY = normals.lane(1);
-        auto tanX = tangents.lane(0);
-        auto tanY = tangents.lane(1);
-        foreach (i; 0 .. tangents.length) {
-            normX[i] = -tanY[i];
-            normY[i] = tanX[i];
-        }
-    }
 }
