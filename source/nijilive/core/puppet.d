@@ -471,7 +471,7 @@ public:
         Updates the nodes
     */
     final void update() {
-        auto profilingFrame = puppetProfileScope("Puppet.Update");
+        version (NijilivePuppetProfiler) auto profilingFrame = puppetProfileScope("Puppet.Update");
 
         {
             auto profiling = puppetProfileScope("Puppet.Update.Transform");
