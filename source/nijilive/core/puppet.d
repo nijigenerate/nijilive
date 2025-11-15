@@ -2,6 +2,7 @@ module nijilive.core.puppet;
 import nijilive.fmt.serialize;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.profiler : profileScope;
 import std.algorithm.sorting;
 import std.algorithm.mutation : SwapStrategy;
 import std.exception;
@@ -433,19 +434,33 @@ public:
         Updates the nodes
     */
     final void update() {
-        transform.update();
+        auto profiling = profileScope("Puppet.Update");
 
-        // Update Automators
-        foreach(auto_; automation) {
-            auto_.update();
+        {
+            auto _profiling = profileScope("Puppet.Update.Transform");
+            transform.update();
         }
 
-        actualRoot.beginUpdate();
+        // Update Automators
+        {
+            auto _profiling = profileScope("Puppet.Update.Automation");
+            foreach (auto_; automation) {
+                auto_.update();
+            }
+        }
+
+        auto root = actualRoot;
+
+        {
+            auto _profiling = profileScope("Puppet.Update.Begin");
+            root.beginUpdate();
+        }
 
         if (renderParameters) {
 
             // Update parameters
-            foreach(parameter; parameters) {
+            auto _profiling = profileScope("Puppet.Update.Parameters");
+            foreach (parameter; parameters) {
 
                 if (!enableDrivers || parameter !in drivenParameters)
                     parameter.update();
@@ -453,20 +468,30 @@ public:
         }
 
         // Ensure the transform tree is updated
-        actualRoot.transformChanged();
+        {
+            auto _profiling = profileScope("Puppet.Update.TransformTree");
+            root.transformChanged();
+        }
 
         if (renderParameters && enableDrivers) {
             // Update parameter/node driver nodes (e.g. physics)
-            foreach(driver; drivers) {
+            auto _profiling = profileScope("Puppet.Update.Drivers");
+            foreach (driver; drivers) {
                 driver.updateDriver();
             }
         }
 
         // Update nodes
-        actualRoot.update();
+        {
+            auto _profiling = profileScope("Puppet.Update.NodeUpdate");
+            root.update();
+        }
 
-        foreach (id; [0, 1, 2, -1]) {
-            actualRoot.endUpdate(id);
+        {
+            auto _profiling = profileScope("Puppet.Update.End");
+            foreach (id; [0, 1, 2, -1]) {
+                root.endUpdate(id);
+            }
         }
     }
 
