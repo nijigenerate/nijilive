@@ -55,14 +55,12 @@ class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.O
 
     void initializeDrawableResources() { backendUnsupported(__FUNCTION__); }
     void bindDrawableVao() { backendUnsupported(__FUNCTION__); }
-    void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) { backendUnsupported(__FUNCTION__); }
+    void createDrawableBuffers(out uint ibo) { backendUnsupported(__FUNCTION__); }
     void uploadDrawableIndices(uint ibo, ushort[] indices) { backendUnsupported(__FUNCTION__); }
-    void uploadDrawableVertices(uint vbo, Vec2Array vertices) { backendUnsupported(__FUNCTION__); }
-    void uploadDrawableDeform(uint dbo, Vec2Array deform) { backendUnsupported(__FUNCTION__); }
+    void uploadSharedVertexBuffer(Vec2Array vertices) { backendUnsupported(__FUNCTION__); }
+    void uploadSharedUvBuffer(Vec2Array uvs) { backendUnsupported(__FUNCTION__); }
+    void uploadSharedDeformBuffer(Vec2Array deform) { backendUnsupported(__FUNCTION__); }
     void drawDrawableElements(uint ibo, size_t indexCount) { backendUnsupported(__FUNCTION__); }
-
-    uint createPartUvBuffer() { return backendUnsupported!uint(__FUNCTION__); }
-    void updatePartUvBuffer(uint buffer, ref MeshData data) { backendUnsupported(__FUNCTION__); }
 
     bool supportsAdvancedBlend() { return backendUnsupported!bool(__FUNCTION__); }
     bool supportsAdvancedBlendCoherent() { return backendUnsupported!bool(__FUNCTION__); }

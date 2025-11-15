@@ -23,6 +23,7 @@ import std.algorithm.searching;
 import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
 version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
+import nijilive.core.render.shared_deform_buffer;
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
 
 package(nijilive) {
@@ -71,12 +72,9 @@ protected:
 
     override
     void updateVertices() {
-        version (InDoesRender) {
-            currentRenderBackend().uploadDrawableVertices(vbo, data.vertices);
-        }
-
-        // Zero-fill the deformation delta
-        this.deformation.length = vertices.length;
+        sharedVertexResize(data.vertices, data.vertices.length);
+        sharedVertexMarkDirty();
+        sharedDeformResize(deformation, vertices.length);
         this.deformation[] = vec2(0, 0);
         this.updateDeform();
     }
@@ -195,9 +193,7 @@ protected:
 
         scatterAddVec2(localSelf, selfIndices, deformation, changed);
         scatterAddVec2(localTarget, targetIndices, origDeformation, changed);
-        version (InDoesRender) {
-            currentRenderBackend().uploadDrawableDeform(dbo, deformation);
-        }
+        sharedDeformMarkDirty();
 
         return tuple(origDeformation, cast(mat4*)null, changed);
     }
@@ -205,10 +201,7 @@ protected:
     override
     void updateDeform() {
         super.updateDeform();
-        version (InDoesRender) {
-            currentRenderBackend().uploadDrawableDeform(dbo, deformation);
-        }
-
+        sharedDeformMarkDirty();
         this.updateBounds();
     }
 
@@ -218,14 +211,19 @@ protected:
     uint ibo;
 
     /**
-        Backend Vertex Buffer Object handle
+        Offset within the shared deformation buffer
     */
-    uint vbo;
+    package(nijilive) size_t deformSliceOffset;
 
     /**
-        Backend Vertex Buffer Object for deformation
+        Offset within the shared vertex buffer
     */
-    uint dbo;
+    package(nijilive) size_t vertexSliceOffset;
+
+    /**
+        Offset within the shared UV buffer
+    */
+    package(nijilive) size_t uvSliceOffset;
 
     /**
         The mesh data of this part
@@ -309,9 +307,12 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        sharedDeformRegister(deformation, &deformSliceOffset);
+        sharedVertexRegister(data.vertices, &vertexSliceOffset);
+        sharedUvRegister(data.uvs, &uvSliceOffset);
 
         version(InDoesRender) {
-            currentRenderBackend().createDrawableBuffers(vbo, ibo, dbo);
+            currentRenderBackend().createDrawableBuffers(ibo);
         }
     }
 
@@ -370,17 +371,26 @@ public:
     this(MeshData data, uint uuid, Node parent = null) {
         super(uuid, parent);
         this.data = data;
+        sharedDeformRegister(deformation, &deformSliceOffset);
+        sharedVertexRegister(this.data.vertices, &vertexSliceOffset);
+        sharedUvRegister(this.data.uvs, &uvSliceOffset);
 
         // Set the deformable points to their initial position
         this.vertices = data.vertices.dup;
 
         version(InDoesRender) {
-            currentRenderBackend().createDrawableBuffers(vbo, ibo, dbo);
+            currentRenderBackend().createDrawableBuffers(ibo);
         }
 
         // Update indices and vertices
         this.updateIndices();
         this.updateVertices();
+    }
+
+    ~this() {
+        sharedDeformUnregister(deformation);
+        sharedVertexUnregister(data.vertices);
+        sharedUvUnregister(data.uvs);
     }
 
     override

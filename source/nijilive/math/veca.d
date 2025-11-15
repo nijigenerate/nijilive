@@ -14,13 +14,18 @@ if (N > 0) {
 private:
     T[] backing;
     size_t logicalLength;
+    size_t laneStride;
+    size_t laneBase;
+    size_t viewCapacity;
+    bool ownsStorage = true;
 
     void rebindLanes() @trusted {
         foreach (laneIdx; 0 .. N) {
             if (logicalLength == 0 || backing.length == 0) {
                 lanes[laneIdx] = null;
             } else {
-                auto start = laneIdx * logicalLength;
+                auto stride = laneStride ? laneStride : logicalLength;
+                auto start = laneIdx * stride + laneBase;
                 lanes[laneIdx] = backing[start .. start + logicalLength];
             }
         }
@@ -30,6 +35,10 @@ private:
         if (len == 0) {
             backing.length = 0;
             logicalLength = 0;
+            laneStride = 0;
+            laneBase = 0;
+            viewCapacity = 0;
+            ownsStorage = true;
             rebindLanes();
             return;
         }
@@ -43,13 +52,18 @@ private:
         if (copyLen && backing.length) {
             foreach (laneIdx; 0 .. N) {
                 auto dstStart = laneIdx * len;
-                auto srcStart = laneIdx * logicalLength;
+                auto srcStride = laneStride ? laneStride : logicalLength;
+                auto srcStart = laneIdx * srcStride + laneBase;
                 newBacking[dstStart .. dstStart + copyLen] =
                     backing[srcStart .. srcStart + copyLen];
             }
         }
         backing = newBacking;
         logicalLength = len;
+        laneStride = len;
+        laneBase = 0;
+        viewCapacity = len;
+        ownsStorage = true;
         rebindLanes();
     }
 public:
@@ -86,7 +100,13 @@ public:
         if (logicalLength == len) {
             return;
         }
-        allocateBacking(len);
+        if (ownsStorage) {
+            allocateBacking(len);
+        } else {
+            assert(len <= viewCapacity, "veca view length exceeds capacity");
+            logicalLength = len;
+            rebindLanes();
+        }
     }
 
     /// Append a new vector value to the storage.
@@ -113,6 +133,27 @@ public:
         foreach (i, vec; source) {
             this[i] = vec;
         }
+    }
+
+    ref veca opAssign(veca rhs) {
+        auto len = rhs.length;
+        ensureLength(len);
+        if (len == 0) {
+            return this;
+        }
+        foreach (laneIdx; 0 .. N) {
+            auto dst = lanes[laneIdx][0 .. len];
+            auto src = rhs.lanes[laneIdx][0 .. len];
+            if (dst.ptr is src.ptr) {
+                continue;
+            }
+            auto copyBytes = len * T.sizeof;
+            () @trusted {
+                import core.stdc.string : memmove;
+                memmove(dst.ptr, src.ptr, copyBytes);
+            }();
+        }
+        return this;
     }
 
     /// Element-wise arithmetic implemented through SIMD or slices.
@@ -191,16 +232,25 @@ public:
     /// Duplicate the SoA buffer.
     veca dup() const {
         veca copy;
-        copy.logicalLength = logicalLength;
-        copy.backing = backing.dup;
-        copy.rebindLanes();
+        copy.ensureLength(logicalLength);
+        foreach (laneIdx; 0 .. N) {
+            if (logicalLength == 0) break;
+            copy.lanes[laneIdx][] = lanes[laneIdx][];
+        }
         return copy;
     }
 
     /// Clear all stored vectors.
     void clear() {
         logicalLength = 0;
-        backing.length = 0;
+        if (ownsStorage) {
+            backing.length = 0;
+        } else {
+            backing = null;
+        }
+        laneStride = 0;
+        laneBase = 0;
+        viewCapacity = 0;
         rebindLanes();
     }
 
@@ -251,7 +301,29 @@ public:
     }
 
     package(nijilive) inout(T)[] rawStorage() inout {
+        assert(laneBase == 0 && (laneStride == logicalLength || laneStride == 0),
+               "rawStorage is only available for owned contiguous buffers");
         return backing;
+    }
+
+    package(nijilive) void bindExternalStorage(ref veca storage, size_t offset, size_t length) {
+        if (length == 0 || storage.backing.length == 0) {
+            ownsStorage = false;
+            backing = null;
+            logicalLength = 0;
+            viewCapacity = 0;
+            laneStride = storage.logicalLength;
+            laneBase = offset;
+            rebindLanes();
+            return;
+        }
+        ownsStorage = false;
+        backing = storage.backing;
+        laneStride = storage.logicalLength;
+        laneBase = offset;
+        logicalLength = length;
+        viewCapacity = length;
+        rebindLanes();
     }
 
     void opSliceAssign(veca rhs) {

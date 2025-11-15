@@ -12,6 +12,10 @@ module nijilive.core.nodes.mask;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.shared_deform_buffer :
+    sharedVertexAtlasStride,
+    sharedDeformAtlasStride;
+import nijilive.core.render.shared_deform_buffer : sharedDeformAtlasStride;
 import std.exception;
 import std.algorithm.mutation : copy;
 
@@ -117,8 +121,10 @@ public:
         packet.mvp = inGetCamera().matrix * puppetMatrix * modelMatrix;
 
         packet.origin = data.origin;
-        packet.vertexBuffer = vbo;
-        packet.deformBuffer = dbo;
+        packet.vertexOffset = vertexSliceOffset;
+        packet.vertexAtlasStride = sharedVertexAtlasStride();
+        packet.deformOffset = deformSliceOffset;
+        packet.deformAtlasStride = sharedDeformAtlasStride();
         packet.indexBuffer = ibo;
         packet.indexCount = cast(uint)data.indices.length;
         packet.vertexCount = cast(uint)data.vertices.length;

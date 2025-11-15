@@ -43,9 +43,12 @@ struct PartDrawPacket {
     bool hasEmissionOrBumpmap;
     Texture[] textures;
     vec2 origin;
-    uint vertexBuffer;
-    uint uvBuffer;
-    uint deformBuffer;
+    size_t vertexOffset;
+    size_t vertexAtlasStride;
+    size_t uvOffset;
+    size_t uvAtlasStride;
+    size_t deformOffset;
+    size_t deformAtlasStride;
     uint indexBuffer;
     uint indexCount;
     uint vertexCount;
@@ -55,8 +58,10 @@ struct MaskDrawPacket {
     mat4 modelMatrix;
     mat4 mvp;
     vec2 origin;
-    uint vertexBuffer;
-    uint deformBuffer;
+    size_t vertexOffset;
+    size_t vertexAtlasStride;
+    size_t deformOffset;
+    size_t deformAtlasStride;
     uint indexBuffer;
     uint indexCount;
     uint vertexCount;

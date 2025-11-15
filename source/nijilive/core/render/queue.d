@@ -3,6 +3,16 @@ module nijilive.core.render.queue;
 import nijilive.core.render.commands;
 import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
 import nijilive.core.render.profiler : profileScope;
+import nijilive.core.render.shared_deform_buffer :
+    sharedDeformBufferDirty,
+    sharedDeformBufferData,
+    sharedDeformMarkUploaded,
+    sharedVertexBufferDirty,
+    sharedVertexBufferData,
+    sharedVertexMarkUploaded,
+    sharedUvBufferDirty,
+    sharedUvBufferData,
+    sharedUvMarkUploaded;
 
 alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 
@@ -40,6 +50,27 @@ public:
 
         state = RenderGpuState.init;
         auto profiling = profileScope("RenderQueue.Flush");
+        if (sharedVertexBufferDirty()) {
+            auto vertices = sharedVertexBufferData();
+            if (vertices.length) {
+                backend.uploadSharedVertexBuffer(vertices);
+            }
+            sharedVertexMarkUploaded();
+        }
+        if (sharedUvBufferDirty()) {
+            auto uvs = sharedUvBufferData();
+            if (uvs.length) {
+                backend.uploadSharedUvBuffer(uvs);
+            }
+            sharedUvMarkUploaded();
+        }
+        if (sharedDeformBufferDirty()) {
+            auto data = sharedDeformBufferData();
+            if (data.length) {
+                backend.uploadSharedDeformBuffer(data);
+            }
+            sharedDeformMarkUploaded();
+        }
         foreach (ref command; commands) {
             final switch (command.kind) {
                 case RenderCommandKind.DrawPart:

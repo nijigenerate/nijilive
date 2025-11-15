@@ -243,7 +243,7 @@ sequenceDiagram
 | 分類 | 代表メソッド | 説明 |
 |------|--------------|------|
 | 初期化 / ビューポート | `initializeRenderer`, `resizeViewportTargets`, `beginScene`, `endScene`, `postProcessScene` | レンダラのセットアップとフレーム境界処理 |
-| Drawable/Part リソース | `initializeDrawableResources`, `createDrawableBuffers`, `uploadDrawableVertices`, `drawDrawableElements`, `createPartUvBuffer`, `updatePartUvBuffer` | メッシュや頂点バッファの生成・更新 |
+| Drawable/Part リソース | `initializeDrawableResources`, `createDrawableBuffers`, `uploadDrawableIndices`, `uploadSharedVertexBuffer`, `uploadSharedUvBuffer`, `uploadSharedDeformBuffer`, `drawDrawableElements` | メッシュや頂点バッファの生成・更新 |
 | ブレンド / デバッグ | `supportsAdvancedBlend`, `setAdvancedBlendEquation`, `issueBlendBarrier`, `initDebugRenderer`, `drawDebugLines` | 高度なブレンドモードやデバッグ描画制御 |
 | RenderQueue 由来の描画 | `drawPartPacket`, `drawMaskPacket`, `beginComposite`, `drawCompositeQuad`, `endComposite`, `beginMask`, `applyMask`, `beginMaskContent`, `endMask` | RenderCommandKind と 1:1 に近いメソッド群 |
 | DynamicComposite | `beginDynamicComposite`, `endDynamicComposite`, `destroyDynamicComposite` | 動的オフスクリーン用 FBO 管理 |

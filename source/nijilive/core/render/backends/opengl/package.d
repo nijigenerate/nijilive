@@ -46,16 +46,13 @@ import nijilive.core.render.backends.opengl.diff_collect_impl :
     oglEvaluateDifferenceAggregation,
     oglFetchDifferenceAggregationResult;
 import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array;
-import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
 import nijilive.math.camera : Camera;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 import nijilive.core.render.backends.opengl.part :
     oglDrawPartPacket,
-    oglInitPartBackendResources,
-    oglCreatePartUvBuffer,
-    oglUpdatePartUvBuffer;
+    oglInitPartBackendResources;
 import nijilive.core.render.backends.opengl.composite : oglDrawCompositeQuad;
 import nijilive.core.render.backends.opengl.mask :
     oglExecuteMaskApplyPacket,
@@ -73,8 +70,9 @@ import nijilive.core.render.backends.opengl.drawable_buffers :
     oglBindDrawableVao,
     oglCreateDrawableBuffers,
     oglUploadDrawableIndices,
-    oglUploadDrawableVertices,
-    oglUploadDrawableDeform,
+    oglUploadSharedVertexBuffer,
+    oglUploadSharedUvBuffer,
+    oglUploadSharedDeformBuffer,
     oglDrawDrawableElements;
 import nijilive.core.render.backends.opengl.blend :
     oglSetAdvancedBlendCoherent,
@@ -160,34 +158,31 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglBindDrawableVao();
     }
 
-    void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) {
-        oglCreateDrawableBuffers(vbo, ibo, dbo);
+    void createDrawableBuffers(out uint ibo) {
+        oglCreateDrawableBuffers(ibo);
     }
 
     void uploadDrawableIndices(uint ibo, ushort[] indices) {
         oglUploadDrawableIndices(ibo, indices);
     }
 
-    void uploadDrawableVertices(uint vbo, Vec2Array vertices) {
+    void uploadSharedVertexBuffer(Vec2Array vertices) {
         auto profile = profileScope("UploadVertices");
-        oglUploadDrawableVertices(vbo, vertices);
+        oglUploadSharedVertexBuffer(vertices);
     }
 
-    void uploadDrawableDeform(uint dbo, Vec2Array deform) {
-        auto profile = profileScope("UploadDeform");
-        oglUploadDrawableDeform(dbo, deform);
+    void uploadSharedUvBuffer(Vec2Array uvs) {
+        auto profile = profileScope("UploadUV");
+        oglUploadSharedUvBuffer(uvs);
+    }
+
+    void uploadSharedDeformBuffer(Vec2Array deform) {
+        auto profile = profileScope("UploadDeformAtlas");
+        oglUploadSharedDeformBuffer(deform);
     }
 
     void drawDrawableElements(uint ibo, size_t indexCount) {
         oglDrawDrawableElements(ibo, indexCount);
-    }
-
-    uint createPartUvBuffer() {
-        return oglCreatePartUvBuffer();
-    }
-
-    void updatePartUvBuffer(uint buffer, ref MeshData data) {
-        oglUpdatePartUvBuffer(buffer, data);
     }
 
     bool supportsAdvancedBlend() {

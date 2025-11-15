@@ -20,6 +20,7 @@ import nijilive.fmt;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.shared_deform_buffer;
 version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
 import std.exception;
 import std.algorithm.mutation : copy;
@@ -104,15 +105,9 @@ enum TextureUsage : size_t {
 @TypeId("Part")
 class Part : Drawable {
 private:    
-    uint uvbo;
-
     void updateUVs() {
-        version(InDoesRender) {
-            auto backend = puppet ? puppet.renderBackend : currentRenderBackend();
-            if (backend is null) return;
-            if (uvbo == 0) uvbo = backend.createPartUvBuffer();
-            backend.updatePartUvBuffer(uvbo, data);
-        }
+        sharedUvResize(data.uvs, data.uvs.length);
+        sharedUvMarkDirty();
     }
 
 protected:
@@ -133,13 +128,6 @@ protected:
     */
     this(MeshData data, uint uuid, Node parent = null) {
         super(data, uuid, parent);
-
-        version(InDoesRender) {
-            auto backend = puppet ? puppet.renderBackend : currentRenderBackend();
-            if (backend !is null) {
-                uvbo = backend.createPartUvBuffer();
-            }
-        }
 
         this.updateUVs();
     }
@@ -403,12 +391,7 @@ public:
     this(Node parent = null) {
         super(parent);
         
-        version(InDoesRender) {
-            auto backend = currentRenderBackend();
-            if (backend !is null) {
-                uvbo = backend.createPartUvBuffer();
-            }
-        }
+        this.updateUVs();
     }
 
     /**
@@ -419,13 +402,6 @@ public:
         foreach(i; 0..TextureUsage.COUNT) {
             if (i >= textures.length) break;
             this.textures[i] = textures[i];
-        }
-
-        version(InDoesRender) {
-            auto backend = puppet ? puppet.renderBackend : currentRenderBackend();
-            if (backend !is null) {
-                uvbo = backend.createPartUvBuffer();
-            }
         }
 
         this.updateUVs();
@@ -687,9 +663,12 @@ public:
         packet.clampedScreen = clampedScreen;
         packet.textures = textures.dup;
         packet.origin = data.origin;
-        packet.vertexBuffer = vbo;
-        packet.uvBuffer = uvbo;
-        packet.deformBuffer = dbo;
+        packet.vertexOffset = vertexSliceOffset;
+        packet.vertexAtlasStride = sharedVertexAtlasStride();
+        packet.uvOffset = uvSliceOffset;
+        packet.uvAtlasStride = sharedUvAtlasStride();
+        packet.deformOffset = deformSliceOffset;
+        packet.deformAtlasStride = sharedDeformAtlasStride();
         packet.indexBuffer = ibo;
         packet.indexCount = cast(uint)data.indices.length;
         packet.vertexCount = cast(uint)data.vertices.length;

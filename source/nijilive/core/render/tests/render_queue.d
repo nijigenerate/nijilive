@@ -81,17 +81,14 @@ class RecordingBackend : RenderingBackendStub!(BackendEnum.Mock) {
     override void postProcessScene() {}
     override void initializeDrawableResources() {}
     override void bindDrawableVao() {}
-    override void createDrawableBuffers(out uint vbo, out uint ibo, out uint dbo) {
-        vbo = ++nextHandle;
+    override void createDrawableBuffers(out uint ibo) {
         ibo = ++nextHandle;
-        dbo = ++nextHandle;
     }
     override void uploadDrawableIndices(uint ibo, ushort[] indices) {}
-    override void uploadDrawableVertices(uint vbo, Vec2Array vertices) {}
-    override void uploadDrawableDeform(uint dbo, Vec2Array deform) {}
+    override void uploadSharedVertexBuffer(Vec2Array vertices) {}
+    override void uploadSharedUvBuffer(Vec2Array uvs) {}
+    override void uploadSharedDeformBuffer(Vec2Array deform) {}
     override void drawDrawableElements(uint ibo, size_t indexCount) {}
-    override uint createPartUvBuffer() { return ++nextHandle; }
-    override void updatePartUvBuffer(uint buffer, ref MeshData data) {}
     override bool supportsAdvancedBlend() { return false; }
     override bool supportsAdvancedBlendCoherent() { return false; }
     override void setAdvancedBlendCoherent(bool) {}

@@ -9,6 +9,9 @@ import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.backends.opengl.part : oglExecutePartPacket;
 import nijilive.core.shader : Shader;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
+import nijilive.core.render.backends.opengl.drawable_buffers :
+    oglGetSharedDeformBuffer,
+    oglGetSharedVertexBuffer;
 
 private __gshared Shader maskShader;
 private __gshared GLint maskOffsetUniform;
@@ -55,28 +58,37 @@ void oglExecuteMaskPacket(ref MaskDrawPacket packet) {
     maskShader.setUniform(maskOffsetUniform, packet.origin);
     maskShader.setUniform(maskMvpUniform, packet.mvp);
 
-    if (packet.vertexCount == 0) return;
-    auto laneBytes = cast(ptrdiff_t)packet.vertexCount * float.sizeof;
+    if (packet.vertexCount == 0 || packet.vertexAtlasStride == 0 || packet.deformAtlasStride == 0) return;
+    auto sharedVbo = oglGetSharedVertexBuffer();
+    auto sharedDbo = oglGetSharedDeformBuffer();
+    if (sharedVbo == 0 || sharedDbo == 0) return;
+    auto vertexOffsetBytes = cast(ptrdiff_t)packet.vertexOffset * float.sizeof;
+    auto vertexStrideBytes = cast(ptrdiff_t)packet.vertexAtlasStride * float.sizeof;
+    auto vertexLane1Offset = vertexStrideBytes + vertexOffsetBytes;
+    auto deformOffsetBytes = cast(ptrdiff_t)packet.deformOffset * float.sizeof;
+    auto deformStrideBytes = cast(ptrdiff_t)packet.deformAtlasStride * float.sizeof;
+    auto deformLane1Offset = deformStrideBytes + deformOffsetBytes;
 
     glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, packet.vertexBuffer);
-    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, sharedVbo);
+    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)vertexOffsetBytes);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, packet.vertexBuffer);
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+    glBindBuffer(GL_ARRAY_BUFFER, sharedVbo);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)vertexLane1Offset);
 
     glEnableVertexAttribArray(2);
-    glBindBuffer(GL_ARRAY_BUFFER, packet.deformBuffer);
-    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, sharedDbo);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)deformOffsetBytes);
 
     glEnableVertexAttribArray(3);
-    glBindBuffer(GL_ARRAY_BUFFER, packet.deformBuffer);
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+    glBindBuffer(GL_ARRAY_BUFFER, sharedDbo);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)deformLane1Offset);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, packet.indexBuffer);
     glDrawElements(GL_TRIANGLES, cast(int)packet.indexCount, GL_UNSIGNED_SHORT, null);
-    markBufferInUse(packet.deformBuffer);
+    markBufferInUse(sharedVbo);
+    markBufferInUse(sharedDbo);
 
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);

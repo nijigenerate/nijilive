@@ -23,11 +23,13 @@ import nijilive.core.render.backends.opengl.runtime :
     oglGetBlendBump,
     oglSwapMainCompositeBuffers;
 import nijilive.core.render.backends.opengl.blend : oglGetBlendShader, oglBlendToBuffer;
-import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
-import nijilive.math : mat4, vec2;
-import nijilive.core.render.backends.opengl.soa_upload : glUploadFloatVecArray;
+import nijilive.math : mat4;
+import nijilive.core.render.backends.opengl.drawable_buffers :
+    oglGetSharedDeformBuffer,
+    oglGetSharedVertexBuffer,
+    oglGetSharedUvBuffer;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
 
 package(nijilive) {
@@ -55,9 +57,6 @@ package(nijilive) {
     __gshared GLint gs2ScreenColor;
     __gshared GLint mmvp;
     __gshared GLint mthreshold;
-    __gshared GLuint sVertexBuffer;
-    __gshared GLuint sUVBuffer;
-    __gshared GLuint sElementBuffer;
     __gshared bool partBackendInitialized = false;
 }
 
@@ -108,20 +107,6 @@ void oglInitPartBackendResources() {
     mmvp = partMaskShader.getUniformLocation("mvp");
     mthreshold = partMaskShader.getUniformLocation("threshold");
 
-    glGenBuffers(1, &sVertexBuffer);
-    glGenBuffers(1, &sUVBuffer);
-    glGenBuffers(1, &sElementBuffer);
-}
-
-uint oglCreatePartUvBuffer() {
-    uint buffer;
-    glGenBuffers(1, &buffer);
-    return buffer;
-}
-
-void oglUpdatePartUvBuffer(uint uvbo, ref MeshData data) {
-    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-    glUploadFloatVecArray(uvbo, data.uvs, GL_STATIC_DRAW, "UploadUV");
 }
 
 void oglDrawPartPacket(ref PartDrawPacket packet) {
@@ -290,43 +275,58 @@ private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix,
 }
 
 private void renderStage(ref PartDrawPacket packet, bool advanced) {
-    auto vbo = packet.vertexBuffer;
-    auto uvbo = packet.uvBuffer;
-    auto dbo = packet.deformBuffer;
     auto ibo = packet.indexBuffer;
     auto indexCount = packet.indexCount;
 
-    if (!vbo || !uvbo || !dbo || !ibo || indexCount == 0 || packet.vertexCount == 0) return;
+    if (!ibo || indexCount == 0 || packet.vertexCount == 0) return;
+    if (packet.vertexAtlasStride == 0 || packet.uvAtlasStride == 0 || packet.deformAtlasStride == 0) return;
 
-    auto laneBytes = cast(ptrdiff_t)packet.vertexCount * float.sizeof;
+    auto vertexBuffer = oglGetSharedVertexBuffer();
+    auto uvBuffer = oglGetSharedUvBuffer();
+    auto deformBuffer = oglGetSharedDeformBuffer();
+    if (vertexBuffer == 0 || uvBuffer == 0 || deformBuffer == 0) return;
+
+    auto vertexOffsetBytes = cast(ptrdiff_t)packet.vertexOffset * float.sizeof;
+    auto uvOffsetBytes = cast(ptrdiff_t)packet.uvOffset * float.sizeof;
+    auto deformOffsetBytes = cast(ptrdiff_t)packet.deformOffset * float.sizeof;
+
+    auto vertexStrideBytes = cast(ptrdiff_t)packet.vertexAtlasStride * float.sizeof;
+    auto uvStrideBytes = cast(ptrdiff_t)packet.uvAtlasStride * float.sizeof;
+    auto deformStrideBytes = cast(ptrdiff_t)packet.deformAtlasStride * float.sizeof;
+
+    auto vertexLane1Offset = vertexStrideBytes + vertexOffsetBytes;
+    auto uvLane1Offset = uvStrideBytes + uvOffsetBytes;
+    auto deformLane1Offset = deformStrideBytes + deformOffsetBytes;
 
     glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)vertexOffsetBytes);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)vertexLane1Offset);
 
     glEnableVertexAttribArray(2);
-    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, uvBuffer);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)uvOffsetBytes);
 
     glEnableVertexAttribArray(3);
-    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+    glBindBuffer(GL_ARRAY_BUFFER, uvBuffer);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)uvLane1Offset);
 
     glEnableVertexAttribArray(4);
-    glBindBuffer(GL_ARRAY_BUFFER, dbo);
-    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, deformBuffer);
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)deformOffsetBytes);
 
     glEnableVertexAttribArray(5);
-    glBindBuffer(GL_ARRAY_BUFFER, dbo);
-    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
+    glBindBuffer(GL_ARRAY_BUFFER, deformBuffer);
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)deformLane1Offset);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
     glDrawElements(GL_TRIANGLES, cast(int)indexCount, GL_UNSIGNED_SHORT, null);
-    markBufferInUse(dbo);
+    markBufferInUse(vertexBuffer);
+    markBufferInUse(uvBuffer);
+    markBufferInUse(deformBuffer);
 
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
@@ -343,11 +343,8 @@ private void renderStage(ref PartDrawPacket packet, bool advanced) {
 } else {
 
 import nijilive.core.render.commands : PartDrawPacket;
-import nijilive.core.meshdata : MeshData;
 
 void oglInitPartBackendResources() {}
-uint oglCreatePartUvBuffer() { return 0; }
-void oglUpdatePartUvBuffer(uint, ref MeshData) {}
 void oglDrawPartPacket(ref PartDrawPacket) {}
 void oglExecutePartPacket(ref PartDrawPacket) {}
 

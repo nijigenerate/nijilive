@@ -9,7 +9,23 @@ import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.texture : Texture;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.render.backends.opengl.part : partShader, gopacity, gMultColor,
-    gScreenColor, mvp, offset, sVertexBuffer, sUVBuffer, sElementBuffer;
+    gScreenColor, mvp, offset;
+
+private __gshared GLuint quadVertexBuffer;
+private __gshared GLuint quadUvBuffer;
+private __gshared GLuint quadElementBuffer;
+
+private void ensureQuadBuffers() {
+    if (quadVertexBuffer == 0) {
+        glGenBuffers(1, &quadVertexBuffer);
+    }
+    if (quadUvBuffer == 0) {
+        glGenBuffers(1, &quadUvBuffer);
+    }
+    if (quadElementBuffer == 0) {
+        glGenBuffers(1, &quadElementBuffer);
+    }
+}
 
 void oglDrawTextureAtPart(Texture texture, Part part) {
     if (texture is null || part is null) return;
@@ -18,6 +34,7 @@ void oglDrawTextureAtPart(Texture texture, Part part) {
     const float texHeightP = texture.height()/2;
 
     incDrawableBindVAO();
+    ensureQuadBuffers();
 
     mat4 modelMatrix = part.immediateModelMatrix();
     mat4 puppetMatrix = (!part.ignorePuppet && part.puppet !is null)
@@ -51,21 +68,21 @@ void oglDrawTextureAtPart(Texture texture, Part part) {
     auto laneBytes = cast(ptrdiff_t)vertexCount * float.sizeof;
 
     glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, vertexSoa.length * float.sizeof, vertexSoa.ptr, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVertexBuffer);
     glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
 
     glEnableVertexAttribArray(2);
-    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadUvBuffer);
     glBufferData(GL_ARRAY_BUFFER, uvSoa.length * float.sizeof, uvSoa.ptr, GL_STATIC_DRAW);
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(3);
-    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadUvBuffer);
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
 
     glDisableVertexAttribArray(4);
@@ -73,7 +90,7 @@ void oglDrawTextureAtPart(Texture texture, Part part) {
     glDisableVertexAttribArray(5);
     glVertexAttrib1f(5, 0);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, quadElementBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
         0u, 1u, 2u,
         2u, 1u, 3u
@@ -105,6 +122,7 @@ void oglDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1
     if (texture is null) return;
 
     incDrawableBindVAO();
+    ensureQuadBuffers();
 
     if (!s) s = partShader;
     if (!cam) cam = inGetCamera();
@@ -137,21 +155,21 @@ void oglDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1
     auto laneBytes = cast(ptrdiff_t)vertexCount * float.sizeof;
 
     glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, vertexSoa.length * float.sizeof, vertexSoa.ptr, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVertexBuffer);
     glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
 
     glEnableVertexAttribArray(2);
-    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadUvBuffer);
     glBufferData(GL_ARRAY_BUFFER, uvSoa.length * float.sizeof, uvSoa.ptr, GL_STATIC_DRAW);
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)0);
 
     glEnableVertexAttribArray(3);
-    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quadUvBuffer);
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)laneBytes);
 
     glDisableVertexAttribArray(4);
@@ -159,7 +177,7 @@ void oglDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1
     glDisableVertexAttribArray(5);
     glVertexAttrib1f(5, 0);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, quadElementBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
         0u, 1u, 2u,
         2u, 1u, 3u
