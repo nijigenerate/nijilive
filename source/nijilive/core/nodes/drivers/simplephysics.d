@@ -17,6 +17,7 @@ import nijilive.fmt;
 import nijilive.core.dbg;
 //import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.scheduler : RenderContext;
 import std.conv : text;
 import std.math : isFinite, isNaN, fabs;
 import nijilive.phys;
@@ -601,8 +602,8 @@ public:
     }
 
     override
-    protected void runBeginTask() {
-        super.runBeginTask();
+    protected void runBeginTask(ref RenderContext ctx) {
+        super.runBeginTask(ctx);
         offsetGravity = 1;
         offsetLength = 0;
         offsetFrequency = 1;

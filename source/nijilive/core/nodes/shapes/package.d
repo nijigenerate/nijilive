@@ -13,6 +13,7 @@ import nijilive.core.nodes.part;
 import nijilive.core.nodes;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.scheduler : RenderContext;
 
 /**
     A Shape Node
@@ -51,6 +52,7 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        requireDynamicTask();
     }
 
     /**
@@ -102,8 +104,8 @@ public:
     }
 
     override
-    protected void runDynamicTask() {
+    protected void runDynamicTask(ref RenderContext ctx) {
         processShapes();
-        super.runDynamicTask();
+        super.runDynamicTask(ctx);
     }
 }

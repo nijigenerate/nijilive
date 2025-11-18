@@ -24,6 +24,7 @@ import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
 version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
 import nijilive.core.render.shared_deform_buffer;
+import nijilive.core.render.scheduler : RenderContext;
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
 
 package(nijilive) {
@@ -404,11 +405,11 @@ public:
     vec4 bounds;
 
     override
-    protected void runBeginTask() {
+    protected void runBeginTask(ref RenderContext ctx) {
         weldingApplied.clear();
         foreach (link; welded)
             weldingApplied[link.target] = false;
-        super.runBeginTask();
+        super.runBeginTask(ctx);
     }
 
     /**

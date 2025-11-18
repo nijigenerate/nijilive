@@ -12,6 +12,7 @@ module nijilive.core.nodes.drivers;
 import nijilive.core.nodes.common;
 //import nijilive.core.nodes;
 import nijilive.core;
+import nijilive.core.render.scheduler : RenderContext;
 public import nijilive.core.nodes.drivers.simplephysics;
 
 /**
@@ -32,8 +33,8 @@ protected:
 
 public:
     override
-    protected void runBeginTask() {
-        super.runBeginTask();
+    protected void runBeginTask(ref RenderContext ctx) {
+        super.runBeginTask(ctx);
     }
 
     Parameter[] getAffectedParameters() {

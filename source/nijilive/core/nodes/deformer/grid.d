@@ -54,6 +54,7 @@ public:
 
     this(Node parent = null) {
         super(parent);
+        requirePreProcessTask();
         axisX = DefaultAxis.dup;
         axisY = DefaultAxis.dup;
         setGridAxes(axisX, axisY);
@@ -90,8 +91,8 @@ public:
     string typeId() { return "GridDeformer"; }
 
     override
-    protected void runPreProcessTask() {
-        super.runPreProcessTask();
+    protected void runPreProcessTask(ref RenderContext ctx) {
+        super.runPreProcessTask(ctx);
         localTransform.update();
         transform();
         inverseMatrix = globalTransform.matrix.inverse;
@@ -158,7 +159,7 @@ public:
     }
 
     override
-    protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(ref RenderContext ctx) {
         // GridDeformer does not emit GPU commands.
     }
 

@@ -105,6 +105,10 @@ enum TextureUsage : size_t {
 @TypeId("Part")
 class Part : Drawable {
 private:    
+    void initPartTasks() {
+        requireRenderTask();
+    }
+
     void updateUVs() {
         sharedUvResize(data.uvs, data.uvs.length);
         sharedUvMarkDirty();
@@ -128,6 +132,7 @@ protected:
     */
     this(MeshData data, uint uuid, Node parent = null) {
         super(data, uuid, parent);
+        initPartTasks();
 
         this.updateUVs();
     }
@@ -390,6 +395,7 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        initPartTasks();
         
         this.updateUVs();
     }
@@ -399,6 +405,7 @@ public:
     */
     this(MeshData data, Texture[] textures, uint uuid, Node parent = null) {
         super(data, uuid, parent);
+        initPartTasks();
         foreach(i; 0..TextureUsage.COUNT) {
             if (i >= textures.length) break;
             this.textures[i] = textures[i];
@@ -541,13 +548,13 @@ public:
     }
 
     override
-    protected void runBeginTask() {
+    protected void runBeginTask(ref RenderContext ctx) {
         offsetMaskThreshold = 0;
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
         offsetEmissionStrength = 1;
-        super.runBeginTask();
+        super.runBeginTask(ctx);
     }
     
     override
@@ -595,7 +602,7 @@ public:
     }
 
     override
-    protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(ref RenderContext ctx) {
         enqueueRenderCommands(ctx);
     }
 

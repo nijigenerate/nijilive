@@ -430,15 +430,15 @@ public:
     }
 
     override
-    protected void runBeginTask() {
+    protected void runBeginTask(ref RenderContext ctx) {
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
-        super.runBeginTask();
+        super.runBeginTask(ctx);
     }
 
     override
-    protected void runRenderBeginTask(RenderContext ctx) {
+    protected void runRenderBeginTask(ref RenderContext ctx) {
         if (!renderEnabled() || ctx.renderGraph is null) return;
         if (delegated) {
             delegated.delegatedRunRenderBeginTask(ctx);
@@ -472,14 +472,14 @@ public:
     }
 
     override
-    protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(ref RenderContext ctx) {
         if (delegated) {
             delegated.delegatedRunRenderTask(ctx);
         }
     }
 
     override
-    protected void runRenderEndTask(RenderContext ctx) {
+    protected void runRenderEndTask(ref RenderContext ctx) {
         if (ctx.renderGraph is null) return;
         if (delegated) {
             delegated.delegatedRunRenderEndTask(ctx);
@@ -496,15 +496,15 @@ public:
     void registerRenderTasks(TaskScheduler scheduler) {
         if (scheduler is null) return;
 
-        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
-        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
-        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
-        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
-        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
-        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
-        scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
-        scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
-        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, &runBeginTask);
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, &runPreProcessTask);
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, &runDynamicTask);
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, &runPostTask0);
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, &runPostTask1);
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, &runPostTask2);
+        scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, &runRenderBeginTask);
+        scheduler.addTask(TaskOrder.Render, TaskKind.Render, &runRenderTask);
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, &runFinalTask);
 
         if (delegated !is null) {
             delegated.registerDelegatedTasks(scheduler);
@@ -520,7 +520,7 @@ public:
             child.registerRenderTasks(scheduler);
         }
 
-        scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
+        scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, &runRenderEndTask);
     }
 
     override

@@ -34,6 +34,26 @@ import nijilive.core.render.scheduler;
 import std.string;
 import std.math : isFinite;
 
+private enum NodeTaskFlag : uint {
+    None        = 0,
+    PreProcess  = 1 << 0,
+    Dynamic     = 1 << 1,
+    Post0       = 1 << 2,
+    Post1       = 1 << 3,
+    Post2       = 1 << 4,
+    RenderBegin = 1 << 5,
+    Render      = 1 << 6,
+    RenderEnd   = 1 << 7,
+}
+
+private NodeTaskFlag opBinary(string op)(NodeTaskFlag lhs, NodeTaskFlag rhs)
+if (op == "|" || op == "&") {
+    static if (op == "|")
+        return cast(NodeTaskFlag)(cast(uint)lhs | cast(uint)rhs);
+    else
+        return cast(NodeTaskFlag)(cast(uint)lhs & cast(uint)rhs);
+}
+
 // Flags to control which Node properties get serialized
 enum SerializeNodeFlags : uint {
     None        = 0,
@@ -229,6 +249,36 @@ protected:
     alias Filter = Tuple!(int, Tuple!(Vec2Array, mat4*, bool) delegate(Node, Vec2Array, Vec2Array, mat4*));
     Filter[] preProcessFilters;
     Filter[] postProcessFilters;
+    NodeTaskFlag taskFlags = NodeTaskFlag.None;
+
+    protected void requirePreProcessTask() {
+        taskFlags |= NodeTaskFlag.PreProcess;
+    }
+
+    protected void requireDynamicTask() {
+        taskFlags |= NodeTaskFlag.Dynamic;
+    }
+
+    protected void requirePostTask(size_t stage) {
+        switch (stage) {
+            case 0: taskFlags |= NodeTaskFlag.Post0; break;
+            case 1: taskFlags |= NodeTaskFlag.Post1; break;
+            case 2: taskFlags |= NodeTaskFlag.Post2; break;
+            default: break;
+        }
+    }
+
+    protected void requireRenderBeginTask() {
+        taskFlags |= NodeTaskFlag.RenderBegin;
+    }
+
+    protected void requireRenderTask() {
+        taskFlags |= NodeTaskFlag.Render;
+    }
+
+    protected void requireRenderEndTask() {
+        taskFlags |= NodeTaskFlag.RenderEnd;
+    }
 
 //    import std.stdio;
     void preProcess() {
@@ -854,7 +904,7 @@ public:
         }
     }
 
-    protected void runBeginTask() {
+    protected void runBeginTask(ref RenderContext ctx) {
         preProcessed  = false;
         postProcessed = -1;
         changed = false;
@@ -869,44 +919,73 @@ public:
     /**
         Updates the node
     */
-    protected void runPreProcessTask() {
+    protected void runPreProcessTask(ref RenderContext ctx) {
         preProcess();
     }
 
-    protected void runDynamicTask() {
+    protected void runDynamicTask(ref RenderContext ctx) {
     }
 
-    protected void runPostTask(int id) {
-        postProcess(id);
+    protected void runPostTaskImpl(size_t priority, ref RenderContext ctx) {
+        postProcess(cast(int)priority);
     }
 
-    protected void runFinalTask() {
+    void runPostTask0(ref RenderContext ctx) { runPostTaskImpl(0, ctx); }
+    void runPostTask1(ref RenderContext ctx) { runPostTaskImpl(1, ctx); }
+    void runPostTask2(ref RenderContext ctx) { runPostTaskImpl(2, ctx); }
+
+    protected void runFinalTask(ref RenderContext ctx) {
         postProcess(-1);
         flushNotifyChange();
     }
 
-    protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(ref RenderContext ctx) {
         // 基底ノードは直接描画しない。描画が必要なノードは個別にオーバーライドして
         // RenderQueue へコマンドを積む。
     }
 
-    protected void runRenderBeginTask(RenderContext ctx) {
+    protected void runRenderBeginTask(ref RenderContext ctx) {
     }
 
-    protected void runRenderEndTask(RenderContext ctx) {
+    protected void runRenderEndTask(ref RenderContext ctx) {
     }
 
     void registerRenderTasks(TaskScheduler scheduler) {
         if (scheduler is null) return;
-        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
-        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
-        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
-        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
-        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
-        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
-        scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
-        scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
-        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, &runBeginTask);
+
+        auto hasFlag = (NodeTaskFlag flag) => (cast(bool)(taskFlags & flag));
+        bool needPreProcess = (preProcessFilters.length > 0) || hasFlag(NodeTaskFlag.PreProcess);
+        bool needDynamic = hasFlag(NodeTaskFlag.Dynamic);
+        bool[3] needPost;
+        foreach (filter; postProcessFilters) {
+            auto stage = filter[0];
+            if (stage >= 0 && stage < 3) {
+                needPost[stage] = true;
+            }
+        }
+        if (hasFlag(NodeTaskFlag.Post0)) needPost[0] = true;
+        if (hasFlag(NodeTaskFlag.Post1)) needPost[1] = true;
+        if (hasFlag(NodeTaskFlag.Post2)) needPost[2] = true;
+        bool needRenderBegin = hasFlag(NodeTaskFlag.RenderBegin);
+        bool needRender = hasFlag(NodeTaskFlag.Render);
+        bool needRenderEnd = hasFlag(NodeTaskFlag.RenderEnd);
+
+        if (needPreProcess)
+            scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, &runPreProcessTask);
+        if (needDynamic)
+            scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, &runDynamicTask);
+        if (needPost[0])
+            scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, &runPostTask0);
+        if (needPost[1])
+            scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, &runPostTask1);
+        if (needPost[2])
+            scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, &runPostTask2);
+        if (needRenderBegin)
+            scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, &runRenderBeginTask);
+        if (needRender)
+            scheduler.addTask(TaskOrder.Render, TaskKind.Render, &runRenderTask);
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, &runFinalTask);
 
         auto orderedChildren = children.dup;
         if (orderedChildren.length > 1) {
@@ -918,7 +997,8 @@ public:
             child.registerRenderTasks(scheduler);
         }
 
-        scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
+        if (needRenderEnd)
+            scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, &runRenderEndTask);
     }
 
     protected RenderScopeHint determineRenderScopeHint() {

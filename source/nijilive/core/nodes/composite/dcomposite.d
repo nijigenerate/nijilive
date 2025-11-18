@@ -199,7 +199,7 @@ protected:
         return pass;
     }
 
-    void renderNestedOffscreen(RenderContext ctx) {
+    void renderNestedOffscreen(ref RenderContext ctx) {
         dynamicRenderBegin(ctx);
         dynamicRenderEnd(ctx);
     }
@@ -460,14 +460,14 @@ public:
     }
 
     override
-    protected void runDynamicTask() {
+    protected void runDynamicTask(ref RenderContext ctx) {
         if (autoResizedMesh) {
             if (shouldUpdateVertices) {
                 shouldUpdateVertices = false;
             }
             if (createSimpleMesh()) initialized = false;
         } else {
-            super.runDynamicTask();
+            super.runDynamicTask(ctx);
         }
     }
 
@@ -554,20 +554,20 @@ public:
     void registerRenderTasks(TaskScheduler scheduler) {
         if (scheduler is null) return;
 
-        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
-        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
-        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
-        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
-        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
-        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, &runBeginTask);
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, &runPreProcessTask);
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, &runDynamicTask);
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, &runPostTask0);
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, &runPostTask1);
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, &runPostTask2);
 
         bool allowRenderTasks = !hasDynamicCompositeAncestor();
         if (allowRenderTasks) {
-            scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, (ref RenderContext ctx) { runRenderBeginTask(ctx); });
-            scheduler.addTask(TaskOrder.Render, TaskKind.Render, (ref RenderContext ctx) { runRenderTask(ctx); });
+            scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, &runRenderBeginTask);
+            scheduler.addTask(TaskOrder.Render, TaskKind.Render, &runRenderTask);
         }
 
-        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, &runFinalTask);
 
         auto orderedChildren = children.dup;
         if (orderedChildren.length > 1) {
@@ -580,11 +580,11 @@ public:
         }
 
         if (allowRenderTasks) {
-            scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, (ref RenderContext ctx) { runRenderEndTask(ctx); });
+            scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, &runRenderEndTask);
         }
     }
 
-    private void dynamicRenderBegin(RenderContext ctx) {
+    private void dynamicRenderBegin(ref RenderContext ctx) {
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
@@ -637,7 +637,7 @@ public:
 
     }
 
-    private void dynamicRenderEnd(RenderContext ctx) {
+    private void dynamicRenderEnd(ref RenderContext ctx) {
         if (ctx.renderGraph is null) return;
         bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
@@ -685,16 +685,16 @@ public:
     }
 
     package(nijilive)
-    void delegatedRunRenderBeginTask(RenderContext ctx) {
+    void delegatedRunRenderBeginTask(ref RenderContext ctx) {
         dynamicRenderBegin(ctx);
     }
 
     package(nijilive)
-    void delegatedRunRenderTask(RenderContext ctx) {
+    void delegatedRunRenderTask(ref RenderContext ctx) {
     }
 
     package(nijilive)
-    void delegatedRunRenderEndTask(RenderContext ctx) {
+    void delegatedRunRenderEndTask(ref RenderContext ctx) {
         dynamicRenderEnd(ctx);
     }
 
@@ -702,26 +702,26 @@ public:
     void registerDelegatedTasks(TaskScheduler scheduler) {
         if (scheduler is null) return;
 
-        scheduler.addTask(TaskOrder.Init, TaskKind.Init, (ref RenderContext ctx) { runBeginTask(); });
-        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, (ref RenderContext ctx) { runPreProcessTask(); });
-        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, (ref RenderContext ctx) { runDynamicTask(); });
-        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(0); });
-        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(1); });
-        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, (ref RenderContext ctx) { runPostTask(2); });
-        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, (ref RenderContext ctx) { runFinalTask(); });
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, &runBeginTask);
+        scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, &runPreProcessTask);
+        scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, &runDynamicTask);
+        scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, &runPostTask0);
+        scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, &runPostTask1);
+        scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, &runPostTask2);
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, &runFinalTask);
     }
 
     override
-    protected void runRenderBeginTask(RenderContext ctx) {
+    protected void runRenderBeginTask(ref RenderContext ctx) {
         dynamicRenderBegin(ctx);
     }
 
     override
-    protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(ref RenderContext ctx) {
     }
 
     override
-    protected void runRenderEndTask(RenderContext ctx) {
+    protected void runRenderEndTask(ref RenderContext ctx) {
         dynamicRenderEnd(ctx);
     }
 

@@ -12,6 +12,7 @@ import nijilive.core.nodes.utils;
 import nijilive.core.param;
 import std.exception;
 import std.string: format;
+import nijilive.core.render.scheduler : RenderContext;
 //import std.stdio;
 
 /**
@@ -27,11 +28,19 @@ private {
 }
 @TypeId("Deformable")
 abstract class Deformable : Node {
+private:
+    void initDeformableTasks() {
+        requirePreProcessTask();
+        requirePostTask(0);
+    }
+
+protected:
     /**
         Constructs a new drawable surface
     */
     this(Node parent = null) {
         super(parent);
+        initDeformableTasks();
         // Create deformation stack
         this.deformStack = DeformationStack(this);
         this.deformation.length = 0;
@@ -39,6 +48,7 @@ abstract class Deformable : Node {
 
     this(uint uuid, Node parent = null) {
         super(uuid, parent);
+        initDeformableTasks();
         // Create deformation stack
         this.deformStack = DeformationStack(this);
         this.deformation.length = 0;
@@ -85,29 +95,29 @@ public:
     }
 
     override
-    protected void runBeginTask() {
+    protected void runBeginTask(ref RenderContext ctx) {
         deformStack.preUpdate();
         overrideTransformMatrix = null;
-        super.runBeginTask();
+        super.runBeginTask(ctx);
     }
 
     /**
         Updates the drawable
     */
     override
-    protected void runPreProcessTask() {
-        super.runPreProcessTask();
+    protected void runPreProcessTask(ref RenderContext ctx) {
+        super.runPreProcessTask(ctx);
         deformStack.update();
     }
 
     override
-    protected void runDynamicTask() {
-        super.runDynamicTask();
+    protected void runDynamicTask(ref RenderContext ctx) {
+        super.runDynamicTask(ctx);
     }
 
     override
-    protected void runPostTask(int id) {
-        super.runPostTask(id);
+    protected void runPostTaskImpl(size_t priority, ref RenderContext ctx) {
+        super.runPostTaskImpl(priority, ctx);
         updateDeform();
     }
 

@@ -18,6 +18,7 @@ import std.math : sqrt, isNaN, isFinite, fabs;
 import std.algorithm;
 import std.array;
 import std.range;
+import nijilive.core.render.scheduler : RenderContext;
 import std.typecons;
 import std.format : formattedWrite;
 import nijilive.core;
@@ -713,6 +714,7 @@ public:
 
     this(Node parent = null, CurveType curveType = CurveType.Spline) {
         super(parent);
+        requirePreProcessTask();
         this.curveType = curveType;
         originalCurve = createCurve(Vec2Array());
         deformedCurve = createCurve(Vec2Array());
@@ -785,7 +787,7 @@ public:
     }
 
     override
-    protected void runPreProcessTask() {
+    protected void runPreProcessTask(ref RenderContext ctx) {
         // Child filters consume inverseMatrix during super.runPreProcessTask();
         // ensure it reflects this frame's transform before they run.
         if (diagnosticsFrameActive) {
@@ -800,7 +802,7 @@ public:
         }
         refreshInverseMatrix("runPreProcessTask:initial");
         auto origDeform = deformation.dup;
-        super.runPreProcessTask();
+        super.runPreProcessTask(ctx);
         applyPathDeform(origDeform);
         if (diagnosticsStarted) {
             endDiagnosticFrame();
@@ -808,8 +810,8 @@ public:
     }
 
     override
-    protected void runDynamicTask() {
-        super.runDynamicTask();
+    protected void runDynamicTask(ref RenderContext ctx) {
+        super.runDynamicTask(ctx);
     }
 
     private void applyPathDeform(const Vec2Array origDeform) {
@@ -989,7 +991,7 @@ public:
     }
 
     override
-    protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(ref RenderContext ctx) {
         // PathDeformer does not enqueue GPU work.
     }
 

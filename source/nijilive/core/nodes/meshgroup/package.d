@@ -25,6 +25,7 @@ import nijilive.core.render.scheduler : RenderContext;
 import std.typecons: tuple, Tuple;
 //import std.stdio;
 import nijilive.core.nodes.utils;
+import nijilive.core.render.scheduler : RenderContext;
 import std.algorithm.searching;
 import std.algorithm;
 import std.algorithm.iteration : uniq;
@@ -86,6 +87,7 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        requirePreProcessTask();
     }
 
     Tuple!(Vec2Array, mat4*, bool) filterChildren(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
@@ -179,8 +181,8 @@ public:
         A list of the shape offsets to apply per part
     */
     override
-    protected void runPreProcessTask() {
-        super.runPreProcessTask();
+    protected void runPreProcessTask(ref RenderContext ctx) {
+        super.runPreProcessTask(ctx);
         if (data.indices.length == 0) {
             return;
         }
@@ -209,7 +211,7 @@ public:
     }
 
     override
-    protected void runRenderTask(RenderContext ctx) {
+    protected void runRenderTask(ref RenderContext ctx) {
         // MeshGroup does not issue GPU commands; downstream Parts handle drawing.
     }
 
