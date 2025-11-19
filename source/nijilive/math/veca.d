@@ -4,7 +4,10 @@ import std.math : approxEqual;
 import std.traits : isFloatingPoint, isIntegral, Unqual;
 import mir.ndslice.slice : sliced;
 import inmath.linalg : Vector;
+import core.memory : GC;
 import core.simd;
+
+enum simdAlignment = 16;
 
 /// Struct-of-arrays storage for vector data of size `N`.
 struct veca(T, size_t N)
@@ -31,7 +34,19 @@ private:
         }
     }
 
-    void allocateBacking(size_t len) {
+    T[] snap(size_t totalElements) @trusted {
+        enum size_t mask = simdAlignment - 1;
+        auto bytes = totalElements * T.sizeof + mask;
+        auto rawMem = cast(ubyte*)GC.malloc(bytes, GC.BlkAttr.NO_SCAN);
+        assert(rawMem !is null, "Failed to allocate veca backing buffer");
+        auto alignedAddr = (cast(size_t)rawMem + mask) & ~mask;
+        auto result = cast(T*)alignedAddr;
+        auto slice = result[0 .. totalElements];
+        slice[] = T.init;
+        return slice;
+    }
+
+    void allocateBacking(size_t len) @trusted {
         if (len == 0) {
             backing.length = 0;
             logicalLength = 0;
@@ -42,20 +57,25 @@ private:
             rebindLanes();
             return;
         }
-        auto newBacking = new T[len * N];
+        auto oldBacking = backing;
+        auto oldStride = laneStride ? laneStride : logicalLength;
+        auto oldBase = laneBase;
+        auto oldLength = logicalLength;
+
+        const size_t totalElements = len * N;
+        auto newBacking = snap(totalElements);
         size_t copyLen = 0;
         static if (N) {
-            if (logicalLength && len) {
-                copyLen = logicalLength < len ? logicalLength : len;
+            if (oldLength && len) {
+                copyLen = oldLength < len ? oldLength : len;
             }
         }
-        if (copyLen && backing.length) {
+        if (copyLen && oldBacking.length) {
             foreach (laneIdx; 0 .. N) {
                 auto dstStart = laneIdx * len;
-                auto srcStride = laneStride ? laneStride : logicalLength;
-                auto srcStart = laneIdx * srcStride + laneBase;
+                auto srcStart = laneIdx * oldStride + oldBase;
                 newBacking[dstStart .. dstStart + copyLen] =
-                    backing[srcStart .. srcStart + copyLen];
+                    oldBacking[srcStart .. srcStart + copyLen];
             }
         }
         backing = newBacking;
@@ -162,21 +182,23 @@ public:
         assert(length == rhs.length, "Mismatched vector lengths");
         foreach (i; 0 .. N) {
             static if (isSIMDCompatible!T) {
-                auto dst = lanes[i];
-                auto src = rhs.lanes[i];
-                applySIMD!(op)(dst, src);
-            } else {
-                auto dst = lanes[i].sliced;
-                auto src = rhs.lanes[i].sliced;
-                static if (op == "+")
-                    dst[] += src[];
-                else static if (op == "-")
-                    dst[] -= src[];
-                else static if (op == "*")
-                    dst[] *= src[];
-                else
-                    dst[] /= src[];
+                auto dstLane = lanes[i];
+                auto srcLane = rhs.lanes[i];
+                if (canApplySIMD(dstLane, srcLane)) {
+                    applySIMD!(op)(dstLane, srcLane);
+                    continue;
+                }
             }
+            auto dstSlice = lanes[i].sliced;
+            auto srcSlice = rhs.lanes[i].sliced;
+            static if (op == "+")
+                dstSlice[] += srcSlice[];
+            else static if (op == "-")
+                dstSlice[] -= srcSlice[];
+            else static if (op == "*")
+                dstSlice[] *= srcSlice[];
+            else
+                dstSlice[] /= srcSlice[];
         }
     }
 
@@ -558,6 +580,19 @@ private bool isSIMDCompatible(T)() {
         return true;
     else
         return false;
+}
+
+private bool canApplySIMD(T)(const T[] dst, const T[] src) {
+    if (dst.length != src.length) {
+        return false;
+    }
+    if (dst.length == 0) {
+        return true;
+    }
+    enum mask = simdAlignment - 1;
+    auto dstPtr = cast(size_t)dst.ptr;
+    auto srcPtr = cast(size_t)src.ptr;
+    return ((dstPtr | srcPtr) & mask) == 0;
 }
 
 private @trusted void applySIMD(string op, T)(ref T[] dst, const T[] src)

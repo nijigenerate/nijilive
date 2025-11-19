@@ -4,6 +4,8 @@ import core.simd;
 
 alias FloatSimd = __vector(float[4]);
 enum size_t simdWidth = FloatSimd.sizeof / float.sizeof;
+enum size_t floatSimdAlignment = FloatSimd.alignof ? FloatSimd.alignof : FloatSimd.sizeof;
+enum size_t floatSimdMask = floatSimdAlignment - 1;
 
 union SimdRepr {
     FloatSimd vec;
@@ -17,9 +19,22 @@ FloatSimd splatSimd(float value) @trusted {
 }
 
 FloatSimd loadVec(const float[] data, size_t index) @trusted {
-    return *cast(FloatSimd*)(data.ptr + index);
+    auto ptr = data.ptr + index;
+    if (((cast(size_t)ptr) & floatSimdMask) == 0) {
+        return *cast(FloatSimd*)ptr;
+    }
+    SimdRepr repr;
+    repr.scalars[] = data[index .. index + simdWidth];
+    return repr.vec;
 }
 
 void storeVec(float[] data, size_t index, FloatSimd value) @trusted {
-    *cast(FloatSimd*)(data.ptr + index) = value;
+    auto ptr = data.ptr + index;
+    if (((cast(size_t)ptr) & floatSimdMask) == 0) {
+        *cast(FloatSimd*)ptr = value;
+        return;
+    }
+    SimdRepr repr;
+    repr.vec = value;
+    data[index .. index + simdWidth] = repr.scalars[];
 }
