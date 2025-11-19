@@ -262,3 +262,122 @@ sequenceDiagram
   - 将来的に複数 Backend 実装（OpenGL / Vulkan 等）が共通インターフェースで状態を共有できるようにするための足場。
 
 これにより、ドキュメント上でも RenderQueue → RenderBackend の役割分担と、状態管理の流れを追うことができる。
+
+---
+
+## 7. フレーム間再利用レイヤー（2025-11 追記）
+
+> **Status:** ブランチ `refactor/rendering-soa2` にて実装済み。  
+> **目的:** TaskScheduler / RenderQueue の処理順や DFS の特性を維持したまま、同一内容のフレームで不要な再構築やメモリアロケーションを省くこと。
+
+ここまでのセクションで説明したタスク登録／RenderQueue スコープの流れは従来通りである。再利用レイヤーは「どのフレームでそれを実行する必要があるか」を決めているに過ぎない。
+
+### 7.1 NotifyReason による変化トラッキング
+
+- すべての `Node.notifyChange` は親へ伝搬する前に必ず所属する `Puppet` を呼び出し、`NotifyReason` を記録させる。
+- Puppet 側では 1 フレームにつき 2 つのフラグを持つ:
+  - `structureDirty`: ツリー構造やマスク構成が変わった場合、または `forceFullRebuild` が指定された場合に立つ。
+  - `attributeDirty`: パラメータ値・ドライバ出力・Transform など属性の変化で立つ（`StructureChanged` でも同時に立つ）。
+- `Puppet.update()` はフレーム冒頭で `consumeFrameChanges()` を呼び、フラグを読み出してからリセットする。
+
+### 7.2 TaskScheduler キャッシュ
+
+- 初回フレーム、または `structureDirty` が立っているフレームだけ `rebuildRenderTasks()` を実行する。
+  1. TaskScheduler の全キューをクリア。
+  2. `rootNode.registerRenderTasks` を従来と同じ手順で呼ぶ。
+  3. Puppet 側で `TaskOrder.Parameters` に `updateParametersAndDrivers` を呼ぶデリゲートを差し込む。
+- 構造が変わっていない場合は TaskScheduler を再登録せず、前フレームのキュー内容をそのまま再利用できる。
+
+### 7.3 Init + Parameters ステージの常時実行
+
+- フレームを再構築するかどうかに関わらず、毎フレーム `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)` を 1 回実行する。
+- これにより `runBeginTask`（変形スタックやフィルタ状態のリセット）が必ずパラメータ更新より先に走る。従来の「Init → Parameters → …」順序を崩さずに再利用を行える。
+- このステージの実行中に構造変化が発生した場合は即座に `structureDirty` が立つため、後段で再登録される。
+
+### 7.4 RenderGraph / RenderQueue のコマンド再利用
+
+- `renderGraph.takeCommands()` で得た Root pass の `RenderCommandData[]` を `cachedCommands` として保持し、`cachedCommandsValid` が true の間は再利用を許す。
+- Init+Parameters 後に `structureDirty` も `attributeDirty` も立っていなければ、`TaskOrder.PreProcess` 以降の実行をスキップし、`renderQueue.setCommands(cachedCommands, false)` で前回のコマンド列を流用する。
+- いずれかのフラグが立っている場合は通常どおり残りの TaskOrder を実行し、`renderGraph.beginFrame()` → `takeCommands()` の結果を新しい `cachedCommands` として保存する。
+
+### 7.5 1 フレームの処理フロー（再利用時）
+
+1. `forceFullRebuild` または `structureDirty` なら TaskScheduler を再登録。
+2. 必ず Init + Parameters 順で実行（変形スタックをリセット → パラメータ／ドライバを適用）。
+3. この時点で構造変化が検出されたらもう一度 1 に戻って再登録。
+4. Attribute も Structure も変化していなければ render フェーズをスキップし、キャッシュ済みコマンドを RenderQueue に積んでフラッシュする。
+5. 変化があれば render フェーズを実行し、新しいコマンド列をキャッシュする。
+
+---
+
+## 8. Struct-of-Arrays ベースの共有ジオメトリアトラス
+
+以前は Part / Deformable ごとに個別の VBO をアップロードしていたが、現在は `Vec*Array` を利用した共有アトラスへ移行し、1 フレームにつき頂点／UV／変形バッファをそれぞれ 1 回だけアップロードしている。
+
+### 8.1 Vec*Array の概要
+
+- `nijilive.math.veca` で定義される `Vec2Array` / `Vec3Array` / `Vec4Array` は成分ごとに連続したレーンを持つ Struct-of-Arrays 形式のバッファ。
+- `lane(0)`, `lane(1)` などで各成分へのポインタを取得でき、高速なバルクコピーや SIMD 最適化がしやすい。
+- `bindExternalStorage(storage, offset, length)` により、既存の `Vec*Array` を別の連続メモリ（共有アトラス）へ再バインドできる。
+
+### 8.2 SharedVecAtlas と登録処理
+
+- `nijilive.core.render.shared_deform_buffer` には `deformAtlas`, `vertexAtlas`, `uvAtlas` の 3 つの `SharedVecAtlas` がある。
+- それぞれが `Vec2Array*` とドローコマンド用のオフセット書き込み先を記録し、以下のライフサイクルで動作する:
+  1. `Drawable` のコンストラクタで `sharedDeformRegister` / `sharedVertexRegister` / `sharedUvRegister` を呼び、各 `Vec2Array` とオフセット格納先ポインタを渡す。
+  2. アトラスは登録済み配列の合計長を計算し、必要なサイズの新しい `Vec2Array` を確保して lane 単位でコピーする。
+  3. 各ノードの `Vec2Array` には `bindExternalStorage` で共有メモリを再バインドし、描画パケットに書き込むスライスオフセットも更新する。
+- 配列長が変わった場合は `shared*Resize` が再配置をトリガーし、破棄時には `shared*Unregister` で登録解除する。
+
+### 8.3 PartDrawPacket への反映
+
+- `RenderCommandData.partPacket` には `vertexOffset`, `vertexAtlasStride`, `uvOffset`, `uvAtlasStride`, `deformOffset`, `deformAtlasStride` が含まれ、共有アトラス内の位置を示す。
+- Drawable はアトラスが書き戻した `vertexSliceOffset` などの値をそのままパケットに設定するだけでよく、アトラスが再構築されない限り再計算は不要。
+
+### 8.4 RenderQueue.flush でのアップロード
+
+- `RenderQueue.flush` 冒頭で `sharedVertexBufferDirty()` などを確認し、dirty なアトラスだけをまとめてアップロードする。
+- Backend (OpenGL 実装など) は属性ごとに 1 つの GL バッファを持ち、`glUploadFloatVecArray(sharedBuffer, atlasData, ...)` を 1 回呼ぶだけで全 Drawable の頂点や UV を更新できる。
+- 共有アトラスなので flush 中にバインドや `glBufferData` を繰り返す必要がなく、`DrawPartPacket` ごとに VBO を切り替えるコストが消える。
+
+### 8.5 ダーティフラグとの連携
+
+- Drawable が `Vec2Array` の内容を直接書き換えた場合（物理シミュレーション、ウェルド、メッシュ編集など）は `shared*MarkDirty()` を呼ぶだけでよい。長さが変わらない限りアトラスの再配置は不要。
+- セクション 7 のフレーム再利用と組み合わせると、ジオメトリも GPU コマンドも変化がないフレームでは一切のアップロードを行わないで済む。
+
+---
+
+## 9. フレーム間再利用レイヤー（詳細版）
+
+高レベルの考え方は §7 にまとめたが、実装上の細部をもう少し噛み砕いて整理しておく。
+
+### 9.1 変化検出の基本
+
+- `Node.notifyChange` → `Puppet.recordNodeChange(reason)` の順で呼ばれ、`structureDirty` / `attributeDirty` の 2 ビットに分類される。
+- `StructureChanged` は両方のビットを立て、それ以外（`AttributeChanged`, `Transformed`, `Initialized`）は `attributeDirty` のみを立てる。
+- `consumeFrameChanges()` がフラグを読み出してクリアする唯一の場所で、以降の処理はこの返り値だけを見て再利用可否を判断する。
+
+### 9.2 TaskScheduler の再利用条件
+
+- `forceFullRebuild` / `structureDirty` / `schedulerCacheValid == false` のいずれかの場合のみ `rebuildRenderTasks()` を実行する。
+- 再登録後は `schedulerCacheValid = true` となり、構造が変わらない限り次のフレームもそのまま使われる。
+
+### 9.3 Init + Parameters の強制実行
+
+- `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)` をフレームごとに必ず呼び、`runBeginTask` と `updateParametersAndDrivers` をセットで動かす。
+- ここで構造変更が起きた場合は `structureDirty` が再び立つため、続く処理で即座に再登録が走る。
+
+### 9.4 Render フェーズとコマンドキャッシュ
+
+- `cachedCommandsValid` が true で、かつ `attributeDirty` も `structureDirty` も false の場合は Render フェーズ（PreProcess 以降）をスキップする。
+- どちらかのフラグが true なら Render フェーズを通常通り実行し、`renderGraph.beginFrame()` → `takeCommands()` で新しい `cachedCommands` を作成する。
+
+### 9.5 リビルドループ
+
+1. 構造変化を確認し、必要なら TaskScheduler を再登録。
+2. Init + Parameters を実行して変形スタックとパラメータを同期。
+3. ここで構造変化が起きたら 1 に戻る。
+4. 最終的な `FrameChangeState` を基に Render フェーズを実行するかどうか判断し、必要ならコマンド列を更新。
+5. `cachedCommandsValid` が true なら RenderQueue にセットし、そうでなければ `clear()` する。
+
+この詳細版を参照すれば、変更検知 → スケジューラ再利用 → RenderGraph 再利用の流れを実装レベルで追える。

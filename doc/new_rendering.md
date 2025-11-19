@@ -239,3 +239,147 @@ From the RenderQueue’s perspective, **flush simply calls these methods in sequ
   - Serves as a shared, API-agnostic state block so future backends (OpenGL, Vulkan, etc.) can reuse the same interface.
 
 With this addition, the documentation now covers the RenderQueue → RenderBackend handoff and the shared state management that underpins it.
+
+---
+
+## 7. Frame-to-Frame Reuse Layer (2025-11 addendum)
+
+The runtime now has a reuse layer that keeps TaskScheduler/RenderQueue behaviour exactly as documented above, while avoiding per-frame rebuilds when no nodes changed. This section only appends details; nothing earlier is removed or summarised.
+
+### 7.1 Change Tracking (`NotifyReason`)
+
+- Every `Node.notifyChange` also calls `puppet.recordNodeChange(reason)`.
+- `Puppet` tracks two booleans per frame:  
+  - `structureDirty` → triggered by `NotifyReason.StructureChanged` or forced rebuilds  
+  - `attributeDirty` → triggered by `AttributeChanged`, `Transformed`, `Initialized`
+- `consumeFrameChanges()` returns the accumulated flags and clears them for the next frame.
+
+### 7.2 TaskScheduler Cache
+
+- Task queues are rebuilt only when `forceFullRebuild` or `structureDirty` is set.  
+  `rebuildRenderTasks()` clears queues, runs `rootNode.registerRenderTasks`, and injects the puppet-level `TaskOrder.Parameters` delegate that wraps `updateParametersAndDrivers`.
+- Otherwise the previous queue contents remain valid and no DFS walk is performed.
+
+### 7.3 Execution Order Preservation
+
+- Even if we plan to reuse the render commands, each frame still runs `TaskOrder.Init` and `TaskOrder.Parameters` by calling `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)`.  
+  This guarantees that deformable nodes reset their stacks (`runBeginTask`) before parameters and drivers push new deformations, exactly as before.
+- If executing these stages introduces a structural change (for example, a driver toggles masks), the scheduler immediately rebuilds and reruns the Init+Parameters range before proceeding.
+
+### 7.4 RenderGraph / RenderQueue Reuse
+
+- The flattened command buffer returned by `renderGraph.takeCommands()` is cached as `cachedCommands`.  
+  `cachedCommandsValid` is cleared whenever `attributeDirty` or `structureDirty` is seen.
+- If neither flag is set after Init+Parameters, the renderer skips `TaskOrder.PreProcess … Final` and feeds the cached commands back via `renderQueue.setCommands(cachedCommands, false)` before `flush()`.
+- Otherwise it executes the remaining TaskOrders, calls `renderGraph.beginFrame()`, and captures a new command buffer for reuse on the next frame.
+
+### 7.5 Per-Frame Summary With Reuse
+
+1. (Optional) Rebuild TaskScheduler queues when structure changed.  
+2. Always run Init + Parameters stages (deformation reset + parameter updates).  
+3. Rebuild again if those stages introduced new structural edits.  
+4. If any attribute/structure change occurred, run the remaining TaskOrders and rebuild RenderGraph.  
+5. Feed either the new or cached `RenderCommandData[]` into RenderQueue and flush to the backend.
+
+This addendum ensures the documentation reflects the current implementation while keeping the original sections untouched, so the full rendering pipeline remains easy to follow.
+
+---
+
+## 8. Struct-of-Arrays Geometry Atlases (Vec*Array + shared buffers)
+
+Earlier versions uploaded a separate VBO per Part/Deformable whenever vertices, UVs, or deformation deltas changed. The current implementation replaces that per-object upload storm with three shared atlases backed by the `Vec*Array` Struct-of-Arrays storage. This section documents how the system works in practice.
+
+### 8.1 Vec*Array Recap
+
+- `nijilive.math.veca` defines `Vec2Array`, `Vec3Array`, and `Vec4Array` as fixed-lane Struct-of-Arrays buffers.  
+  Internally they store contiguous “lanes” (`lane(0)`, `lane(1)`, …) for each component, which makes SIMD-friendly bulk copies possible.
+- Each `Vec*Array` instance can `bindExternalStorage(storage, offset, length)`, meaning multiple logical arrays can share slices of one backing buffer without additional allocations.
+- Geometry-heavy nodes (e.g. `Drawable`/`Deformable`) keep their vertex, UV, and deformation data in `Vec2Array` fields, so these can be re-bound to shared storage without changing higher-level code.
+
+### 8.2 SharedVecAtlas and Registration
+
+- `nijilive.core.render.shared_deform_buffer` defines three atlases (`deformAtlas`, `vertexAtlas`, `uvAtlas`).  
+  Each atlas tracks a list of `Vec2Array*` bindings plus the pointer to the GPU packet field that needs the final offset.
+- Lifecycle:
+  1. `Drawable` constructors call `sharedDeformRegister`, `sharedVertexRegister`, and `sharedUvRegister`, passing each local `Vec2Array` and a pointer to `deformSliceOffset` / `vertexSliceOffset` / `uvSliceOffset`.
+  2. The atlas rebuilds a single contiguous storage block sized to the sum of all registered lengths, copies existing data into the new layout (SoA lane copy), and calls `bindExternalStorage` so every node’s array views the shared memory.
+  3. Whenever vertices/UVs/deforms change length, `shared*Resize` triggers another rebuild. Destructors invoke `shared*Unregister` to remove the entry.
+- The atlas emits:
+  - `shared*BufferData()` → the packed `Vec2Array` storage for the backend.
+  - `shared*AtlasStride()` → total element count (used during packet construction).
+  - Dirty flags (`shared*BufferDirty`, `shared*MarkDirty`, `shared*MarkUploaded`) to gate GPU uploads.
+
+### 8.3 PartDrawPacket Offsets
+
+- `RenderCommandData.partPacket` now contains `vertexOffset`, `vertexAtlasStride`, `uvOffset`, `uvAtlasStride`, `deformOffset`, and `deformAtlasStride`.  
+  These fields point into the shared atlases instead of per-part buffers.
+- During packet construction each Drawable uses the offsets that the atlas wrote into `vertexSliceOffset` / `uvSliceOffset` / `deformSliceOffset`.  
+  As long as the atlas does not rebuild, those offsets remain valid and no per-frame pointer fix-up is necessary.
+
+### 8.4 RenderQueue.flush Upload Path
+
+- At the start of `RenderQueue.flush`, the queue checks `sharedVertexBufferDirty`, `sharedUvBufferDirty`, and `sharedDeformBufferDirty`.  
+  For each dirty atlas, it retrieves the packed `Vec2Array`, calls the backend’s `uploadShared*Buffer` functions once, and then marks the atlas as uploaded.
+- Backend implementations (e.g. `opengl/drawable_buffers.d`) own a single GL buffer per attribute:
+  - Created lazily via `glGenBuffers`.
+  - Updated with `glUploadFloatVecArray(sharedBuffer, atlasData, GL_DYNAMIC_DRAW, "Upload*")`, which understands the SoA layout.
+- Because every drawable references offsets inside the same buffer, the backend binds these shared VBOs exactly once per flush instead of per drawable.
+
+### 8.5 Dirty Tracking Integration
+
+- Whenever a drawable mutates its `Vec2Array` (e.g. `Deformable.updateVertices`, welding, physics), it calls `shared*MarkDirty`.  
+  The atlas does not need to rebuild unless the length changes, so most edits are in-place writes to the shared memory.
+- The reuse-layer from Section 7 is compatible with the atlas system: if no node touched its geometry, the dirty flags stay false and `RenderQueue.flush` skips the GPU uploads entirely, giving two layers of work avoidance (CPU-side command reuse plus GPU buffer reuse).
+
+This atlas-based Struct-of-Arrays design is what enables the “single glBindBuffer/glBufferData per frame” behaviour discussed during the refactor, and should be kept in sync with any future changes to Vec*Array or RenderCommandData.
+
+---
+
+## 9. Frame-to-Frame Reuse Layer (detailed breakdown)
+
+> **Status:** Implemented in branch `refactor/rendering-soa2` (2025-11).  
+> **Goal:** keep the DFS/TaskScheduler/RenderQueue flow intact while avoiding per-frame allocations when no node changed.
+
+All sections above still describe the exact order in which tasks and RenderQueue scopes execute. The reuse layer simply decides **when we have to rebuild those structures**.
+
+### 9.1 Change Tracking Basics
+
+- Every `Node.notifyChange` now notifies the owning `Puppet` before bubbling up, passing through the original `NotifyReason`.
+- The puppet records two booleans per frame: `structureDirty` (tree mutations, mask list edits, etc.) and `attributeDirty`
+  (parameter edits, driver output, transforms). `NotifyReason.StructureChanged` flips both bits; every other reason flips `attributeDirty`.
+- `Puppet.update()` calls `consumeFrameChanges()` to read and clear the flags.  
+  A pending `forceFullRebuild` (e.g. after loading a puppet) also sets both bits.
+
+### 9.2 TaskScheduler Cache
+
+- On the first frame, or whenever `structureDirty` is seen, `rebuildRenderTasks()`:
+  1. Clears TaskScheduler queues.
+  2. Runs the usual `rootNode.registerRenderTasks`.
+  3. Injects the puppet-level `TaskOrder.Parameters` entry that wraps `updateParametersAndDrivers`.
+- When no structural change happened, the previously built queues stay intact and no DFS walk is needed.
+
+### 9.3 Guaranteed Init + Parameter Stage
+
+- Regardless of cache state, each frame runs `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)` once.
+- This preserves the original behaviour where `runBeginTask` (deformation stack reset, filter state reset, notification deferral) always runs **before**
+  parameters and drivers push new values into deform stacks.
+- Because this stage runs unconditionally, deformation parameters work the same even when the later render stages are skipped.
+
+### 9.4 Render Phases and Command Cache
+
+- The flattened `RenderCommandData[]` produced by `renderGraph.takeCommands()` is stored as `cachedCommands`.
+- If neither `structureDirty` nor `attributeDirty` triggered on the current frame, the render phases (`TaskOrder.PreProcess` … `Final`) are skipped;
+  the existing `cachedCommands` array is fed directly to `renderQueue.setCommands(cachedCommands, false)` and flushed.
+- When `attributeDirty` is set, the scheduler executes the remaining TaskOrders, `renderGraph.beginFrame()` rebuilds the pass stack,
+  and `cachedCommands` is replaced with the fresh command array.
+
+### 9.5 Rebuild Loop
+
+Putting everything together:
+
+1. **Maybe rebuild tasks** — if `forceFullRebuild` or `structureDirty`, re-register the node tree.
+2. **Always run Init + Parameters** — ensures deformation stacks see the injected parameter values.
+3. **Consume change flags** — if a new structure change surfaced during step 2 (e.g. drivers toggled masks), rebuild again.
+4. **Decide whether to reuse render commands** — if no Attribute/Structure change happened after step 3, reuse the cached command buffer; otherwise rebuild RenderGraph and capture a new buffer.
+
+This layer lets the renderer skip redundant allocations and GL buffer uploads on the many frames where user input/automation leaves the node tree unchanged, without compromising the deterministic ordering and scope rules described earlier in this document.
