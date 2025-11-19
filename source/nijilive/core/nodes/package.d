@@ -1288,6 +1288,9 @@ public:
 
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
         if (target == this) changed = true;
+        if (auto pup = puppet()) {
+            pup.recordNodeChange(reason);
+        }
         if (changeDeferred) {
             changePooled ~= ChangeRecord(target, reason);
         } else {

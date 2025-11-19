@@ -13,6 +13,8 @@ import nijilive.core.render.queue;
 import nijilive.core.render.graph_builder;
 import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
 import nijilive.core.runtime_state : currentRenderBackend;
+import nijilive.core.render.commands : RenderCommandData;
+import nijilive.core.nodes : NotifyReason;
 
 alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 import nijilive.core.render.scheduler;
@@ -245,6 +247,31 @@ private:
     package(nijilive) RenderBackend renderBackend;
     TaskScheduler renderScheduler;
     RenderContext renderContext;
+    struct FrameChangeState {
+        bool attributeDirty;
+        bool structureDirty;
+
+        bool any() const { return attributeDirty || structureDirty; }
+
+        void mark(NotifyReason reason) {
+            final switch (reason) {
+                case NotifyReason.StructureChanged:
+                    structureDirty = true;
+                    attributeDirty = true;
+                    break;
+                case NotifyReason.AttributeChanged:
+                case NotifyReason.Initialized:
+                case NotifyReason.Transformed:
+                    attributeDirty = true;
+                    break;
+            }
+        }
+    }
+    FrameChangeState pendingFrameChanges;
+    bool schedulerCacheValid = false;
+    bool cachedCommandsValid = false;
+    bool forceFullRebuild = true;
+    RenderCommandData[] cachedCommands;
 
     void scanPartsRecurse(ref Node node, bool driversOnly = false) {
 
@@ -314,6 +341,50 @@ private:
         sort!((a, b) => a.zSort > b.zSort, SwapStrategy.stable)(rootParts);
     }
 
+    FrameChangeState consumeFrameChanges() {
+        auto flags = pendingFrameChanges;
+        if (forceFullRebuild) {
+            flags.structureDirty = true;
+            flags.attributeDirty = true;
+            forceFullRebuild = false;
+        }
+        pendingFrameChanges = FrameChangeState.init;
+        return flags;
+    }
+
+    void rebuildRenderTasks(Node rootNode) {
+        if (rootNode is null) return;
+        renderScheduler.clearTasks();
+        rootNode.registerRenderTasks(renderScheduler);
+        auto rootForTasks = rootNode;
+        renderScheduler.addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
+            updateParametersAndDrivers(rootForTasks);
+        });
+        schedulerCacheValid = true;
+    }
+
+    void updateParametersAndDrivers(Node rootNode) {
+        if (rootNode is null) return;
+        auto profiling = profileScope("Puppet.Update.Parameters");
+        if (renderParameters) {
+            foreach(parameter; parameters) {
+                if (!enableDrivers || parameter !in drivenParameters) {
+                    parameter.update();
+                }
+            }
+        }
+
+        rootNode.transformChanged();
+
+        if (renderParameters && enableDrivers) {
+            foreach (driver; drivers) {
+                if (driver is null) continue;
+                if (!driver.renderEnabled()) continue;
+                driver.updateDriver();
+            }
+        }
+    }
+
     Node findNode(Node n, string name) {
 
         // Name matches!
@@ -343,6 +414,14 @@ private:
     }
 package(nijilive):
     Node getPuppetRootNode() { return puppetRootNode; }
+    void recordNodeChange(NotifyReason reason) {
+        pendingFrameChanges.mark(reason);
+    }
+    void requestFullRenderRebuild() {
+        forceFullRebuild = true;
+        cachedCommandsValid = false;
+        schedulerCacheValid = false;
+    }
 
 public:
     /**
@@ -426,6 +505,7 @@ public:
         renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
+        requestFullRenderRebuild();
     }
 
     /**
@@ -448,6 +528,7 @@ public:
         renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
+        requestFullRenderRebuild();
     }
 
     Node actualRoot() {
@@ -478,48 +559,55 @@ public:
         auto rootNode = actualRoot();
         if (rootNode is null) return;
 
+        renderContext.renderQueue = &renderQueue;
+        renderContext.renderGraph = &renderGraph;
+        renderContext.renderBackend = renderBackend;
+        renderContext.gpuState = RenderGpuState.init;
+
+        bool pendingStructure = pendingFrameChanges.structureDirty;
+        if (forceFullRebuild || !schedulerCacheValid || pendingStructure) {
+            rebuildRenderTasks(rootNode);
+        }
+
         {
-            auto profiling = profileScope("Puppet.Update.Setup");
-            renderContext.renderQueue = &renderQueue;
-            renderContext.renderGraph = &renderGraph;
-            renderContext.renderBackend = renderBackend;
-            renderContext.gpuState = RenderGpuState.init;
+            auto profilingInit = profileScope("Puppet.Update.InitAndParameters");
+            renderScheduler.executeRange(renderContext, TaskOrder.Init, TaskOrder.Parameters);
+        }
+
+        auto frameChanges = consumeFrameChanges();
+        if (frameChanges.structureDirty) {
+            rebuildRenderTasks(rootNode);
+            {
+                auto profilingInit = profileScope("Puppet.Update.InitAndParameters");
+                renderScheduler.executeRange(renderContext, TaskOrder.Init, TaskOrder.Parameters);
+            }
+            auto additional = consumeFrameChanges();
+            frameChanges.attributeDirty |= additional.attributeDirty;
+            frameChanges.structureDirty |= additional.structureDirty;
+        }
+
+        bool needExecute = !cachedCommandsValid || frameChanges.any();
+
+        if (needExecute) {
+            auto profilingSetup = profileScope("Puppet.Update.Setup");
             renderGraph.beginFrame();
-            renderScheduler.clearTasks();
-            rootNode.registerRenderTasks(renderScheduler);
-        }
 
-        auto rootForTasks = rootNode;
-        renderScheduler.addTask(TaskOrder.Parameters, TaskKind.Parameters, (ref RenderContext ctx) {
-            auto profiling = profileScope("Puppet.Update.Parameters");
-            if (renderParameters) {
-                foreach(parameter; parameters) {
-                    if (!enableDrivers || parameter !in drivenParameters) {
-                        parameter.update();
-                    }
-                }
+            {
+                auto profilingExecute = profileScope("Puppet.Update.ExecuteTasks");
+                renderScheduler.executeRange(renderContext, TaskOrder.PreProcess, TaskOrder.Final);
             }
 
-            rootForTasks.transformChanged();
-
-            if (renderParameters && enableDrivers) {
-                foreach (driver; drivers) {
-                    if (driver is null) continue;
-                    if (!driver.renderEnabled()) continue;
-                    driver.updateDriver();
-                }
+            {
+                auto profilingBuild = profileScope("Puppet.Update.BuildCommands");
+                cachedCommands = renderGraph.takeCommands();
+                cachedCommandsValid = true;
             }
-        });
-
-        {
-            auto profiling = profileScope("Puppet.Update.ExecuteTasks");
-            renderScheduler.execute(renderContext);
         }
 
-        {
-            auto profiling = profileScope("Puppet.Update.BuildCommands");
-            auto builtCommands = renderGraph.takeCommands();
-            renderQueue.setCommands(builtCommands);
+        if (cachedCommandsValid) {
+            renderQueue.setCommands(cachedCommands, false);
+        } else {
+            renderQueue.clear();
         }
     }
 

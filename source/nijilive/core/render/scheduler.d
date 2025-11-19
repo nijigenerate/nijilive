@@ -81,8 +81,10 @@ public:
         queues[order] ~= Task(order, kind, handler);
     }
 
-    void execute(ref RenderContext ctx) {
+    void executeRange(ref RenderContext ctx, TaskOrder startOrder, TaskOrder endOrder = TaskOrder.Final) {
         foreach (order; orderSequence) {
+            if (order < startOrder) continue;
+            if (order > endOrder) break;
             foreach (task; queues[order]) {
                 if (task.handler !is null) {
                     auto label = "Task." ~ order.to!string ~ "." ~ task.kind.to!string;
@@ -91,6 +93,10 @@ public:
                 }
             }
         }
+    }
+
+    void execute(ref RenderContext ctx) {
+        executeRange(ctx, TaskOrder.Init, TaskOrder.Final);
     }
 
 }

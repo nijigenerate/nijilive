@@ -30,8 +30,12 @@ public:
         return commands.length == 0;
     }
 
-    void setCommands(RenderCommandData[] prepared) {
-        commands = prepared.dup;
+    void setCommands(RenderCommandData[] prepared, bool copy = true) {
+        if (copy) {
+            commands = prepared.dup;
+        } else {
+            commands = prepared;
+        }
     }
 
     void appendCommands(RenderCommandData[] prepared) {
