@@ -1,4 +1,4 @@
-module nijilive.core.render.commands;
+﻿module nijilive.core.render.commands;
 
 import nijilive.core.nodes;
 import nijilive.core.nodes.part;
@@ -8,8 +8,9 @@ import nijilive.core.nodes.mask : Mask;
 import nijilive.math;
 import nijilive.core.texture : Texture;
 import nijilive.core.render.backends : RenderResourceHandle;
+import nijilive.core.render.passes : RenderPassKind;
 
-/// GPUコマンド種別。Backend 側で switch して処理する。
+/// GPU繧ｳ繝槭Φ繝臥ｨｮ蛻･縲・ackend 蛛ｴ縺ｧ switch 縺励※蜃ｦ逅・☆繧九・
 enum RenderCommandKind {
     DrawPart,
     DrawMask,
@@ -75,17 +76,6 @@ struct MaskApplyPacket {
     MaskDrawPacket maskPacket;
 }
 
-/// RenderQueue に積まれる汎用パケット。
-struct RenderCommandData {
-    RenderCommandKind kind;
-    PartDrawPacket partPacket;
-    MaskDrawPacket maskDrawPacket;
-    DynamicCompositePass dynamicCompositePass;
-    bool maskUsesStencil;
-    MaskApplyPacket maskPacket;
-    CompositeDrawPacket compositePacket;
-}
-
 struct CompositeDrawPacket {
     bool valid;
     float opacity;
@@ -117,41 +107,6 @@ PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {
     return packet;
 }
 
-RenderCommandData makeDrawPartCommand(PartDrawPacket packet) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.DrawPart;
-    data.partPacket = packet;
-    return data;
-}
-
-RenderCommandData makeDrawMaskCommand(MaskDrawPacket packet) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.DrawMask;
-    data.maskDrawPacket = packet;
-    return data;
-}
-
-RenderCommandData makeBeginDynamicCompositeCommand(DynamicCompositePass pass) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.BeginDynamicComposite;
-    data.dynamicCompositePass = pass;
-    return data;
-}
-
-RenderCommandData makeEndDynamicCompositeCommand(DynamicCompositePass pass) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.EndDynamicComposite;
-    data.dynamicCompositePass = pass;
-    return data;
-}
-
-RenderCommandData makeBeginMaskCommand(bool useStencil) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.BeginMask;
-    data.maskUsesStencil = useStencil;
-    return data;
-}
-
 MaskDrawPacket makeMaskDrawPacket(Mask mask) {
     MaskDrawPacket packet;
     if (mask !is null) {
@@ -177,25 +132,6 @@ bool tryMakeMaskApplyPacket(Drawable drawable, bool isDodge, out MaskApplyPacket
     return false;
 }
 
-RenderCommandData makeApplyMaskCommand(MaskApplyPacket packet) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.ApplyMask;
-    data.maskPacket = packet;
-    return data;
-}
-
-RenderCommandData makeBeginMaskContentCommand() {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.BeginMaskContent;
-    return data;
-}
-
-RenderCommandData makeEndMaskCommand() {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.EndMask;
-    return data;
-}
-
 CompositeDrawPacket makeCompositeDrawPacket(Composite composite) {
     CompositeDrawPacket packet;
     if (composite !is null) {
@@ -208,21 +144,7 @@ CompositeDrawPacket makeCompositeDrawPacket(Composite composite) {
     return packet;
 }
 
-RenderCommandData makeBeginCompositeCommand() {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.BeginComposite;
-    return data;
-}
 
-RenderCommandData makeDrawCompositeQuadCommand(CompositeDrawPacket packet) {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.DrawCompositeQuad;
-    data.compositePacket = packet;
-    return data;
-}
 
-RenderCommandData makeEndCompositeCommand() {
-    RenderCommandData data;
-    data.kind = RenderCommandKind.EndComposite;
-    return data;
-}
+
+

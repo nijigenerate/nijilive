@@ -20,7 +20,7 @@ import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvalua
     rpSetDifferenceEvaluationEnabled, rpDifferenceEvaluationEnabled,
     rpSetDifferenceEvaluationRegion, rpGetDifferenceEvaluationRegion,
     rpEvaluateDifference, rpFetchDifferenceResult;
-import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderResourceHandle;
+import nijilive.core.render.backends : RenderBackend, RenderResourceHandle;
 
 package(nijilive) int[] inViewportWidth;
 package(nijilive) int[] inViewportHeight;
@@ -28,11 +28,11 @@ package(nijilive) vec4 inClearColor = vec4(0, 0, 0, 0);
 package(nijilive) Camera[] inCamera;
 vec3 inSceneAmbientLight = vec3(1, 1, 1);
 
-private __gshared RenderingBackend!(BackendEnum.OpenGL) cachedRenderBackend;
+private __gshared RenderBackend cachedRenderBackend;
 
 private void ensureRenderBackend() {
     if (cachedRenderBackend is null) {
-        cachedRenderBackend = new RenderingBackend!(BackendEnum.OpenGL);
+        cachedRenderBackend = new RenderBackend();
     }
 }
 
@@ -173,18 +173,18 @@ void inGetClearColor(out float r, out float g, out float b, out float a) {
     a = inClearColor.a;
 }
 
-package(nijilive) RenderingBackend!(BackendEnum.OpenGL) tryRenderBackend() {
+package(nijilive) RenderBackend tryRenderBackend() {
     ensureRenderBackend();
     return cachedRenderBackend;
 }
 
-private RenderingBackend!(BackendEnum.OpenGL) requireRenderBackend() {
+private RenderBackend requireRenderBackend() {
     auto backend = tryRenderBackend();
     enforce(backend !is null, "RenderBackend is not available.");
     return backend;
 }
 
-package(nijilive) RenderingBackend!(BackendEnum.OpenGL) currentRenderBackend() {
+package(nijilive) RenderBackend currentRenderBackend() {
     return requireRenderBackend();
 }
 
@@ -192,7 +192,7 @@ alias GLuint = uint;
 
 version(InDoesRender) {
 
-    private RenderingBackend!(BackendEnum.OpenGL) renderBackendOrNull() {
+    private RenderBackend renderBackendOrNull() {
         return tryRenderBackend();
     }
 

@@ -9,14 +9,15 @@ import std.format;
 import std.file;
 import std.path : extension;
 import std.json;
-import nijilive.core.render.queue;
 import nijilive.core.render.graph_builder;
-import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderGpuState;
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
+import nijilive.core.render.backends : RenderBackend, BackendEnum, RenderGpuState, SelectedBackend, SelectedBackendIsOpenGL;
+static if (SelectedBackendIsOpenGL) {
+    import nijilive.core.render.backends.opengl.queue : RenderQueue;
+}
 import nijilive.core.runtime_state : currentRenderBackend;
-import nijilive.core.render.commands : RenderCommandData;
 import nijilive.core.nodes : NotifyReason;
 
-alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
 import nijilive.core.render.scheduler;
 import nijilive.core.render.profiler : profileScope;
 import nijilive.core.texture_types : Filtering;
@@ -242,7 +243,9 @@ private:
         A dictionary of named animations
     */
     Animation[string] animations;
-    RenderQueue renderQueue;
+    static if (SelectedBackendIsOpenGL) {
+        RenderCommandEmitter commandEmitter;
+    }
     RenderGraphBuilder renderGraph;
     package(nijilive) RenderBackend renderBackend;
     TaskScheduler renderScheduler;
@@ -269,9 +272,7 @@ private:
     }
     FrameChangeState pendingFrameChanges;
     bool schedulerCacheValid = false;
-    bool cachedCommandsValid = false;
     bool forceFullRebuild = true;
-    RenderCommandData[] cachedCommands;
 
     void scanPartsRecurse(ref Node node, bool driversOnly = false) {
 
@@ -419,7 +420,6 @@ package(nijilive):
     }
     void requestFullRenderRebuild() {
         forceFullRebuild = true;
-        cachedCommandsValid = false;
         schedulerCacheValid = false;
     }
 
@@ -497,11 +497,12 @@ public:
         root = new Node(this.puppetRootNode); 
         root.name = "Root";
         transform = Transform(vec3(0, 0, 0));
-        renderQueue = new RenderQueue();
+        static if (SelectedBackendIsOpenGL) {
+            commandEmitter = new RenderQueue();
+        }
         renderGraph = new RenderGraphBuilder();
         renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
-        renderContext.renderQueue = &renderQueue;
         renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
@@ -520,11 +521,12 @@ public:
         this.scanParts!true(this.root);
         transform = Transform(vec3(0, 0, 0));
         this.selfSort();
-        renderQueue = new RenderQueue();
+        static if (SelectedBackendIsOpenGL) {
+            commandEmitter = new RenderQueue();
+        }
         renderGraph = new RenderGraphBuilder();
         renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
-        renderContext.renderQueue = &renderQueue;
         renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
@@ -559,7 +561,6 @@ public:
         auto rootNode = actualRoot();
         if (rootNode is null) return;
 
-        renderContext.renderQueue = &renderQueue;
         renderContext.renderGraph = &renderGraph;
         renderContext.renderBackend = renderBackend;
         renderContext.gpuState = RenderGpuState.init;
@@ -586,28 +587,12 @@ public:
             frameChanges.structureDirty |= additional.structureDirty;
         }
 
-        bool needExecute = !cachedCommandsValid || frameChanges.any();
+        auto profilingSetup = profileScope("Puppet.Update.Setup");
+        renderGraph.beginFrame();
 
-        if (needExecute) {
-            auto profilingSetup = profileScope("Puppet.Update.Setup");
-            renderGraph.beginFrame();
-
-            {
-                auto profilingExecute = profileScope("Puppet.Update.ExecuteTasks");
-                renderScheduler.executeRange(renderContext, TaskOrder.PreProcess, TaskOrder.Final);
-            }
-
-            {
-                auto profilingBuild = profileScope("Puppet.Update.BuildCommands");
-                cachedCommands = renderGraph.takeCommands();
-                cachedCommandsValid = true;
-            }
-        }
-
-        if (cachedCommandsValid) {
-            renderQueue.setCommands(cachedCommands, false);
-        } else {
-            renderQueue.clear();
+        {
+            auto profilingExecute = profileScope("Puppet.Update.ExecuteTasks");
+            renderScheduler.executeRange(renderContext, TaskOrder.PreProcess, TaskOrder.Final);
         }
     }
 
@@ -662,16 +647,22 @@ public:
         Draws the puppet
     */
     final void draw() {
-        if (renderQueue is null || renderBackend is null || renderQueue.empty()) {
-            this.selfSort();
-            foreach(rootPart; rootParts) {
-                if (!rootPart.renderEnabled) continue;
-                rootPart.drawOne();
+        static if (SelectedBackendIsOpenGL) {
+            if (commandEmitter is null || renderBackend is null) {
+                drawImmediateFallback();
+                return;
             }
-            return;
-        }
+            if (renderGraph.empty()) {
+                drawImmediateFallback();
+                return;
+            }
 
-        renderQueue.flush(renderBackend, renderContext.gpuState);
+            commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
+            renderGraph.playback(commandEmitter);
+            commandEmitter.endFrame(renderBackend, renderContext.gpuState);
+        } else {
+            drawImmediateFallback();
+        }
         /*
         // debug
         foreach (c; findNodesType!Composite(actualRoot())) {
@@ -684,6 +675,14 @@ public:
                 d.drawBounds();
         }
         */
+    }
+
+    void drawImmediateFallback() {
+        this.selfSort();
+        foreach(rootPart; rootParts) {
+            if (!rootPart.renderEnabled) continue;
+            rootPart.drawOne();
+        }
     }
 
     /**

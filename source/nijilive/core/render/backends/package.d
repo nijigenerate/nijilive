@@ -36,6 +36,8 @@ class RenderTextureHandle : RenderBackendHandle { }
 
 enum BackendEnum {
     OpenGL,
+    DirectX12,
+    Vulkan,
     Mock,
 }
 
@@ -146,6 +148,18 @@ class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.O
     size_t textureNativeHandle(RenderTextureHandle texture) { return backendUnsupported!size_t(__FUNCTION__); }
 }
 */
+version (RenderBackendOpenGL) {
+    enum SelectedBackend = BackendEnum.OpenGL;
+} else version (RenderBackendDirectX12) {
+    enum SelectedBackend = BackendEnum.DirectX12;
+} else version (RenderBackendVulkan) {
+    enum SelectedBackend = BackendEnum.Vulkan;
+} else {
+    enum SelectedBackend = BackendEnum.OpenGL;
+}
+
+enum bool SelectedBackendIsOpenGL = SelectedBackend == BackendEnum.OpenGL;
+
 version (InDoesRender) {
     public import nijilive.core.render.backends.opengl;
 }
@@ -160,5 +174,4 @@ template RenderingBackend(BackendEnum backendType) {
     }
 }
 
-enum SelectedBackend = BackendEnum.OpenGL;
 alias RenderBackend = RenderingBackend!(SelectedBackend);

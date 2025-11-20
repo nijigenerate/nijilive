@@ -4,74 +4,19 @@ import std.algorithm.sorting : sort;
 import std.conv : to;
 import std.exception : enforce;
 
-import nijilive.core.render.commands;
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
+import nijilive.core.render.commands : DynamicCompositePass;
+import nijilive.core.render.passes : RenderPassKind, RenderScopeHint;
 import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
+import nijilive.core.nodes.common : MaskBinding, MaskingMode;
 
-/// Render target scope kinds.
-enum RenderPassKind {
-    Root,
-    Composite,
-    DynamicComposite,
-}
-
-struct RenderScopeHint {
-    RenderPassKind kind = RenderPassKind.Root;
-    size_t token;
-    bool skip;
-
-    static RenderScopeHint root() {
-        RenderScopeHint hint;
-        hint.kind = RenderPassKind.Root;
-        hint.token = 0;
-        hint.skip = false;
-        return hint;
-    }
-
-    static RenderScopeHint forComposite(size_t token) {
-        if (token == 0 || token == size_t.max) return root();
-        RenderScopeHint hint;
-        hint.kind = RenderPassKind.Composite;
-        hint.token = token;
-        hint.skip = false;
-        return hint;
-    }
-
-    static RenderScopeHint forDynamic(size_t token) {
-        if (token == 0 || token == size_t.max) return root();
-        RenderScopeHint hint;
-        hint.kind = RenderPassKind.DynamicComposite;
-        hint.token = token;
-        hint.skip = false;
-        return hint;
-    }
-
-    static RenderScopeHint skipHint() {
-        RenderScopeHint hint;
-        hint.kind = RenderPassKind.Root;
-        hint.token = 0;
-        hint.skip = true;
-        return hint;
-    }
-}
-
-/// Helper used by enqueueItem to bundle commands before registering them.
-struct RenderCommandBuffer {
-    RenderCommandData[] commands;
-
-    void add(RenderCommandData command) {
-        commands ~= command;
-    }
-
-    void addAll(RenderCommandData[] more) {
-        commands ~= more;
-    }
-}
+alias RenderCommandBuilder = void delegate(RenderCommandEmitter emitter);
 
 private struct RenderItem {
     float zSort;
     size_t sequence;
-    RenderCommandData[] commands;
+    RenderCommandBuilder builder;
 }
 
 private struct RenderPass {
@@ -82,12 +27,10 @@ private struct RenderPass {
     DynamicComposite dynamicComposite;
     DynamicCompositePass dynamicPass;
     bool maskUsesStencil;
-    MaskApplyPacket[] maskPackets;
-    CompositeDrawPacket compositePacket;
+    MaskBinding[] maskBindings;
     RenderItem[] items;
     size_t nextSequence;
-    void delegate(ref RenderCommandBuffer) dynamicPostCommands;
-    bool enqueueImmediate;
+    RenderCommandBuilder dynamicPostCommands;
 }
 
 /// Layered render graph builder that groups commands per render target scope.
@@ -119,22 +62,26 @@ private:
         return a.zSort > b.zSort; // 降順 (zSort が大きいものを先に処理)
     }
 
-    RenderCommandData[] collectPassCommands(ref RenderPass pass) {
+    RenderItem[] collectPassItems(ref RenderPass pass) {
         if (pass.items.length == 0) return [];
         pass.items.sort!itemLess();
-        RenderCommandData[] flattened;
-        foreach (item; pass.items) {
-            flattened ~= item.commands;
-        }
-        return flattened;
+        return pass.items.dup;
     }
 
-    void addItemToPass(ref RenderPass pass, float zSort, RenderCommandData[] commands) {
-        if (commands.length == 0) return;
+    static void playbackItems(RenderItem[] items, RenderCommandEmitter emitter) {
+        foreach (item; items) {
+            if (item.builder !is null) {
+                item.builder(emitter);
+            }
+        }
+    }
+
+    void addItemToPass(ref RenderPass pass, float zSort, RenderCommandBuilder builder) {
+        if (builder is null) return;
         RenderItem item;
         item.zSort = zSort;
         item.sequence = pass.nextSequence++;
-        item.commands = commands;
+        item.builder = builder;
         pass.items ~= item;
     }
 
@@ -145,43 +92,49 @@ private:
         size_t parentIndex = parentPassIndexForComposite(pass.composite);
         passStack.length -= 1;
 
-        auto childCommands = collectPassCommands(pass);
+        auto childItems = collectPassItems(pass);
+        auto compositeNode = pass.composite;
+        auto maskBindings = pass.maskBindings.dup;
+        bool maskUsesStencil = pass.maskUsesStencil;
+        bool hasMasks = maskBindings.length > 0 || maskUsesStencil;
 
-        RenderCommandBuffer compositeBuffer;
-        compositeBuffer.add(makeBeginCompositeCommand());
-        compositeBuffer.addAll(childCommands);
-        compositeBuffer.add(makeEndCompositeCommand());
+        RenderCommandBuilder builder = (RenderCommandEmitter emitter) {
+            emitter.beginComposite(compositeNode);
+            playbackItems(childItems, emitter);
+            emitter.endComposite(compositeNode);
 
-        bool hasMasks = pass.maskPackets.length > 0 || pass.maskUsesStencil;
-        if (hasMasks) {
-            compositeBuffer.add(makeBeginMaskCommand(pass.maskUsesStencil));
-            foreach (packet; pass.maskPackets) {
-                compositeBuffer.add(makeApplyMaskCommand(packet));
+            if (hasMasks) {
+                emitter.beginMask(maskUsesStencil);
+                foreach (binding; maskBindings) {
+                    if (binding.maskSrc is null) continue;
+                    bool isDodge = binding.mode == MaskingMode.DodgeMask;
+                    emitter.applyMask(binding.maskSrc, isDodge);
+                }
+                emitter.beginMaskContent();
             }
-            compositeBuffer.add(makeBeginMaskContentCommand());
-        }
 
-        compositeBuffer.add(makeDrawCompositeQuadCommand(pass.compositePacket));
+            emitter.drawCompositeQuad(compositeNode);
 
-        if (hasMasks) {
-            compositeBuffer.add(makeEndMaskCommand());
-        }
+            if (hasMasks) {
+                emitter.endMask();
+            }
+        };
 
-        addItemToPass(passStack[parentIndex], pass.scopeZSort, compositeBuffer.commands.dup);
+        addItemToPass(passStack[parentIndex], pass.scopeZSort, builder);
 
-        if (autoClose && pass.composite !is null) {
-            pass.composite.markCompositeScopeClosed();
+        if (autoClose && compositeNode !is null) {
+            compositeNode.markCompositeScopeClosed();
         }
     }
 
-    void finalizeDynamicCompositePass(bool autoClose, scope void delegate(ref RenderCommandBuffer) postCommands = null) {
+    void finalizeDynamicCompositePass(bool autoClose, RenderCommandBuilder postCommands = null) {
         enforce(passStack.length > 1, "RenderQueue: cannot finalize dynamic composite scope without active pass. " ~ stackDebugString());
         auto pass = passStack[$ - 1];
         enforce(pass.kind == RenderPassKind.DynamicComposite, "RenderQueue: top scope is not dynamic composite. " ~ stackDebugString());
         size_t parentIndex = parentPassIndexForDynamic(pass.dynamicComposite);
         passStack.length -= 1;
 
-        auto childCommands = collectPassCommands(pass);
+        auto childItems = collectPassItems(pass);
 
         if (pass.dynamicPass is null) {
             if (autoClose && pass.dynamicComposite !is null) {
@@ -191,17 +144,20 @@ private:
             pass.dynamicPostCommands = null;
             return;
         }
-        RenderCommandBuffer buffer;
-        buffer.add(makeBeginDynamicCompositeCommand(pass.dynamicPass));
-        buffer.addAll(childCommands);
-        buffer.add(makeEndDynamicCompositeCommand(pass.dynamicPass));
 
+        auto dynamicNode = pass.dynamicComposite;
+        auto passData = pass.dynamicPass;
         auto finalizer = postCommands is null ? pass.dynamicPostCommands : postCommands;
-        if (finalizer !is null) {
-            finalizer(buffer);
-        }
+        RenderCommandBuilder builder = (RenderCommandEmitter emitter) {
+            emitter.beginDynamicComposite(dynamicNode, passData);
+            playbackItems(childItems, emitter);
+            emitter.endDynamicComposite(dynamicNode, passData);
+            if (finalizer !is null) {
+                finalizer(emitter);
+            }
+        };
 
-        addItemToPass(passStack[parentIndex], pass.scopeZSort, buffer.commands.dup);
+        addItemToPass(passStack[parentIndex], pass.scopeZSort, builder);
 
         if (autoClose && pass.dynamicComposite !is null) {
             pass.dynamicComposite.dynamicScopeActive = false;
@@ -307,12 +263,6 @@ public:
         return false;
     }
 
-    void enqueue(RenderCommandData command) {
-        enqueueItem(0, RenderScopeHint.root(), (ref RenderCommandBuffer buffer) {
-            buffer.add(command);
-        });
-    }
-
     ref RenderPass resolvePass(RenderScopeHint hint) {
         ensureRootPass();
         size_t index = 0;
@@ -332,26 +282,24 @@ public:
         return passStack[index];
     }
 
-    void enqueueItem(float zSort, scope void delegate(ref RenderCommandBuffer) builder) {
+    void enqueueItem(float zSort, RenderCommandBuilder builder) {
         enqueueItem(zSort, RenderScopeHint.root(), builder);
     }
 
-    void enqueueItem(float zSort, RenderScopeHint hint, scope void delegate(ref RenderCommandBuffer) builder) {
-        RenderCommandBuffer buffer;
-        builder(buffer);
+    void enqueueItem(float zSort, RenderScopeHint hint, RenderCommandBuilder builder) {
+        if (builder is null) return;
         auto ref pass = resolvePass(hint);
-        addItemToPass(pass, zSort, buffer.commands.dup);
+        addItemToPass(pass, zSort, builder);
     }
 
-    size_t pushComposite(Composite composite, float zSort, CompositeDrawPacket drawPacket, bool maskUsesStencil, MaskApplyPacket[] maskPackets) {
+    size_t pushComposite(Composite composite, float zSort, bool maskUsesStencil, MaskBinding[] maskBindings) {
         ensureRootPass();
         RenderPass pass;
         pass.kind = RenderPassKind.Composite;
         pass.composite = composite;
         pass.scopeZSort = zSort;
-        pass.compositePacket = drawPacket;
         pass.maskUsesStencil = maskUsesStencil;
-        pass.maskPackets = maskPackets.dup;
+        pass.maskBindings = maskBindings.dup;
         pass.token = ++nextToken;
         pass.nextSequence = 0;
         pass.dynamicPostCommands = null;
@@ -388,7 +336,7 @@ public:
         return pass.token;
     }
 
-    void popDynamicComposite(size_t token, scope void delegate(ref RenderCommandBuffer) postCommands = null) {
+    void popDynamicComposite(size_t token, RenderCommandBuilder postCommands = null) {
         enforce(passStack.length > 1, "RenderQueue.popDynamicComposite called without matching push. " ~ stackDebugString());
         auto targetIndex = findPassIndex(token, RenderPassKind.DynamicComposite);
         enforce(targetIndex > 0, "RenderQueue.popDynamicComposite scope mismatch (token=" ~ token.to!string ~ ") " ~ stackDebugString());
@@ -407,10 +355,10 @@ public:
         finalizeDynamicCompositePass(false, postCommands);
     }
 
-    RenderCommandData[] takeCommands() {
-        enforce(passStack.length == 1, "RenderGraphBuilder scopes were not balanced before takeCommands. " ~ stackDebugString());
-        auto commands = collectPassCommands(passStack[0]);
+    void playback(RenderCommandEmitter emitter) {
+        enforce(passStack.length == 1, "RenderGraphBuilder scopes were not balanced before playback. " ~ stackDebugString());
+        auto rootItems = collectPassItems(passStack[0]);
         clear();
-        return commands;
+        playbackItems(rootItems, emitter);
     }
 }

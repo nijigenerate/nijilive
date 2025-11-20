@@ -1,0 +1,158 @@
+module nijilive.core.render.backends.opengl.queue;
+
+import nijilive.core.nodes.part : Part;
+import nijilive.core.nodes.mask : Mask;
+import nijilive.core.nodes.drawable : Drawable;
+import nijilive.core.nodes.composite : Composite;
+import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
+import nijilive.core.render.commands :
+    makePartDrawPacket,
+    makeMaskDrawPacket,
+    makeCompositeDrawPacket,
+    tryMakeMaskApplyPacket,
+    DynamicCompositePass,
+    MaskApplyPacket;
+import nijilive.core.render.backends : RenderBackend, RenderGpuState;
+import nijilive.core.render.shared_deform_buffer :
+    sharedDeformBufferDirty,
+    sharedDeformBufferData,
+    sharedDeformMarkUploaded,
+    sharedVertexBufferDirty,
+    sharedVertexBufferData,
+    sharedVertexMarkUploaded,
+    sharedUvBufferDirty,
+    sharedUvBufferData,
+    sharedUvMarkUploaded;
+
+version (InDoesRender) {
+
+/// OpenGL-backed command emitter that translates node references into GPU packets.
+final class RenderQueue : RenderCommandEmitter {
+private:
+    RenderBackend activeBackend;
+    RenderGpuState* frameState;
+
+    bool ready() const {
+        return activeBackend !is null && frameState !is null;
+    }
+
+    void uploadSharedBuffers() {
+        if (activeBackend is null) return;
+        if (sharedVertexBufferDirty()) {
+            auto vertices = sharedVertexBufferData();
+            if (vertices.length) {
+                activeBackend.uploadSharedVertexBuffer(vertices);
+            }
+            sharedVertexMarkUploaded();
+        }
+        if (sharedUvBufferDirty()) {
+            auto uvs = sharedUvBufferData();
+            if (uvs.length) {
+                activeBackend.uploadSharedUvBuffer(uvs);
+            }
+            sharedUvMarkUploaded();
+        }
+        if (sharedDeformBufferDirty()) {
+            auto data = sharedDeformBufferData();
+            if (data.length) {
+                activeBackend.uploadSharedDeformBuffer(data);
+            }
+            sharedDeformMarkUploaded();
+        }
+    }
+
+public:
+    void beginFrame(RenderBackend backend, ref RenderGpuState state) {
+        activeBackend = backend;
+        frameState = &state;
+        state = RenderGpuState.init;
+        uploadSharedBuffers();
+    }
+
+    void endFrame(RenderBackend, ref RenderGpuState) {
+        activeBackend = null;
+        frameState = null;
+    }
+
+    void drawPart(Part part, bool isMask) {
+        if (!ready() || part is null) return;
+        auto packet = makePartDrawPacket(part, isMask);
+        activeBackend.drawPartPacket(packet);
+    }
+
+    void drawMask(Mask mask) {
+        if (!ready() || mask is null) return;
+        auto packet = makeMaskDrawPacket(mask);
+        activeBackend.drawMaskPacket(packet);
+    }
+
+    void beginDynamicComposite(DynamicComposite, DynamicCompositePass passData) {
+        if (!ready() || passData is null) return;
+        activeBackend.beginDynamicComposite(passData);
+    }
+
+    void endDynamicComposite(DynamicComposite, DynamicCompositePass passData) {
+        if (!ready() || passData is null) return;
+        activeBackend.endDynamicComposite(passData);
+    }
+
+    void beginMask(bool useStencil) {
+        if (!ready()) return;
+        activeBackend.beginMask(useStencil);
+    }
+
+    void applyMask(Drawable drawable, bool isDodge) {
+        if (!ready() || drawable is null) return;
+        MaskApplyPacket packet;
+        if (tryMakeMaskApplyPacket(drawable, isDodge, packet)) {
+            activeBackend.applyMask(packet);
+        }
+    }
+
+    void beginMaskContent() {
+        if (!ready()) return;
+        activeBackend.beginMaskContent();
+    }
+
+    void endMask() {
+        if (!ready()) return;
+        activeBackend.endMask();
+    }
+
+    void beginComposite(Composite) {
+        if (!ready()) return;
+        activeBackend.beginComposite();
+    }
+
+    void drawCompositeQuad(Composite composite) {
+        if (!ready() || composite is null) return;
+        auto packet = makeCompositeDrawPacket(composite);
+        activeBackend.drawCompositeQuad(packet);
+    }
+
+    void endComposite(Composite) {
+        if (!ready()) return;
+        activeBackend.endComposite();
+    }
+}
+
+} else {
+
+final class RenderQueue : RenderCommandEmitter {
+    void beginFrame(RenderBackend, ref RenderGpuState) {}
+    void drawPart(Part, bool) {}
+    void drawMask(Mask) {}
+    void beginDynamicComposite(DynamicComposite, DynamicCompositePass) {}
+    void endDynamicComposite(DynamicComposite, DynamicCompositePass) {}
+    void beginMask(bool) {}
+    void applyMask(Drawable, bool) {}
+    void beginMaskContent() {}
+    void endMask() {}
+    void beginComposite(Composite) {}
+    void drawCompositeQuad(Composite) {}
+    void endComposite(Composite) {}
+    void endFrame(RenderBackend, ref RenderGpuState) {}
+}
+
+}

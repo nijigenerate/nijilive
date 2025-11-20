@@ -11,9 +11,8 @@
 module nijilive.core.nodes.part;
 
 import nijilive.core.render.scheduler;
-import nijilive.core.render.graph_builder : RenderCommandBuffer;
-import nijilive.core.render.commands : PartDrawPacket, makeDrawPartCommand, makePartDrawPacket,
-    makeBeginMaskCommand, makeApplyMaskCommand, makeBeginMaskContentCommand, makeEndMaskCommand,
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
+import nijilive.core.render.commands : PartDrawPacket, makePartDrawPacket,
     tryMakeMaskApplyPacket, MaskApplyPacket, MaskDrawableKind;
 import nijilive.integration;
 import nijilive.fmt;
@@ -567,37 +566,36 @@ public:
     void draw() { }
 
     package(nijilive)
-    void enqueueRenderCommands(RenderContext ctx) {
+    void enqueueRenderCommands(RenderContext ctx, void delegate(RenderCommandEmitter) postCommands = null) {
         if (!renderEnabled() || ctx.renderGraph is null) return;
-        auto packet = makePartDrawPacket(this);
 
-        debug(RenderQueueLog) {
-        }
         bool hasMasks = masks.length > 0;
         bool useStencil = hasMasks && maskCount > 0;
-
+        auto maskBindings = masks.dup;
         auto scopeHint = determineRenderScopeHint();
         if (scopeHint.skip) return;
-        ctx.renderGraph.enqueueItem(zSort(), scopeHint, (ref RenderCommandBuffer buffer) {
+        auto partNode = this;
+        auto cleanup = postCommands;
+        ctx.renderGraph.enqueueItem(zSort(), scopeHint, (RenderCommandEmitter emitter) {
             if (hasMasks) {
-                buffer.add(makeBeginMaskCommand(useStencil));
-                foreach (ref mask; masks) {
-                    if (mask.maskSrc !is null) {
-                        bool isDodge = mask.mode == MaskingMode.DodgeMask;
-                        MaskApplyPacket applyPacket;
-                        if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
-                            buffer.add(makeApplyMaskCommand(applyPacket));
-                        }
-                    }
+                emitter.beginMask(useStencil);
+                foreach (binding; maskBindings) {
+                    if (binding.maskSrc is null) continue;
+                    bool isDodge = binding.mode == MaskingMode.DodgeMask;
+                    emitter.applyMask(binding.maskSrc, isDodge);
                 }
-                buffer.add(makeBeginMaskContentCommand());
+                emitter.beginMaskContent();
             }
 
-                buffer.add(makeDrawPartCommand(packet));
+            emitter.drawPart(partNode, false);
 
-                if (hasMasks) {
-                    buffer.add(makeEndMaskCommand());
-                }
+            if (hasMasks) {
+                emitter.endMask();
+            }
+
+            if (cleanup !is null) {
+                cleanup(emitter);
+            }
         });
     }
 

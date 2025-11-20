@@ -10,8 +10,7 @@
 */
 module nijilive.core.nodes.composite;
 import nijilive.core.nodes.common;
-import nijilive.core.render.commands : makeCompositeDrawPacket, tryMakeMaskApplyPacket,
-    MaskApplyPacket;
+import nijilive.core.render.commands : makeCompositeDrawPacket;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes;
 import nijilive.fmt;
@@ -451,23 +450,18 @@ public:
             if (subParts.length == 0) return;
         }
 
-        MaskApplyPacket[] maskPackets;
+        MaskBinding[] maskBindings;
         bool useStencil = false;
         if (masks.length > 0) {
             useStencil = maskCount() > 0;
             foreach (ref mask; masks) {
                 if (mask.maskSrc !is null) {
-                    bool isDodge = mask.mode == MaskingMode.DodgeMask;
-                    MaskApplyPacket applyPacket;
-                    if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
-                        maskPackets ~= applyPacket;
-                    }
+                    maskBindings ~= mask;
                 }
             }
         }
 
-        auto drawPacket = makeCompositeDrawPacket(this);
-        compositeScopeToken = ctx.renderGraph.pushComposite(this, zSort(), drawPacket, useStencil, maskPackets);
+        compositeScopeToken = ctx.renderGraph.pushComposite(this, zSort(), useStencil, maskBindings);
         compositeScopeActive = true;
     }
 

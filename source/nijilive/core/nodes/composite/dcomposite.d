@@ -23,8 +23,8 @@ import std.format;
 import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil;
-import nijilive.core.render.commands;
-import nijilive.core.render.graph_builder : RenderCommandBuffer;
+import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface;
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 
 package(nijilive) {
@@ -641,38 +641,45 @@ public:
         if (ctx.renderGraph is null) return;
         bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
-            ctx.renderGraph.popDynamicComposite(dynamicScopeToken, (ref RenderCommandBuffer buffer) {
-                auto packet = makePartDrawPacket(this);
-                bool hasMasks = masks.length > 0;
-                bool useStencil = hasMasks && maskCount > 0;
-
+            auto queuedForCleanup = queuedOffscreenParts.dup;
+            auto maskBindings = masks.dup;
+            bool hasMasks = maskBindings.length > 0;
+            bool useStencil = hasMasks && maskCount > 0;
+            auto partNode = this;
+            ctx.renderGraph.popDynamicComposite(dynamicScopeToken, (RenderCommandEmitter emitter) {
                 if (hasMasks) {
-                    buffer.add(makeBeginMaskCommand(useStencil));
-                    foreach (ref mask; masks) {
-                        if (mask.maskSrc !is null) {
-                            bool isDodge = mask.mode == MaskingMode.DodgeMask;
-                            MaskApplyPacket applyPacket;
-                            if (tryMakeMaskApplyPacket(mask.maskSrc, isDodge, applyPacket)) {
-                                buffer.add(makeApplyMaskCommand(applyPacket));
-                            }
-                        }
+                    emitter.beginMask(useStencil);
+                    foreach (binding; maskBindings) {
+                        if (binding.maskSrc is null) continue;
+                        bool isDodge = binding.mode == MaskingMode.DodgeMask;
+                        emitter.applyMask(binding.maskSrc, isDodge);
                     }
-                    buffer.add(makeBeginMaskContentCommand());
+                    emitter.beginMaskContent();
                 }
 
-                buffer.add(makeDrawPartCommand(packet));
+                emitter.drawPart(partNode, false);
 
                 if (hasMasks) {
-                    buffer.add(makeEndMaskCommand());
+                    emitter.endMask();
+                }
+
+                foreach (part; queuedForCleanup) {
+                    if (part !is null) {
+                        part.clearOffscreenModelMatrix();
+                    }
                 }
             });
         } else {
-            enqueueRenderCommands(ctx);
+            auto cleanupParts = queuedOffscreenParts.dup;
+            enqueueRenderCommands(ctx, (RenderCommandEmitter emitter) {
+                foreach (part; cleanupParts) {
+                    if (part !is null) {
+                        part.clearOffscreenModelMatrix();
+                    }
+                }
+            });
         }
         reuseCachedTextureThisFrame = false;
-        foreach (part; queuedOffscreenParts) {
-            part.clearOffscreenModelMatrix();
-        }
         queuedOffscreenParts.length = 0;
         if (redrew) {
             textureInvalidated = false;

@@ -28,6 +28,7 @@ public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
 import nijilive.core.render.graph_builder;
+import nijilive.core.render.passes : RenderScopeHint;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
 import nijilive.core.render.scheduler;

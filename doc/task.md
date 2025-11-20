@@ -1,4 +1,8 @@
-# Rendering Pipeline Refactor Tasks
+# Rendering Command Stream Tasks
 
-- [x] Align delegated dynamic composite processing with `doc/new_rendering.md` §5 by queueing its per-frame tasks through `TaskQueue` instead of `runManualTick`.
-- [x] Ensure `Composite` follows the single traversal scheduling outlined in `doc/new_rendering.md` §4–5, including removing manual tick fallbacks and registering delegated work with the scheduler.
+- [x] Definition: finalize the `RenderCommandEmitter` interface so nodes hand off references instead of baked packets.
+- [x] GraphBuilder: remove `RenderCommandBuffer`/`RenderCommandData` and store emitter builders per pass.
+- [x] Nodes: update Part/Composite/DynamicComposite to enqueue emitter closures rather than constructing packets.
+- [x] Cache & Tests: drop the puppet command cache and introduce a `RecordingEmitter` so unit tests can validate the new flow.
+- [x] OpenGL: turn the old `RenderQueue` into the OpenGL emitter, including packet generation and per-frame buffer uploads.
+- [x] Docs: refresh `doc/rendering.md` / `doc/new_rendering.md` to describe the emitter-based pipeline.

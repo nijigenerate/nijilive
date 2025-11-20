@@ -1,19 +1,19 @@
-# 新レンダリングパイプライン現行仕様（TaskScheduler / RenderQueue）
+# 新レンダリングパイプライン現行仕様！EaskScheduler / RenderQueue�E�E
 
-本ドキュメントは 2025-03 時点でリポジトリに実装済みの描画パイプラインを整理する。  
-一部まだ WIP の挙動はあるが、ここでは「現状こう動いている」という事実ベースの情報をまとめ、
-TaskScheduler・RenderQueue・Node ツリーの関連を可視化する。
+本ドキュメント�E 2025-03 時点でリポジトリに実裁E��みの描画パイプラインを整琁E��る、E 
+一部まだ WIP の挙動はあるが、ここでは「現状こう動いてぁE��」とぁE��事実�Eースの惁E��をまとめ、E
+TaskScheduler・RenderQueue・Node チE��ーの関連を可視化する、E
 
 ---
 
 ## 1. 全体像
 
-- `Puppet.update()` が 1 フレームを駆動し、TaskScheduler に Node ツリー全体の処理を登録。
-- TaskScheduler は `TaskOrder` の固定シーケンスで各タスクを実行し、RenderQueue へ GPU コマンドを積む。
-- RenderQueue は Root / Composite / DynamicComposite ごとに `RenderPass` を積み上げ、  
-  同じターゲットへ出力するコマンドを `zSort` 降順 + 受付順で安定ソートしてから Backend へ渡す。
-- Composite / DynamicComposite は `push*/pop*` でスコープを宣言し、子ノードの描画結果を
-  自身の FBO に閉じ込めた後で親ターゲットへ転送する。マスクや DynamicComposite の再描画判定もここで完結する。
+- `Puppet.update()` ぁE1 フレームを駁E��し、TaskScheduler に Node チE��ー全体�E処琁E��登録、E
+- TaskScheduler は `TaskOrder` の固定シーケンスで吁E��スクを実行し、RenderQueue へ GPU コマンドを積�E、E
+- RenderQueue は Root / Composite / DynamicComposite ごとに `RenderPass` を積み上げ、E 
+  同じターゲチE��へ出力するコマンドを `zSort` 降頁E+ 受付頁E��安定ソートしてから Backend へ渡す、E
+- Composite / DynamicComposite は `push*/pop*` でスコープを宣言し、子ノード�E描画結果めE
+  自身の FBO に閉じ込めた後で親ターゲチE��へ転送する。�EスクめEDynamicComposite の再描画判定もここで完結する、E
 
 ```mermaid
 graph TD
@@ -21,7 +21,7 @@ graph TD
     B --> C["rootNode.registerRenderTasks()"]
     C --> D["TaskScheduler queues (TaskOrder)"]
     D --> E["TaskScheduler.execute(ctx)"]
-    E --> F["各 Node の runRender*"]
+    E --> F["吁ENode の runRender*"]
     F --> G["RenderQueue enqueue / push-pop"]
     G --> H["RenderPass stack (Root / Composite / Dynamic)"]
     H --> I["RenderQueue.flush()"]
@@ -32,54 +32,54 @@ graph TD
 
 ## 2. TaskScheduler
 
-### 2.1 データ構造
+### 2.1 チE�Eタ構造
 
-- 実装: `source/nijilive/core/render/scheduler.d`
-- `TaskScheduler` は `Task[][TaskOrder] queues` を保持し、  
+- 実裁E `source/nijilive/core/render/scheduler.d`
+- `TaskScheduler` は `Task[][TaskOrder] queues` を保持し、E 
   `orderSequence = [Init, Parameters, PreProcess, Dynamic, Post0, Post1, Post2, RenderBegin, Render, RenderEnd, Final]`
-  の固定順でループする。
+  の固定頁E��ループする、E
 - `Task` は `(TaskOrder order, TaskKind kind, TaskHandler handler)` のタプルで、`TaskHandler` は
   `void delegate(ref RenderContext)`。`RenderContext` には `RenderQueue* renderQueue` と
-  `RenderBackend renderBackend`, `RenderGpuState gpuState` が入る。
+  `RenderBackend renderBackend`, `RenderGpuState gpuState` が�Eる、E
 
-### 2.2 ノード登録フロー
+### 2.2 ノ�Eド登録フロー
 
-- 各 `Node` は `registerRenderTasks` を持ち、自身と子ノードのタスクを DFS で登録する。
-  - 子ノード一覧は複製後に **`zSort` 降順で stable sort** され、TaskOrder に関わらず奥→手前で登録される。
-  - 各 Node はデフォルトで Init～Final までのタスクを 1 つずつ積む。`Composite` や `DynamicComposite` は
-    スコープ管理のために RenderBegin/Render/RenderEnd の登録方法を上書きする。
-  - `DynamicComposite` が祖先に存在するサブツリーはオフスクリーン再利用のため、
-    自身の Render フェーズをスキップし、親 DynamicComposite から委譲されたタスクのみを持つ。
+- 吁E`Node` は `registerRenderTasks` を持ち、�E身と子ノード�EタスクめEDFS で登録する、E
+  - 子ノード一覧は褁E��後に **`zSort` 降頁E�� stable sort** され、TaskOrder に関わらず奥→手前で登録される、E
+  - 吁ENode はチE��ォルトで Init�E�Final までのタスクめE1 つずつ積�E。`Composite` めE`DynamicComposite` は
+    スコープ管琁E�Eために RenderBegin/Render/RenderEnd の登録方法を上書きする、E
+  - `DynamicComposite` が祖�Eに存在するサブツリーはオフスクリーン再利用のため、E
+    自身の Render フェーズをスキチE�Eし、親 DynamicComposite から委譲されたタスクのみを持つ、E
 - `Puppet.update()` は
   1. `renderQueue.beginFrame()` と `renderScheduler.clearTasks()`
-  2. ルート Node の `registerRenderTasks`
-  3. `TaskOrder.Parameters` にパラメータ／ Driver 更新をまとめたタスクを追加\
-     （Transform dirty フラグや自動運転の更新はここで行われる）
+  2. ルーチENode の `registerRenderTasks`
+  3. `TaskOrder.Parameters` にパラメータ�E�EDriver 更新をまとめたタスクを追加\
+     �E�Eransform dirty フラグめE�E動運転の更新はここで行われる�E�E
   4. `renderScheduler.execute(renderContext)`
-  という手順で 1 フレームを確定させる。
+  とぁE��手頁E�� 1 フレームを確定させる、E
 
-### 2.3 実行時のステップ
+### 2.3 実行時のスチE��チE
 
-1. **Init**: `runBeginTask` で Node のステートを初期化し、オフセットやキャッシュをリセット。
-2. **Parameters**: Puppet 側で一括登録したタスクがパラメータ／ドライバを更新。
-3. **PreProcess / Dynamic / Post0-2**: 各 Node が幾何計算やステート遷移を実施。
-4. **RenderBegin / Render / RenderEnd**: Composite / DynamicComposite はここで RenderQueue の push/pop を呼び、
-   Part は `enqueueRenderCommands` 経由で Draw コマンドを追加する。
-5. **Final**: `runFinalTask` で通知フラグ等を後処理し、次フレームへ状態を持ち越す。
+1. **Init**: `runBeginTask` で Node のスチE�Eトを初期化し、オフセチE��めE��ャチE��ュをリセチE��、E
+2. **Parameters**: Puppet 側で一括登録したタスクがパラメータ�E�ドライバを更新、E
+3. **PreProcess / Dynamic / Post0-2**: 吁ENode が幾何計算やスチE�Eト�E移を実施、E
+4. **RenderBegin / Render / RenderEnd**: Composite / DynamicComposite はここで RenderQueue の push/pop を呼び、E
+   Part は `enqueueRenderCommands` 経由で Draw コマンドを追加する、E
+5. **Final**: `runFinalTask` で通知フラグ等を後�E琁E��、次フレームへ状態を持ち越す、E
 
-### 2.4 DFS に沿った登録順の具体例
+### 2.4 DFS に沿った登録頁E�E具体侁E
 
-- `registerRenderTasks` は **親 → 子** の順に `TaskOrder.Init～Final` までを追加し、最後に `TaskOrder.RenderEnd` を追加する。  
-  このため `RenderEnd` だけが **子 → 親**（ポストオーダー）になる。
-- 子リストは `zSort` 降順でソート済みなので、TaskQueue 内の順番も奥→手前で安定する。
-- `DynamicComposite` 直下のノードは `allowRenderTasks=false` の場合、`RenderBegin/Render/RenderEnd` を自分では登録しない。
+- `registerRenderTasks` は **親 ↁE孁E* の頁E�� `TaskOrder.Init�E�Final` までを追加し、最後に `TaskOrder.RenderEnd` を追加する、E 
+  こ�Eため `RenderEnd` だけが **孁EↁE親**�E��Eストオーダー�E�になる、E
+- 子リスト�E `zSort` 降頁E��ソート済みなので、TaskQueue 冁E�E頁E��も奥→手前で安定する、E
+- `DynamicComposite` 直下�Eノ�Eド�E `allowRenderTasks=false` の場合、`RenderBegin/Render/RenderEnd` を�E刁E��は登録しなぁE��E
 
-| TaskOrder          | 親子順 | 備考 |
+| TaskOrder          | 親子頁E| 備老E|
 |--------------------|--------|------|
-| Init / PreProcess / Dynamic / Post0-2 / RenderBegin / Render / Final | 親→子（プリオーダー） | 親のタスクが先に並び、続けて zSort 降順の子タスクが登録される |
-| RenderEnd          | 子→親（ポストオーダー） | 親は自分と子の `registerRenderTasks` が終わった後に登録する |
+| Init / PreProcess / Dynamic / Post0-2 / RenderBegin / Render / Final | 親→子（�Eリオーダー�E�E| 親のタスクが�Eに並び、続けて zSort 降頁E�E子タスクが登録されめE|
+| RenderEnd          | 子�E親�E��Eストオーダー�E�E| 親は自刁E��子�E `registerRenderTasks` が終わった後に登録する |
 
-例として Root → Composite → PartA/B のツリーを考えると、キュー内の並びは以下になる。
+例として Root ↁEComposite ↁEPartA/B のチE��ーを老E��ると、キュー冁E�E並びは以下になる、E
 
 ```mermaid
 graph TD
@@ -88,10 +88,10 @@ graph TD
     Comp --> PartB((Part B))
 ```
 
-- `TaskQueue[Render] = [Root, Composite, PartB, PartA]` （Composite が子を zSort 降順＝B→Aで登録）
-- `TaskQueue[RenderEnd] = [PartA, PartB, Composite, Root]` （子の RenderEnd が先に来る）
+- `TaskQueue[Render] = [Root, Composite, PartB, PartA]` �E�Eomposite が子を zSort 降頁E��B→Aで登録�E�E
+- `TaskQueue[RenderEnd] = [PartA, PartB, Composite, Root]` �E�子�E RenderEnd が�Eに来る！E
 
-この順序がそのまま `TaskScheduler.execute` のループで消化され、各タスクが `RenderContext` を介して RenderQueue に作用する。
+こ�E頁E��がそ�Eまま `TaskScheduler.execute` のループで消化され、各タスクぁE`RenderContext` を介して RenderQueue に作用する、E
 
 ---
 
@@ -99,51 +99,51 @@ graph TD
 
 ### 3.1 レイヤー別 RenderPass
 
-- 実装: `source/nijilive/core/render/queue.d`
-- `RenderQueue` は `passStack` を保持し、`RenderPassKind` は `Root / Composite / DynamicComposite`。
-- 各 pass には `RenderItem[] items`（`zSort`, `sequence`, `RenderCommandData[] commands`）が蓄積される。  
-  `sequence` は pass 内で単調増加し、`zSort` が同じ場合に安定順序を保証する。
-- `RenderScopeHint` は enqueue 先の pass を決めるヒント。Node は祖先を遡ってアクティブな
-  Composite / DynamicComposite を探し、該当 pass があればその参照を使う。DynamicComposite が
-  キャッシュを再利用する場合は `skipHint` を返して描画をスキップする。
+- 実裁E `source/nijilive/core/render/queue.d`
+- `RenderQueue` は `passStack` を保持し、`RenderPassKind` は `Root / Composite / DynamicComposite`、E
+- 吁Epass には `RenderItem[] items`�E�EzSort`, `sequence`, `RenderCommandData[] commands`�E�が蓁E��される、E 
+  `sequence` は pass 冁E��単調増加し、`zSort` が同じ場合に安定頁E��を保証する、E
+- `RenderScopeHint` は enqueue 先�E pass を決めるヒント、Eode は祖�Eを遡ってアクチE��ブな
+  Composite / DynamicComposite を探し、該彁Epass があれ�Eそ�E参�Eを使ぁE��EynamicComposite ぁE
+  キャチE��ュを�E利用する場合�E `skipHint` を返して描画をスキチE�Eする、E
 
-### 3.2 コマンド投入とソート
+### 3.2 コマンド投入とソーチE
 
-- `enqueueItem(float zSort, RenderScopeHint hint, builder)` が呼ばれると、`builder` が
-  `RenderCommandBuffer` にコマンドを詰め、その配列を hint 先の pass に `RenderItem` として追加する。
-- `collectPassCommands` は各 pass の `items` を `zSort` 降順 → `sequence` 昇順でソートし、
-  フラットな `RenderCommandData[]` に展開する。
+- `enqueueItem(float zSort, RenderScopeHint hint, builder)` が呼ばれると、`builder` ぁE
+  `RenderCommandBuffer` にコマンドを詰め、その配�EめEhint 先�E pass に `RenderItem` として追加する、E
+- `collectPassCommands` は吁Epass の `items` めE`zSort` 降頁EↁE`sequence` 昁E��E��ソートし、E
+  フラチE��な `RenderCommandData[]` に展開する、E
 
-### 3.3 Composite スコープ
+### 3.3 Composite スコーチE
 
 - `pushComposite(Composite comp, bool maskUsesStencil, MaskApplyPacket[] maskPackets)`
-  が新しい pass をスタックに積み、`popComposite(token, comp)` が対応する pass を終了させる。
-- `finalizeCompositePass` の処理:
-  1. 子パスのコマンドを収集。
-  2. `BeginComposite → 子コマンド → EndComposite` でラップ。
-  3. マスクが指定されていれば `BeginMask / ApplyMask* / BeginMaskContent` を挿入し、
-     Composite のクワッド描画を囲う。
-  4. 親 pass に `DrawCompositeQuad` を enqueue し、Composite 側へ scope close を通知。
-- 親 pass の決定には `parentPassIndexForComposite` を用いて Node ツリー上の親 Composite / DynamicComposite を探索する。
+  が新しい pass をスタチE��に積み、`popComposite(token, comp)` が対応すめEpass を終亁E��せる、E
+- `finalizeCompositePass` の処琁E
+  1. 子パスのコマンドを収集、E
+  2. `BeginComposite ↁE子コマンチEↁEEndComposite` でラチE�E、E
+  3. マスクが指定されてぁE��ば `BeginMask / ApplyMask* / BeginMaskContent` を挿入し、E
+     Composite のクワチE��描画を囲ぁE��E
+  4. 親 pass に `DrawCompositeQuad` めEenqueue し、Composite 側へ scope close を通知、E
+- 親 pass の決定には `parentPassIndexForComposite` を用ぁE�� Node チE��ー上�E親 Composite / DynamicComposite を探索する、E
 
-### 3.4 DynamicComposite スコープ
+### 3.4 DynamicComposite スコーチE
 
-- `DynamicComposite` は `dynamicRenderBegin` で再描画が必要かを判定し、必要な場合のみ
-  `pushDynamicComposite` → 子 Part を offscreen matrix に差し替えて enqueue する。
+- `DynamicComposite` は `dynamicRenderBegin` で再描画が忁E��かを判定し、忁E��な場合�Eみ
+  `pushDynamicComposite` ↁE孁EPart めEoffscreen matrix に差し替えて enqueue する、E
 - `dynamicRenderEnd` では
-  - `popDynamicComposite(token, this, postCommands)` を呼び、`BeginDynamicComposite` ～ `EndDynamicComposite` を親 pass に差し込む。
-  - `postCommands` でマスク処理や Part としての最終描画を追加する（`makeDrawPartCommand` など）。
-  - 再描画しなかった場合は既存テクスチャを使った `enqueueRenderCommands` のみを Root pass に積む。
-- スコープを閉じた後は `dynamicScopeActive` や `dynamicScopeToken` をリセットし、
-  再描画済みであればテクスチャの invalidate フラグや deferred カウンタを更新する。
+  - `popDynamicComposite(token, this, postCommands)` を呼び、`BeginDynamicComposite` �E�E`EndDynamicComposite` を親 pass に差し込む、E
+  - `postCommands` でマスク処琁E�� Part としての最終描画を追加する�E�EmakeDrawPartCommand` など�E�、E
+  - 再描画しなかった場合�E既存テクスチャを使っぁE`enqueueRenderCommands` のみめERoot pass に積�E、E
+- スコープを閉じた後�E `dynamicScopeActive` めE`dynamicScopeToken` をリセチE��し、E
+  再描画済みであればチE��スチャの invalidate フラグめEdeferred カウンタを更新する、E
 
 ### 3.5 flush と Backend 連携
 
 - `flush(RenderBackend backend, ref RenderGpuState state)` は
-  1. `passStack.length == 1`（Root のみ）を enforce し、push/pop の不整合を検出。
-  2. Root pass の `RenderItem` を平坦化。
-  3. `RenderCommandKind` ごとに backend の API (`drawPartPacket`, `beginMask`, `beginComposite`, など) を呼び出す。
-- flush 後は `clear()` → Root pass 再生成し、次フレームの `beginFrame` まで状態を持たない。
+  1. `passStack.length == 1`�E�Eoot のみ�E�を enforce し、push/pop の不整合を検�E、E
+  2. Root pass の `RenderItem` を平坦化、E
+  3. `RenderCommandKind` ごとに backend の API (`drawPartPacket`, `beginMask`, `beginComposite`, など) を呼び出す、E
+- flush 後�E `clear()` ↁERoot pass 再生成し、次フレームの `beginFrame` まで状態を持たなぁE��E
 
 ```mermaid
 sequenceDiagram
@@ -152,36 +152,36 @@ sequenceDiagram
     participant Sort as "zSort sorter"
     participant Backend as "RenderBackend"
     Scope->>Pass: pushComposite / pushDynamicComposite
-    Pass->>Pass: 子ノードの RenderItem を蓄積
+    Pass->>Pass: 子ノード�E RenderItem を蓄穁E
     Scope->>Pass: popComposite / popDynamicComposite
-    Pass->>Sort: finalize*Pass で子コマンドをフラット化
-    Sort->>Pass: 親パスへ合成（zSort 降順 + sequence）
-    Pass->>Backend: flush() でコマンド列を送信
+    Pass->>Sort: finalize*Pass で子コマンドをフラチE��匁E
+    Sort->>Pass: 親パスへ合�E�E�ESort 降頁E+ sequence�E�E
+    Pass->>Backend: flush() でコマンド�Eを送信
 ```
 
 ---
 
 ## 4. TaskScheduler と RenderQueue の連携
 
-### 4.1 2 段階キューの関係
+### 4.1 2 段階キューの関俁E
 
-1. **タスク登録（TaskScheduler）**  
-   - Node ツリーを DFS して `TaskQueue[Order]` にタスクを push。順序は §2.4 の通り。  
-   - この段階では GPU コマンドはまだ生成されず、「どのタイミングでどの Node の処理を走らせるか」という予定表だけができる。
-2. **タスク実行 → RenderQueue 更新**  
-   - `TaskScheduler.execute` が各 `TaskQueue` を消化。`RenderContext` 内の `renderQueue` へのポインタを通じて
-     `runRenderBegin/RunRender/RunRenderEnd` が呼ばれ、必要に応じて `push*/pop*` / `enqueueItem` を実行する。
-   - RenderQueue 側では `passStack` にレンダーターゲットごとの `RenderPass` が積まれ、ノードの `zSort` を保ったまま
-     `RenderItem` が蓄積される。
-3. **RenderQueue flush → Backend**  
-   - 全 TaskOrder が終わり、`passStack` が Root のみになったら `flush()` を呼ぶ。  
-   - `RenderCommandKind[]` が Backend へ渡り、FBO 切替やマスク適用を含む実 GPU 呼び出しが実行される。
+1. **タスク登録�E�EaskScheduler�E�E*  
+   - Node チE��ーめEDFS して `TaskQueue[Order]` にタスクめEpush。頁E���E §2.4 の通り、E 
+   - こ�E段階では GPU コマンド�Eまだ生�Eされず、「どのタイミングでどの Node の処琁E��走らせるか」とぁE��予定表だけができる、E
+2. **タスク実衁EↁERenderQueue 更新**  
+   - `TaskScheduler.execute` が各 `TaskQueue` を消化。`RenderContext` 冁E�E `renderQueue` へのポインタを通じて
+     `runRenderBegin/RunRender/RunRenderEnd` が呼ばれ、忁E��に応じて `push*/pop*` / `enqueueItem` を実行する、E
+   - RenderQueue 側では `passStack` にレンダーターゲチE��ごとの `RenderPass` が積まれ、ノード�E `zSort` を保ったまま
+     `RenderItem` が蓄積される、E
+3. **RenderQueue flush ↁEBackend**  
+   - 全 TaskOrder が終わり、`passStack` ぁERoot のみになったら `flush()` を呼ぶ、E 
+   - `RenderCommandKind[]` ぁEBackend へ渡り、FBO 刁E��めE�Eスク適用を含む宁EGPU 呼び出しが実行される、E
 
-このように「TaskScheduler（ロジック順）」→「RenderQueue（描画命令）」→「Backend（GPU）」という 3 段階を順に通過する。
+こ�Eように「TaskScheduler�E�ロジチE��頁E��」�E「RenderQueue�E�描画命令�E�」�E「Backend�E�EPU�E�」とぁE�� 3 段階を頁E��通過する、E
 
 ```mermaid
 sequenceDiagram
-    participant Tree as "Node ツリー"
+    participant Tree as "Node チE��ー"
     participant TaskQ as "TaskScheduler queues"
     participant RenderQ as "RenderQueue"
     participant Stack as "RenderPass stack"
@@ -190,45 +190,45 @@ sequenceDiagram
     TaskQ->>RenderQ: runRenderBegin (push scope / set hints)
     TaskQ->>RenderQ: runRenderTask (enqueue commands)
     TaskQ->>RenderQ: runRenderEnd (pop scope / finalize)
-    RenderQ->>Stack: RenderItem を zSort 降順で整列
-    RenderQ->>Backend: flush() でコマンド列を送信
-    Backend-->>Tree: 次フレームへ（state リセット）
+    RenderQ->>Stack: RenderItem めEzSort 降頁E��整刁E
+    RenderQ->>Backend: flush() でコマンド�Eを送信
+    Backend-->>Tree: 次フレームへ�E�Etate リセチE���E�E
 ```
 
-### 4.2 ステップ分解
+### 4.2 スチE��プ�E解
 
-1. **ツリー探索と準備**  
-   `scanParts` がドライバ・Part を収集し、Composite / DynamicComposite は子 Part のローカル並び替えや
-   offscreen 変換行列を準備する。
-2. **TaskScheduler への投入**  
-   `registerRenderTasks` が `zSort` 降順でタスクを登録。`RenderEnd` だけがポストオーダーになるため、
-   Composite の pop 処理が確実に子の後に実行される。
-3. **TaskOrder ごとの実行**  
-   `TaskScheduler.execute` が orderSequence を回り、`runBeginTask → ... → runFinalTask` が呼ばれる。
-   Render フェーズでは `RenderScopeHint` を計算し、該当スコープの RenderPass にコマンドを追加する。
-4. **RenderQueue のスタック処理**  
-   `pushComposite/pushDynamicComposite` が passStack にスコープを積み、子ノードの `enqueueItem`
-   はそのスコープに `RenderItem` を増やす。`pop*` で `finalize*Pass` が走り、子コマンドが親 pass に転送される。
-5. **flush と GPU 呼び出し**  
-   `RenderQueue.flush()` が Root pass の `RenderItem` をフラット化し、Backend に対して
-   `RenderCommandKind` の順で呼び出す。完了後 `clear()` して次フレームの `beginFrame()` に備える。
+1. **チE��ー探索と準備**  
+   `scanParts` がドライバ�EPart を収雁E��、Composite / DynamicComposite は孁EPart のローカル並び替えや
+   offscreen 変換行�Eを準備する、E
+2. **TaskScheduler への投�E**  
+   `registerRenderTasks` ぁE`zSort` 降頁E��タスクを登録。`RenderEnd` だけがポストオーダーになるため、E
+   Composite の pop 処琁E��確実に子�E後に実行される、E
+3. **TaskOrder ごとの実衁E*  
+   `TaskScheduler.execute` ぁEorderSequence を回り、`runBeginTask ↁE... ↁErunFinalTask` が呼ばれる、E
+   Render フェーズでは `RenderScopeHint` を計算し、該当スコープ�E RenderPass にコマンドを追加する、E
+4. **RenderQueue のスタチE��処琁E*  
+   `pushComposite/pushDynamicComposite` ぁEpassStack にスコープを積み、子ノード�E `enqueueItem`
+   はそ�Eスコープに `RenderItem` を増やす。`pop*` で `finalize*Pass` が走り、子コマンドが親 pass に転送される、E
+5. **flush と GPU 呼び出ぁE*  
+   `RenderQueue.flush()` ぁERoot pass の `RenderItem` をフラチE��化し、Backend に対して
+   `RenderCommandKind` の頁E��呼び出す。完亁E��E`clear()` して次フレームの `beginFrame()` に備える、E
 
 ---
 
-## 5. 設計指針（現行コードが依存している前提）
+## 5. 設計指針（現行コードが依存してぁE��前提�E�E
 
-- **スコープ整合性の担保**: すべての `push*` は必ず `pop*` とペアで呼ばれ、
-  flush 前に `passStack.length == 1` であることを enforce している。
-- **zSort の一貫性**: Task 登録時と RenderQueue 内部の両方で `zSort` 降順を徹底し、
-  DFS の親子関係を壊さずに「奥→手前」の描画順を維持する。
-- **マスクの局所化**: `MaskApplyPacket` の適用は Composite / DynamicComposite の転送時に限定し、
-  子ノードの描画内容へ直接干渉しない。
+- **スコープ整合性の拁E��E*: すべての `push*` は忁E�� `pop*` とペアで呼ばれ、E
+  flush 前に `passStack.length == 1` であることめEenforce してぁE��、E
+- **zSort の一貫性**: Task 登録時と RenderQueue 冁E��の両方で `zSort` 降頁E��徹底し、E
+  DFS の親子関係を壊さずに「奥→手前」�E描画頁E��維持する、E
+- **マスクの局所匁E*: `MaskApplyPacket` の適用は Composite / DynamicComposite の転送時に限定し、E
+  子ノード�E描画冁E��へ直接干渉しなぁE��E
 - **DynamicComposite の再描画最小化**: `reuseCachedTextureThisFrame` / `textureInvalidated`
-  などのフラグでオフスクリーン再描画を抑制し、不要な push/pop や DrawCommand を避ける。
-- **Backend への依存最小化**: RenderQueue からは `RenderCommandKind` の列だけを渡し、
-  OpenGL など具体的な実装詳細は Backend に閉じ込める。
+  などのフラグでオフスクリーン再描画を抑制し、不要な push/pop めEDrawCommand を避ける、E
+- **Backend への依存最小化**: RenderQueue からは `RenderCommandKind` の列だけを渡し、E
+  OpenGL など具体的な実裁E��細は Backend に閉じ込める、E
 
-以上により、現行実装の TaskScheduler と RenderQueue の挙動を俯瞰できるようになった。
+以上により、現行実裁E�E TaskScheduler と RenderQueue の挙動を俯瞰できるようになった、E
 
 ---
 
@@ -237,147 +237,147 @@ sequenceDiagram
 ### 6.1 RenderBackend インターフェース
 
 - 定義場所: `source/nijilive/core/render/backends/package.d`
-- `RenderBackend` は RenderQueue から渡される `RenderCommandKind` を最終的な GPU 呼び出しへ変換する抽象層。
-- 主なメソッド群:
+- `RenderBackend` は RenderQueue から渡されめE`RenderCommandKind` を最終的な GPU 呼び出しへ変換する抽象層、E
+- 主なメソチE��群:
 
-| 分類 | 代表メソッド | 説明 |
+| 刁E��E| 代表メソチE�� | 説昁E|
 |------|--------------|------|
-| 初期化 / ビューポート | `initializeRenderer`, `resizeViewportTargets`, `beginScene`, `endScene`, `postProcessScene` | レンダラのセットアップとフレーム境界処理 |
-| Drawable/Part リソース | `initializeDrawableResources`, `createDrawableBuffers`, `uploadDrawableIndices`, `uploadSharedVertexBuffer`, `uploadSharedUvBuffer`, `uploadSharedDeformBuffer`, `drawDrawableElements` | メッシュや頂点バッファの生成・更新 |
-| ブレンド / デバッグ | `supportsAdvancedBlend`, `setAdvancedBlendEquation`, `issueBlendBarrier`, `initDebugRenderer`, `drawDebugLines` | 高度なブレンドモードやデバッグ描画制御 |
-| RenderQueue 由来の描画 | `drawPartPacket`, `drawMaskPacket`, `beginComposite`, `drawCompositeQuad`, `endComposite`, `beginMask`, `applyMask`, `beginMaskContent`, `endMask` | RenderCommandKind と 1:1 に近いメソッド群 |
-| DynamicComposite | `beginDynamicComposite`, `endDynamicComposite`, `destroyDynamicComposite` | 動的オフスクリーン用 FBO 管理 |
-| 補助描画 | `drawTextureAtPart`, `drawTextureAtPosition`, `drawTextureAtRect` | UI やデバッグ向けの直接描画 API |
-| フレームバッファ・テクスチャ取得 | `framebufferHandle`, `renderImageHandle`, `compositeFramebufferHandle`, ... | 外部ツールやポストプロセスが現在の GPU リソースを参照するためのハンドル群 |
-| 差分計測 | `setDifferenceAggregationEnabled`, `evaluateDifferenceAggregation`, `fetchDifferenceAggregationResult` | DifferenceAggregation を用いた自動テスト/検証向け機能 |
+| 初期匁E/ ビューポ�EチE| `initializeRenderer`, `resizeViewportTargets`, `beginScene`, `endScene`, `postProcessScene` | レンダラのセチE��アチE�Eとフレーム墁E��処琁E|
+| Drawable/Part リソース | `initializeDrawableResources`, `createDrawableBuffers`, `uploadDrawableIndices`, `uploadSharedVertexBuffer`, `uploadSharedUvBuffer`, `uploadSharedDeformBuffer`, `drawDrawableElements` | メチE��ュめE��点バッファの生�E・更新 |
+| ブレンチE/ チE��チE�� | `supportsAdvancedBlend`, `setAdvancedBlendEquation`, `issueBlendBarrier`, `initDebugRenderer`, `drawDebugLines` | 高度なブレンドモードやチE��チE��描画制御 |
+| RenderQueue 由来の描画 | `drawPartPacket`, `drawMaskPacket`, `beginComposite`, `drawCompositeQuad`, `endComposite`, `beginMask`, `applyMask`, `beginMaskContent`, `endMask` | RenderCommandKind と 1:1 に近いメソチE��群 |
+| DynamicComposite | `beginDynamicComposite`, `endDynamicComposite`, `destroyDynamicComposite` | 動的オフスクリーン用 FBO 管琁E|
+| 補助描画 | `drawTextureAtPart`, `drawTextureAtPosition`, `drawTextureAtRect` | UI めE��バッグ向けの直接描画 API |
+| フレームバッファ・チE��スチャ取征E| `framebufferHandle`, `renderImageHandle`, `compositeFramebufferHandle`, ... | 外部チE�EルめE�Eスト�Eロセスが現在の GPU リソースを参照するためのハンドル群 |
+| 差刁E��測 | `setDifferenceAggregationEnabled`, `evaluateDifferenceAggregation`, `fetchDifferenceAggregationResult` | DifferenceAggregation を用ぁE��自動テスチE検証向け機�E |
 
-- RenderQueue から見ると **flush 時にこれらのメソッドを順番に呼ぶだけ**であり、OpenGL など具体的な実装は Backend 側が担う。
+- RenderQueue から見ると **flush 時にこれら�EメソチE��を頁E��に呼ぶだぁE*であり、OpenGL など具体的な実裁E�E Backend 側が担ぁE��E
 
 ### 6.2 RenderGpuState
 
-- 構造体: `RenderGpuState { uint framebuffer; uint[8] drawBuffers; ubyte drawBufferCount; bool[4] colorMask; bool blendEnabled; }`
+- 構造佁E `RenderGpuState { uint framebuffer; uint[8] drawBuffers; ubyte drawBufferCount; bool[4] colorMask; bool blendEnabled; }`
 - 役割:
-  - Backend が現在バインドしている FBO やカラーマスク、ブレンド状態をキャッシュする。
-  - `RenderQueue.flush()` 開始時に `state = RenderGpuState.init;` としてクリアし、Backend が必要に応じて上書きする。
-  - 将来的に複数 Backend 実装（OpenGL / Vulkan 等）が共通インターフェースで状態を共有できるようにするための足場。
+  - Backend が現在バインドしてぁE�� FBO めE��ラーマスク、ブレンド状態をキャチE��ュする、E
+  - `RenderQueue.flush()` 開始時に `state = RenderGpuState.init;` としてクリアし、Backend が忁E��に応じて上書きする、E
+  - 封E��皁E��褁E�� Backend 実裁E��EpenGL / Vulkan 等）が共通インターフェースで状態を共有できるようにするための足場、E
 
-これにより、ドキュメント上でも RenderQueue → RenderBackend の役割分担と、状態管理の流れを追うことができる。
-
----
-
-## 7. フレーム間再利用レイヤー（2025-11 追記）
-
-> **Status:** ブランチ `refactor/rendering-soa2` にて実装済み。  
-> **目的:** TaskScheduler / RenderQueue の処理順や DFS の特性を維持したまま、同一内容のフレームで不要な再構築やメモリアロケーションを省くこと。
-
-ここまでのセクションで説明したタスク登録／RenderQueue スコープの流れは従来通りである。再利用レイヤーは「どのフレームでそれを実行する必要があるか」を決めているに過ぎない。
-
-### 7.1 NotifyReason による変化トラッキング
-
-- すべての `Node.notifyChange` は親へ伝搬する前に必ず所属する `Puppet` を呼び出し、`NotifyReason` を記録させる。
-- Puppet 側では 1 フレームにつき 2 つのフラグを持つ:
-  - `structureDirty`: ツリー構造やマスク構成が変わった場合、または `forceFullRebuild` が指定された場合に立つ。
-  - `attributeDirty`: パラメータ値・ドライバ出力・Transform など属性の変化で立つ（`StructureChanged` でも同時に立つ）。
-- `Puppet.update()` はフレーム冒頭で `consumeFrameChanges()` を呼び、フラグを読み出してからリセットする。
-
-### 7.2 TaskScheduler キャッシュ
-
-- 初回フレーム、または `structureDirty` が立っているフレームだけ `rebuildRenderTasks()` を実行する。
-  1. TaskScheduler の全キューをクリア。
-  2. `rootNode.registerRenderTasks` を従来と同じ手順で呼ぶ。
-  3. Puppet 側で `TaskOrder.Parameters` に `updateParametersAndDrivers` を呼ぶデリゲートを差し込む。
-- 構造が変わっていない場合は TaskScheduler を再登録せず、前フレームのキュー内容をそのまま再利用できる。
-
-### 7.3 Init + Parameters ステージの常時実行
-
-- フレームを再構築するかどうかに関わらず、毎フレーム `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)` を 1 回実行する。
-- これにより `runBeginTask`（変形スタックやフィルタ状態のリセット）が必ずパラメータ更新より先に走る。従来の「Init → Parameters → …」順序を崩さずに再利用を行える。
-- このステージの実行中に構造変化が発生した場合は即座に `structureDirty` が立つため、後段で再登録される。
-
-### 7.4 RenderGraph / RenderQueue のコマンド再利用
-
-- `renderGraph.takeCommands()` で得た Root pass の `RenderCommandData[]` を `cachedCommands` として保持し、`cachedCommandsValid` が true の間は再利用を許す。
-- Init+Parameters 後に `structureDirty` も `attributeDirty` も立っていなければ、`TaskOrder.PreProcess` 以降の実行をスキップし、`renderQueue.setCommands(cachedCommands, false)` で前回のコマンド列を流用する。
-- いずれかのフラグが立っている場合は通常どおり残りの TaskOrder を実行し、`renderGraph.beginFrame()` → `takeCommands()` の結果を新しい `cachedCommands` として保存する。
-
-### 7.5 1 フレームの処理フロー（再利用時）
-
-1. `forceFullRebuild` または `structureDirty` なら TaskScheduler を再登録。
-2. 必ず Init + Parameters 順で実行（変形スタックをリセット → パラメータ／ドライバを適用）。
-3. この時点で構造変化が検出されたらもう一度 1 に戻って再登録。
-4. Attribute も Structure も変化していなければ render フェーズをスキップし、キャッシュ済みコマンドを RenderQueue に積んでフラッシュする。
-5. 変化があれば render フェーズを実行し、新しいコマンド列をキャッシュする。
+これにより、ドキュメント上でめERenderQueue ↁERenderBackend の役割刁E��と、状態管琁E�E流れを追ぁE��とができる、E
 
 ---
 
-## 8. Struct-of-Arrays ベースの共有ジオメトリアトラス
+## 7. フレーム間�E利用レイヤー�E�E025-11 追記！E
 
-以前は Part / Deformable ごとに個別の VBO をアップロードしていたが、現在は `Vec*Array` を利用した共有アトラスへ移行し、1 フレームにつき頂点／UV／変形バッファをそれぞれ 1 回だけアップロードしている。
+> **Status:** ブランチE`refactor/rendering-soa2` にて実裁E��み、E 
+> **目皁E** TaskScheduler / RenderQueue の処琁E��E�� DFS の特性を維持したまま、同一冁E��のフレームで不要な再構築やメモリアロケーションを省くこと、E
 
-### 8.1 Vec*Array の概要
+ここまでのセクションで説明したタスク登録�E�RenderQueue スコープ�E流れは従来通りである。�E利用レイヤーは「どのフレームでそれを実行する忁E��があるか」を決めてぁE��に過ぎなぁE��E
 
-- `nijilive.math.veca` で定義される `Vec2Array` / `Vec3Array` / `Vec4Array` は成分ごとに連続したレーンを持つ Struct-of-Arrays 形式のバッファ。
-- `lane(0)`, `lane(1)` などで各成分へのポインタを取得でき、高速なバルクコピーや SIMD 最適化がしやすい。
-- `bindExternalStorage(storage, offset, length)` により、既存の `Vec*Array` を別の連続メモリ（共有アトラス）へ再バインドできる。
+### 7.1 NotifyReason による変化トラチE��ング
 
-### 8.2 SharedVecAtlas と登録処理
+- すべての `Node.notifyChange` は親へ伝搬する前に忁E��所属すめE`Puppet` を呼び出し、`NotifyReason` を記録させる、E
+- Puppet 側では 1 フレームにつぁE2 つのフラグを持つ:
+  - `structureDirty`: チE��ー構造めE�Eスク構�Eが変わった場合、また�E `forceFullRebuild` が指定された場合に立つ、E
+  - `attributeDirty`: パラメータ値・ドライバ�E力�ETransform など属性の変化で立つ�E�EStructureChanged` でも同時に立つ�E�、E
+- `Puppet.update()` はフレーム冒頭で `consumeFrameChanges()` を呼び、フラグを読み出してからリセチE��する、E
 
-- `nijilive.core.render.shared_deform_buffer` には `deformAtlas`, `vertexAtlas`, `uvAtlas` の 3 つの `SharedVecAtlas` がある。
-- それぞれが `Vec2Array*` とドローコマンド用のオフセット書き込み先を記録し、以下のライフサイクルで動作する:
-  1. `Drawable` のコンストラクタで `sharedDeformRegister` / `sharedVertexRegister` / `sharedUvRegister` を呼び、各 `Vec2Array` とオフセット格納先ポインタを渡す。
-  2. アトラスは登録済み配列の合計長を計算し、必要なサイズの新しい `Vec2Array` を確保して lane 単位でコピーする。
-  3. 各ノードの `Vec2Array` には `bindExternalStorage` で共有メモリを再バインドし、描画パケットに書き込むスライスオフセットも更新する。
-- 配列長が変わった場合は `shared*Resize` が再配置をトリガーし、破棄時には `shared*Unregister` で登録解除する。
+### 7.2 TaskScheduler キャチE��ュ
+
+- 初回フレーム、また�E `structureDirty` が立ってぁE��フレームだぁE`rebuildRenderTasks()` を実行する、E
+  1. TaskScheduler の全キューをクリア、E
+  2. `rootNode.registerRenderTasks` を従来と同じ手頁E��呼ぶ、E
+  3. Puppet 側で `TaskOrder.Parameters` に `updateParametersAndDrivers` を呼ぶチE��ゲートを差し込む、E
+- 構造が変わってぁE��ぁE��合�E TaskScheduler を�E登録せず、前フレームのキュー冁E��をそのまま再利用できる、E
+
+### 7.3 Init + Parameters スチE�Eジの常時実衁E
+
+- フレームを�E構築するかどぁE��に関わらず、毎フレーム `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)` めE1 回実行する、E
+- これにより `runBeginTask`�E�変形スタチE��めE��ィルタ状態�EリセチE���E�が忁E��パラメータ更新より先に走る。従来の「Init ↁEParameters ↁE…」頁E��を崩さずに再利用を行える、E
+- こ�EスチE�Eジの実行中に構造変化が発生した場合�E即座に `structureDirty` が立つため、後段で再登録される、E
+
+### 7.4 RenderGraph / RenderQueue のコマンド�E利用
+
+- `renderGraph.takeCommands()` で得た Root pass の `RenderCommandData[]` めE`cachedCommands` として保持し、`cachedCommandsValid` ぁEtrue の間�E再利用を許す、E
+- Init+Parameters 後に `structureDirty` めE`attributeDirty` も立ってぁE��ければ、`TaskOrder.PreProcess` 以降�E実行をスキチE�Eし、`renderQueue.setBuffer(cachedCommandBuffer, false)` で前回のコマンド�Eを流用する、E
+- ぁE��れかのフラグが立ってぁE��場合�E通常どおり残りの TaskOrder を実行し、`renderGraph.beginFrame()` ↁE`takeCommands()` の結果を新しい `cachedCommands` として保存する、E
+
+### 7.5 1 フレームの処琁E��ロー�E��E利用時！E
+
+1. `forceFullRebuild` また�E `structureDirty` なめETaskScheduler を�E登録、E
+2. 忁E�� Init + Parameters 頁E��実行（変形スタチE��をリセチE�� ↁEパラメータ�E�ドライバを適用�E�、E
+3. こ�E時点で構造変化が検�Eされたらもう一度 1 に戻って再登録、E
+4. Attribute めEStructure も変化してぁE��ければ render フェーズをスキチE�Eし、キャチE��ュ済みコマンドを RenderQueue に積んでフラチE��ュする、E
+5. 変化があれ�E render フェーズを実行し、新しいコマンド�EをキャチE��ュする、E
+
+---
+
+## 8. Struct-of-Arrays ベ�Eスの共有ジオメトリアトラス
+
+以前�E Part / Deformable ごとに個別の VBO をアチE�EロードしてぁE��が、現在は `Vec*Array` を利用した共有アトラスへ移行し、E フレームにつき頂点�E�UV�E�変形バッファをそれぞめE1 回だけアチE�EロードしてぁE��、E
+
+### 8.1 Vec*Array の概要E
+
+- `nijilive.math.veca` で定義されめE`Vec2Array` / `Vec3Array` / `Vec4Array` は成�Eごとに連続したレーンを持つ Struct-of-Arrays 形式�Eバッファ、E
+- `lane(0)`, `lane(1)` などで吁E�E刁E��のポインタを取得でき、E��速なバルクコピ�EめESIMD 最適化がしやすい、E
+- `bindExternalStorage(storage, offset, length)` により、既存�E `Vec*Array` を別の連続メモリ�E��E有アトラス�E�へ再バインドできる、E
+
+### 8.2 SharedVecAtlas と登録処琁E
+
+- `nijilive.core.render.shared_deform_buffer` には `deformAtlas`, `vertexAtlas`, `uvAtlas` の 3 つの `SharedVecAtlas` がある、E
+- それぞれぁE`Vec2Array*` とドローコマンド用のオフセチE��書き込み先を記録し、以下�Eライフサイクルで動作すめE
+  1. `Drawable` のコンストラクタで `sharedDeformRegister` / `sharedVertexRegister` / `sharedUvRegister` を呼び、各 `Vec2Array` とオフセチE��格納�Eポインタを渡す、E
+  2. アトラスは登録済み配�Eの合計長を計算し、忁E��なサイズの新しい `Vec2Array` を確保して lane 単位でコピ�Eする、E
+  3. 吁E��ード�E `Vec2Array` には `bindExternalStorage` で共有メモリを�Eバインドし、描画パケチE��に書き込むスライスオフセチE��も更新する、E
+- 配�E長が変わった場合�E `shared*Resize` が�E配置をトリガーし、破棁E��には `shared*Unregister` で登録解除する、E
 
 ### 8.3 PartDrawPacket への反映
 
-- `RenderCommandData.partPacket` には `vertexOffset`, `vertexAtlasStride`, `uvOffset`, `uvAtlasStride`, `deformOffset`, `deformAtlasStride` が含まれ、共有アトラス内の位置を示す。
-- Drawable はアトラスが書き戻した `vertexSliceOffset` などの値をそのままパケットに設定するだけでよく、アトラスが再構築されない限り再計算は不要。
+- `RenderCommandData.partPacket` には `vertexOffset`, `vertexAtlasStride`, `uvOffset`, `uvAtlasStride`, `deformOffset`, `deformAtlasStride` が含まれ、�E有アトラス冁E�E位置を示す、E
+- Drawable はアトラスが書き戻した `vertexSliceOffset` などの値をそのままパケチE��に設定するだけでよく、アトラスが�E構築されなぁE��り�E計算�E不要、E
 
-### 8.4 RenderQueue.flush でのアップロード
+### 8.4 RenderQueue.flush でのアチE�EローチE
 
-- `RenderQueue.flush` 冒頭で `sharedVertexBufferDirty()` などを確認し、dirty なアトラスだけをまとめてアップロードする。
-- Backend (OpenGL 実装など) は属性ごとに 1 つの GL バッファを持ち、`glUploadFloatVecArray(sharedBuffer, atlasData, ...)` を 1 回呼ぶだけで全 Drawable の頂点や UV を更新できる。
-- 共有アトラスなので flush 中にバインドや `glBufferData` を繰り返す必要がなく、`DrawPartPacket` ごとに VBO を切り替えるコストが消える。
+- `RenderQueue.flush` 冒頭で `sharedVertexBufferDirty()` などを確認し、dirty なアトラスだけをまとめてアチE�Eロードする、E
+- Backend (OpenGL 実裁E��ど) は属性ごとに 1 つの GL バッファを持ち、`glUploadFloatVecArray(sharedBuffer, atlasData, ...)` めE1 回呼ぶだけで全 Drawable の頂点めEUV を更新できる、E
+- 共有アトラスなので flush 中にバインドや `glBufferData` を繰り返す忁E��がなく、`DrawPartPacket` ごとに VBO を�Eり替えるコストが消える、E
 
-### 8.5 ダーティフラグとの連携
+### 8.5 ダーチE��フラグとの連携
 
-- Drawable が `Vec2Array` の内容を直接書き換えた場合（物理シミュレーション、ウェルド、メッシュ編集など）は `shared*MarkDirty()` を呼ぶだけでよい。長さが変わらない限りアトラスの再配置は不要。
-- セクション 7 のフレーム再利用と組み合わせると、ジオメトリも GPU コマンドも変化がないフレームでは一切のアップロードを行わないで済む。
+- Drawable ぁE`Vec2Array` の冁E��を直接書き換えた場合（物琁E��ミュレーション、ウェルド、メチE��ュ編雁E��ど�E��E `shared*MarkDirty()` を呼ぶだけでよい。長さが変わらなぁE��りアトラスの再�E置は不要、E
+- セクション 7 のフレーム再利用と絁E��合わせると、ジオメトリめEGPU コマンドも変化がなぁE��レームでは一刁E�EアチE�Eロードを行わなぁE��済�E、E
 
 ---
 
-## 9. フレーム間再利用レイヤー（詳細版）
+## 9. フレーム間�E利用レイヤー�E�詳細版！E
 
-高レベルの考え方は §7 にまとめたが、実装上の細部をもう少し噛み砕いて整理しておく。
+高レベルの老E��方は §7 にまとめたが、実裁E���E細部をもぁE��し噛み砕いて整琁E��ておく、E
 
-### 9.1 変化検出の基本
+### 9.1 変化検�Eの基本
 
-- `Node.notifyChange` → `Puppet.recordNodeChange(reason)` の順で呼ばれ、`structureDirty` / `attributeDirty` の 2 ビットに分類される。
-- `StructureChanged` は両方のビットを立て、それ以外（`AttributeChanged`, `Transformed`, `Initialized`）は `attributeDirty` のみを立てる。
-- `consumeFrameChanges()` がフラグを読み出してクリアする唯一の場所で、以降の処理はこの返り値だけを見て再利用可否を判断する。
+- `Node.notifyChange` ↁE`Puppet.recordNodeChange(reason)` の頁E��呼ばれ、`structureDirty` / `attributeDirty` の 2 ビットに刁E��される、E
+- `StructureChanged` は両方のビットを立て、それ以外！EAttributeChanged`, `Transformed`, `Initialized`�E��E `attributeDirty` のみを立てる、E
+- `consumeFrameChanges()` がフラグを読み出してクリアする唯一の場所で、以降�E処琁E�Eこ�E返り値だけを見て再利用可否を判断する、E
 
 ### 9.2 TaskScheduler の再利用条件
 
-- `forceFullRebuild` / `structureDirty` / `schedulerCacheValid == false` のいずれかの場合のみ `rebuildRenderTasks()` を実行する。
-- 再登録後は `schedulerCacheValid = true` となり、構造が変わらない限り次のフレームもそのまま使われる。
+- `forceFullRebuild` / `structureDirty` / `schedulerCacheValid == false` のぁE��れかの場合�Eみ `rebuildRenderTasks()` を実行する、E
+- 再登録後�E `schedulerCacheValid = true` となり、構造が変わらなぁE��り次のフレームもそのまま使われる、E
 
-### 9.3 Init + Parameters の強制実行
+### 9.3 Init + Parameters の強制実衁E
 
-- `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)` をフレームごとに必ず呼び、`runBeginTask` と `updateParametersAndDrivers` をセットで動かす。
-- ここで構造変更が起きた場合は `structureDirty` が再び立つため、続く処理で即座に再登録が走る。
+- `renderScheduler.executeRange(ctx, TaskOrder.Init, TaskOrder.Parameters)` をフレームごとに忁E��呼び、`runBeginTask` と `updateParametersAndDrivers` をセチE��で動かす、E
+- ここで構造変更が起きた場合�E `structureDirty` が�Eび立つため、続く処琁E��即座に再登録が走る、E
 
-### 9.4 Render フェーズとコマンドキャッシュ
+### 9.4 Render フェーズとコマンドキャチE��ュ
 
-- `cachedCommandsValid` が true で、かつ `attributeDirty` も `structureDirty` も false の場合は Render フェーズ（PreProcess 以降）をスキップする。
-- どちらかのフラグが true なら Render フェーズを通常通り実行し、`renderGraph.beginFrame()` → `takeCommands()` で新しい `cachedCommands` を作成する。
+- `cachedCommandsValid` ぁEtrue で、かつ `attributeDirty` めE`structureDirty` めEfalse の場合�E Render フェーズ�E�EreProcess 以降）をスキチE�Eする、E
+- どちらかのフラグぁEtrue なめERender フェーズを通常通り実行し、`renderGraph.beginFrame()` ↁE`takeCommands()` で新しい `cachedCommands` を作�Eする、E
 
-### 9.5 リビルドループ
+### 9.5 リビルドルーチE
 
-1. 構造変化を確認し、必要なら TaskScheduler を再登録。
-2. Init + Parameters を実行して変形スタックとパラメータを同期。
-3. ここで構造変化が起きたら 1 に戻る。
-4. 最終的な `FrameChangeState` を基に Render フェーズを実行するかどうか判断し、必要ならコマンド列を更新。
-5. `cachedCommandsValid` が true なら RenderQueue にセットし、そうでなければ `clear()` する。
+1. 構造変化を確認し、忁E��なめETaskScheduler を�E登録、E
+2. Init + Parameters を実行して変形スタチE��とパラメータを同期、E
+3. ここで構造変化が起きためE1 に戻る、E
+4. 最終的な `FrameChangeState` を基に Render フェーズを実行するかどぁE��判断し、忁E��ならコマンド�Eを更新、E
+5. `cachedCommandsValid` ぁEtrue なめERenderQueue にセチE��し、そぁE��なければ `clear()` する、E
 
-この詳細版を参照すれば、変更検知 → スケジューラ再利用 → RenderGraph 再利用の流れを実装レベルで追える。
+こ�E詳細版を参�Eすれば、変更検知 ↁEスケジューラ再利用 ↁERenderGraph 再利用の流れを実裁E��ベルで追える、E
