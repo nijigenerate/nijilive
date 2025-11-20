@@ -7,6 +7,7 @@ import nijilive.core.nodes.drawable;
 import nijilive.core.nodes.mask : Mask;
 import nijilive.math;
 import nijilive.core.texture : Texture;
+import nijilive.core.render.backends : RenderResourceHandle;
 
 /// GPUコマンド種別。Backend 側で switch して処理する。
 enum RenderCommandKind {
@@ -49,7 +50,7 @@ struct PartDrawPacket {
     size_t uvAtlasStride;
     size_t deformOffset;
     size_t deformAtlasStride;
-    uint indexBuffer;
+    RenderResourceHandle indexBuffer;
     uint indexCount;
     uint vertexCount;
 }
@@ -62,7 +63,7 @@ struct MaskDrawPacket {
     size_t vertexAtlasStride;
     size_t deformOffset;
     size_t deformAtlasStride;
-    uint indexBuffer;
+    RenderResourceHandle indexBuffer;
     uint indexCount;
     uint vertexCount;
 }
@@ -97,14 +98,14 @@ class DynamicCompositeSurface {
     Texture[3] textures;
     size_t textureCount;
     Texture stencil;
-    uint framebuffer;
+    RenderResourceHandle framebuffer;
 }
 
 class DynamicCompositePass {
     DynamicCompositeSurface surface;
     vec2 scale;
     float rotationZ;
-    int origBuffer;
+    RenderResourceHandle origBuffer;
     int[4] origViewport;
 }
 

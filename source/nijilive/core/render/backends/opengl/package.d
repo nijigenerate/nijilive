@@ -158,11 +158,11 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglBindDrawableVao();
     }
 
-    void createDrawableBuffers(out uint ibo) {
+    void createDrawableBuffers(out RenderResourceHandle ibo) {
         oglCreateDrawableBuffers(ibo);
     }
 
-    void uploadDrawableIndices(uint ibo, ushort[] indices) {
+    void uploadDrawableIndices(RenderResourceHandle ibo, ushort[] indices) {
         oglUploadDrawableIndices(ibo, indices);
     }
 
@@ -181,7 +181,7 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglUploadSharedDeformBuffer(deform);
     }
 
-    void drawDrawableElements(uint ibo, size_t indexCount) {
+    void drawDrawableElements(RenderResourceHandle ibo, size_t indexCount) {
         oglDrawDrawableElements(ibo, indexCount);
     }
 
@@ -225,7 +225,7 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglUploadDebugBuffer(points, indices);
     }
 
-    void setDebugExternalBuffer(uint vbo, uint ibo, int count) {
+    void setDebugExternalBuffer(RenderResourceHandle vbo, RenderResourceHandle ibo, int count) {
         oglSetDebugExternalBuffer(vbo, ibo, count);
     }
 
@@ -308,56 +308,56 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglDrawTextureAtRect(texture, area, uvs, opacity, color, screenColor, shader, cam);
     }
 
-    uint framebufferHandle() {
-        return oglGetFramebuffer();
+    RenderResourceHandle framebufferHandle() {
+        return cast(RenderResourceHandle)oglGetFramebuffer();
     }
 
-    uint renderImageHandle() {
-        return oglGetRenderImage();
+    RenderResourceHandle renderImageHandle() {
+        return cast(RenderResourceHandle)oglGetRenderImage();
     }
 
-    uint compositeFramebufferHandle() {
-        return oglGetCompositeFramebuffer();
+    RenderResourceHandle compositeFramebufferHandle() {
+        return cast(RenderResourceHandle)oglGetCompositeFramebuffer();
     }
 
-    uint compositeImageHandle() {
-        return oglGetCompositeImage();
+    RenderResourceHandle compositeImageHandle() {
+        return cast(RenderResourceHandle)oglGetCompositeImage();
     }
 
-    uint mainAlbedoHandle() {
-        return oglGetMainAlbedo();
+    RenderResourceHandle mainAlbedoHandle() {
+        return cast(RenderResourceHandle)oglGetMainAlbedo();
     }
 
-    uint mainEmissiveHandle() {
-        return oglGetMainEmissive();
+    RenderResourceHandle mainEmissiveHandle() {
+        return cast(RenderResourceHandle)oglGetMainEmissive();
     }
 
-    uint mainBumpHandle() {
-        return oglGetMainBump();
+    RenderResourceHandle mainBumpHandle() {
+        return cast(RenderResourceHandle)oglGetMainBump();
     }
 
-    uint compositeEmissiveHandle() {
-        return oglGetCompositeEmissive();
+    RenderResourceHandle compositeEmissiveHandle() {
+        return cast(RenderResourceHandle)oglGetCompositeEmissive();
     }
 
-    uint compositeBumpHandle() {
-        return oglGetCompositeBump();
+    RenderResourceHandle compositeBumpHandle() {
+        return cast(RenderResourceHandle)oglGetCompositeBump();
     }
 
-    uint blendFramebufferHandle() {
-        return oglGetBlendFramebuffer();
+    RenderResourceHandle blendFramebufferHandle() {
+        return cast(RenderResourceHandle)oglGetBlendFramebuffer();
     }
 
-    uint blendAlbedoHandle() {
-        return oglGetBlendAlbedo();
+    RenderResourceHandle blendAlbedoHandle() {
+        return cast(RenderResourceHandle)oglGetBlendAlbedo();
     }
 
-    uint blendEmissiveHandle() {
-        return oglGetBlendEmissive();
+    RenderResourceHandle blendEmissiveHandle() {
+        return cast(RenderResourceHandle)oglGetBlendEmissive();
     }
 
-    uint blendBumpHandle() {
-        return oglGetBlendBump();
+    RenderResourceHandle blendBumpHandle() {
+        return cast(RenderResourceHandle)oglGetBlendBump();
     }
 
     void addBasicLightingPostProcess() {
@@ -380,7 +380,7 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         return oglGetDifferenceAggregationRegion();
     }
 
-    bool evaluateDifferenceAggregation(uint texture, int width, int height) {
+    bool evaluateDifferenceAggregation(RenderResourceHandle texture, int width, int height) {
         return oglEvaluateDifferenceAggregation(texture, width, height);
     }
 

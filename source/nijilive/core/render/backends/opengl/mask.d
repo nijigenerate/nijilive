@@ -85,7 +85,7 @@ void oglExecuteMaskPacket(ref MaskDrawPacket packet) {
     glBindBuffer(GL_ARRAY_BUFFER, sharedDbo);
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)deformLane1Offset);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, packet.indexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cast(GLuint)packet.indexBuffer);
     glDrawElements(GL_TRIANGLES, cast(int)packet.indexCount, GL_UNSIGNED_SHORT, null);
     markBufferInUse(sharedVbo);
     markBufferInUse(sharedDbo);

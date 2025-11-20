@@ -8,6 +8,7 @@ import nijilive.core.runtime_state : inPushViewport, inPopViewport, inGetCamera,
 import nijilive.math : mat4, vec2, vec3, vec4;
 import nijilive.core.texture : Texture;
 import nijilive.core.render.backends.opengl.handles : requireGLTexture;
+import nijilive.core.render.backends : RenderResourceHandle;
 
 private GLuint textureId(Texture texture) {
     if (texture is null) return 0;
@@ -24,13 +25,17 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
     if (tex is null) return;
 
     if (surface.framebuffer == 0) {
-        glGenFramebuffers(1, &surface.framebuffer);
+        GLuint newFramebuffer;
+        glGenFramebuffers(1, &newFramebuffer);
+        surface.framebuffer = cast(RenderResourceHandle)newFramebuffer;
     }
 
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &pass.origBuffer);
+    GLint previousFramebuffer;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    pass.origBuffer = cast(RenderResourceHandle)previousFramebuffer;
     glGetIntegerv(GL_VIEWPORT, pass.origViewport.ptr);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, surface.framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, cast(GLuint)surface.framebuffer);
 
     GLuint[3] drawBuffers;
     size_t bufferCount;
@@ -80,7 +85,7 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
 void oglEndDynamicComposite(DynamicCompositePass pass) {
     if (pass is null || pass.surface is null) return;
 
-    glBindFramebuffer(GL_FRAMEBUFFER, pass.origBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, cast(GLuint)pass.origBuffer);
     inPopViewport();
     glViewport(pass.origViewport[0], pass.origViewport[1],
         pass.origViewport[2], pass.origViewport[3]);
@@ -96,7 +101,7 @@ void oglEndDynamicComposite(DynamicCompositePass pass) {
 void oglDestroyDynamicComposite(DynamicCompositeSurface surface) {
     if (surface is null) return;
     if (surface.framebuffer != 0) {
-        uint buffer = surface.framebuffer;
+        auto buffer = cast(GLuint)surface.framebuffer;
         glDeleteFramebuffers(1, &buffer);
         surface.framebuffer = 0;
     }

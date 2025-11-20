@@ -1,6 +1,6 @@
 module nijilive.core.diff_collect;
 
-import nijilive.core.render.backends : RenderingBackend, BackendEnum;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderResourceHandle;
 import nijilive.core.runtime_state : tryRenderBackend;
 
 alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
@@ -58,7 +58,7 @@ DifferenceEvaluationRegion rpGetDifferenceEvaluationRegion() {
                            : backend.getDifferenceAggregationRegion();
 }
 
-bool rpEvaluateDifference(uint sourceTexture, int viewportWidth, int viewportHeight) {
+bool rpEvaluateDifference(RenderResourceHandle sourceTexture, int viewportWidth, int viewportHeight) {
     auto backend = backendOrNull();
     if (backend is null) return false;
     return backend.evaluateDifferenceAggregation(sourceTexture, viewportWidth, viewportHeight);

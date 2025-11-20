@@ -275,7 +275,7 @@ private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix,
 }
 
 private void renderStage(ref PartDrawPacket packet, bool advanced) {
-    auto ibo = packet.indexBuffer;
+    auto ibo = cast(GLuint)packet.indexBuffer;
     auto indexCount = packet.indexCount;
 
     if (!ibo || indexCount == 0 || packet.vertexCount == 0) return;

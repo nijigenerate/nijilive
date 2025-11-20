@@ -15,9 +15,11 @@ import nijilive.math.camera : Camera;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 
 /// GPU周りの共有状態を Backend がキャッシュするための構造体
+alias RenderResourceHandle = size_t;
+
 struct RenderGpuState {
-    uint framebuffer;
-    uint[8] drawBuffers;
+    RenderResourceHandle framebuffer;
+    RenderResourceHandle[8] drawBuffers;
     ubyte drawBufferCount;
     bool[4] colorMask;
     bool blendEnabled;

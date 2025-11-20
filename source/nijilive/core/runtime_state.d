@@ -20,7 +20,7 @@ import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvalua
     rpSetDifferenceEvaluationEnabled, rpDifferenceEvaluationEnabled,
     rpSetDifferenceEvaluationRegion, rpGetDifferenceEvaluationRegion,
     rpEvaluateDifference, rpFetchDifferenceResult;
-import nijilive.core.render.backends : RenderingBackend, BackendEnum;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderResourceHandle;
 
 package(nijilive) int[] inViewportWidth;
 package(nijilive) int[] inViewportHeight;
@@ -196,88 +196,88 @@ version(InDoesRender) {
         return tryRenderBackend();
     }
 
-    private GLuint handleOrZero(uint value) {
-        return cast(GLuint)value;
+    private RenderResourceHandle handleOrZero(RenderResourceHandle value) {
+        return value;
     }
 
-    GLuint inGetRenderImage() {
+    RenderResourceHandle inGetRenderImage() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.renderImageHandle());
     }
 
-    GLuint inGetFramebuffer() {
+    RenderResourceHandle inGetFramebuffer() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.framebufferHandle());
     }
 
-    GLuint inGetCompositeImage() {
+    RenderResourceHandle inGetCompositeImage() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.compositeImageHandle());
     }
 
-    GLuint inGetCompositeFramebuffer() {
+    RenderResourceHandle inGetCompositeFramebuffer() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.compositeFramebufferHandle());
     }
 
-    GLuint inGetMainAlbedo() {
+    RenderResourceHandle inGetMainAlbedo() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.mainAlbedoHandle());
     }
 
-    GLuint inGetMainEmissive() {
+    RenderResourceHandle inGetMainEmissive() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.mainEmissiveHandle());
     }
 
-    GLuint inGetMainBump() {
+    RenderResourceHandle inGetMainBump() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.mainBumpHandle());
     }
 
-    GLuint inGetCompositeEmissive() {
+    RenderResourceHandle inGetCompositeEmissive() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.compositeEmissiveHandle());
     }
 
-    GLuint inGetCompositeBump() {
+    RenderResourceHandle inGetCompositeBump() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.compositeBumpHandle());
     }
 
-    GLuint inGetBlendFramebuffer() {
+    RenderResourceHandle inGetBlendFramebuffer() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.blendFramebufferHandle());
     }
 
-    GLuint inGetBlendAlbedo() {
+    RenderResourceHandle inGetBlendAlbedo() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.blendAlbedoHandle());
     }
 
-    GLuint inGetBlendEmissive() {
+    RenderResourceHandle inGetBlendEmissive() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.blendEmissiveHandle());
     }
 
-    GLuint inGetBlendBump() {
+    RenderResourceHandle inGetBlendBump() {
         auto backend = renderBackendOrNull();
         return backend is null ? 0 : handleOrZero(backend.blendBumpHandle());
     }
 } else {
-    GLuint inGetRenderImage() { return 0; }
-    GLuint inGetFramebuffer() { return 0; }
-    GLuint inGetCompositeImage() { return 0; }
-    GLuint inGetCompositeFramebuffer() { return 0; }
-    GLuint inGetMainAlbedo() { return 0; }
-    GLuint inGetMainEmissive() { return 0; }
-    GLuint inGetMainBump() { return 0; }
-    GLuint inGetCompositeEmissive() { return 0; }
-    GLuint inGetCompositeBump() { return 0; }
-    GLuint inGetBlendFramebuffer() { return 0; }
-    GLuint inGetBlendAlbedo() { return 0; }
-    GLuint inGetBlendEmissive() { return 0; }
-    GLuint inGetBlendBump() { return 0; }
+    RenderResourceHandle inGetRenderImage() { return 0; }
+    RenderResourceHandle inGetFramebuffer() { return 0; }
+    RenderResourceHandle inGetCompositeImage() { return 0; }
+    RenderResourceHandle inGetCompositeFramebuffer() { return 0; }
+    RenderResourceHandle inGetMainAlbedo() { return 0; }
+    RenderResourceHandle inGetMainEmissive() { return 0; }
+    RenderResourceHandle inGetMainBump() { return 0; }
+    RenderResourceHandle inGetCompositeEmissive() { return 0; }
+    RenderResourceHandle inGetCompositeBump() { return 0; }
+    RenderResourceHandle inGetBlendFramebuffer() { return 0; }
+    RenderResourceHandle inGetBlendAlbedo() { return 0; }
+    RenderResourceHandle inGetBlendEmissive() { return 0; }
+    RenderResourceHandle inGetBlendBump() { return 0; }
 }
 
 void inBeginScene() {
@@ -346,7 +346,7 @@ DifferenceEvaluationRegion inGetDifferenceAggregationRegion() {
     return rpGetDifferenceEvaluationRegion();
 }
 
-bool inEvaluateDifferenceAggregation(uint texture, int viewportWidth, int viewportHeight) {
+bool inEvaluateDifferenceAggregation(RenderResourceHandle texture, int viewportWidth, int viewportHeight) {
     return rpEvaluateDifference(texture, viewportWidth, viewportHeight);
 }
 

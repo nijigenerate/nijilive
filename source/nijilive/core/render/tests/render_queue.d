@@ -23,7 +23,7 @@ import nijilive.core.render.graph_builder;
 import nijilive.core.render.commands : RenderCommandKind, MaskApplyPacket, PartDrawPacket,
     MaskDrawPacket, MaskDrawableKind, CompositeDrawPacket, DynamicCompositePass,
     DynamicCompositeSurface;
-import nijilive.core.render.backends : RenderingBackend, BackendEnum;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderResourceHandle;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler;
 import nijilive.core.meshdata;
 import nijilive.core.texture : Texture;
@@ -71,7 +71,7 @@ struct CommandRecord {
 
 class RecordingBackend : RenderingBackendStub!(BackendEnum.Mock) {
     CommandRecord[] records;
-    uint nextHandle;
+    RenderResourceHandle nextHandle;
 
     override void initializeRenderer() {}
     override void resizeViewportTargets(int width, int height) {}
@@ -81,14 +81,14 @@ class RecordingBackend : RenderingBackendStub!(BackendEnum.Mock) {
     override void postProcessScene() {}
     override void initializeDrawableResources() {}
     override void bindDrawableVao() {}
-    override void createDrawableBuffers(out uint ibo) {
+    override void createDrawableBuffers(out RenderResourceHandle ibo) {
         ibo = ++nextHandle;
     }
-    override void uploadDrawableIndices(uint ibo, ushort[] indices) {}
+    override void uploadDrawableIndices(RenderResourceHandle ibo, ushort[] indices) {}
     override void uploadSharedVertexBuffer(Vec2Array vertices) {}
     override void uploadSharedUvBuffer(Vec2Array uvs) {}
     override void uploadSharedDeformBuffer(Vec2Array deform) {}
-    override void drawDrawableElements(uint ibo, size_t indexCount) {}
+    override void drawDrawableElements(RenderResourceHandle ibo, size_t indexCount) {}
     override bool supportsAdvancedBlend() { return false; }
     override bool supportsAdvancedBlendCoherent() { return false; }
     override void setAdvancedBlendCoherent(bool) {}

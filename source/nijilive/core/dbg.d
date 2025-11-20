@@ -1,7 +1,7 @@
 module nijilive.core.dbg;
 
 import nijilive.math : vec3, vec4, mat4, Vec3Array;
-import nijilive.core.render.backends : RenderingBackend, BackendEnum;
+import nijilive.core.render.backends : RenderingBackend, BackendEnum, RenderResourceHandle;
 import nijilive.core.runtime_state : inGetCamera, tryRenderBackend;
 
 alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
@@ -58,7 +58,7 @@ void inDbgSetBuffer(Vec3Array points) {
     inDbgSetBuffer(points, indices);
 }
 
-void inDbgSetBuffer(uint vbo, uint ibo, int count) {
+void inDbgSetBuffer(RenderResourceHandle vbo, RenderResourceHandle ibo, int count) {
     auto backend = backendForDebug();
     if (backend is null) return;
     backend.setDebugExternalBuffer(vbo, ibo, count);

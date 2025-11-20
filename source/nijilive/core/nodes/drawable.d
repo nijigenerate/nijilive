@@ -24,6 +24,7 @@ import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
 version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
 import nijilive.core.render.shared_deform_buffer;
+import nijilive.core.render.backends : RenderResourceHandle;
 import nijilive.core.render.scheduler : RenderContext;
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
 
@@ -209,7 +210,7 @@ protected:
     /**
         Backend Index Buffer Object handle
     */
-    uint ibo;
+    RenderResourceHandle ibo;
 
     /**
         Offset within the shared deformation buffer

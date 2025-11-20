@@ -1,6 +1,7 @@
 module nijilive.core.render.backends.opengl.debug_renderer;
 
 import nijilive.math : vec3, vec4, mat4, Vec3Array;
+import nijilive.core.render.backends : RenderResourceHandle;
 
 version (InDoesRender) {
 
@@ -72,13 +73,16 @@ package(nijilive) void oglUploadDebugBuffer(Vec3Array points, ushort[] indices) 
     indexCount = cast(int)indices.length;
 }
 
-package(nijilive) void oglSetDebugExternalBuffer(uint vertexBuffer, uint indexBuffer, int count) {
+package(nijilive) void oglSetDebugExternalBuffer(RenderResourceHandle vertexBuffer, RenderResourceHandle indexBuffer, int count) {
     ensureInitialized();
 
+    auto vertexHandle = cast(GLuint)vertexBuffer;
+    auto indexHandle = cast(GLuint)indexBuffer;
+
     glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
-    currentVbo = vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexHandle);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexHandle);
+    currentVbo = vertexHandle;
     indexCount = count;
     bufferIsSoA = false;
     pointCount = 0;
@@ -157,8 +161,10 @@ package(nijilive) void oglInitDebugRenderer() {}
 package(nijilive) void oglSetDebugPointSize(float) {}
 package(nijilive) void oglSetDebugLineWidth(float) {}
 package(nijilive) void oglUploadDebugBuffer(Vec3Array, ushort[]) {}
-package(nijilive) void oglSetDebugExternalBuffer(uint, uint, int) {}
+package(nijilive) void oglSetDebugExternalBuffer(RenderResourceHandle, RenderResourceHandle, int) {}
 package(nijilive) void oglDrawDebugPoints(vec4, mat4) {}
 package(nijilive) void oglDrawDebugLines(vec4, mat4) {}
 
 }
+
+

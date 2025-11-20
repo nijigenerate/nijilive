@@ -1,16 +1,17 @@
 module nijilive.core.render.backends.opengl.drawable_buffers;
 
 import nijilive.math : vec2, Vec2Array;
+import nijilive.core.render.backends : RenderResourceHandle;
 
 version (unittest) {
     alias GLuint = uint;
 
     void oglInitDrawableBackend() {}
     void oglBindDrawableVao() {}
-    void oglCreateDrawableBuffers(ref GLuint ibo) {
+    void oglCreateDrawableBuffers(ref RenderResourceHandle ibo) {
         ibo = 0;
     }
-    void oglUploadDrawableIndices(GLuint, ushort[]) {}
+    void oglUploadDrawableIndices(RenderResourceHandle, ushort[]) {}
     void oglUploadSharedVertexBuffer(Vec2Array) {}
     void oglUploadSharedUvBuffer(Vec2Array) {}
     void oglUploadSharedDeformBuffer(Vec2Array) {}
@@ -39,14 +40,17 @@ void oglBindDrawableVao() {
     glBindVertexArray(drawableVAO);
 }
 
-void oglCreateDrawableBuffers(ref GLuint ibo) {
+void oglCreateDrawableBuffers(ref RenderResourceHandle ibo) {
     oglInitDrawableBackend();
-    if (ibo == 0) glGenBuffers(1, &ibo);
+    auto handle = cast(GLuint)ibo;
+    if (handle == 0) glGenBuffers(1, &handle);
+    ibo = cast(RenderResourceHandle)handle;
 }
 
-void oglUploadDrawableIndices(GLuint ibo, ushort[] indices) {
-    if (ibo == 0 || indices.length == 0) return;
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+void oglUploadDrawableIndices(RenderResourceHandle ibo, ushort[] indices) {
+    auto handle = cast(GLuint)ibo;
+    if (handle == 0 || indices.length == 0) return;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handle);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.length * ushort.sizeof, indices.ptr, GL_STATIC_DRAW);
 }
 
@@ -101,8 +105,9 @@ GLuint oglGetSharedDeformBuffer() {
     return sharedDeformBuffer;
 }
 
-void oglDrawDrawableElements(GLuint ibo, size_t indexCount) {
-    if (ibo == 0 || indexCount == 0) return;
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+void oglDrawDrawableElements(RenderResourceHandle ibo, size_t indexCount) {
+    auto handle = cast(GLuint)ibo;
+    if (handle == 0 || indexCount == 0) return;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handle);
     glDrawElements(GL_TRIANGLES, cast(int)indexCount, GL_UNSIGNED_SHORT, null);
 }

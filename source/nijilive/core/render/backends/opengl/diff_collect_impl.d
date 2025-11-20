@@ -1,6 +1,7 @@
 module nijilive.core.render.backends.opengl.diff_collect_impl;
 
 import nijilive.core.diff_collect;
+import nijilive.core.render.backends : RenderResourceHandle;
 
 version (InDoesRender) {
 
@@ -450,7 +451,7 @@ package(nijilive) DifferenceEvaluationRegion oglGetDifferenceAggregationRegion()
     return gDifferenceEvaluator.getRegion();
 }
 
-package(nijilive) bool oglEvaluateDifferenceAggregation(uint texture, int viewportWidth, int viewportHeight) {
+package(nijilive) bool oglEvaluateDifferenceAggregation(RenderResourceHandle texture, int viewportWidth, int viewportHeight) {
     return gDifferenceEvaluator.evaluate(cast(GLuint)texture, viewportWidth, viewportHeight);
 }
 
@@ -515,7 +516,7 @@ package(nijilive) void oglSetDifferenceAggregationRegion(DifferenceEvaluationReg
 package(nijilive) DifferenceEvaluationRegion oglGetDifferenceAggregationRegion() {
     return DifferenceEvaluationRegion.init;
 }
-package(nijilive) bool oglEvaluateDifferenceAggregation(uint, int, int) { return false; }
+package(nijilive) bool oglEvaluateDifferenceAggregation(RenderResourceHandle, int, int) { return false; }
 package(nijilive) bool oglFetchDifferenceAggregationResult(out DifferenceEvaluationResult result) {
     result = DifferenceEvaluationResult.init;
     return false;
