@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.mask;
+﻿module nijilive.core.render.backends.opengl.mask;
 
 import nijilive.core.render.commands : MaskApplyPacket, MaskDrawPacket, MaskDrawableKind;
 
@@ -7,13 +7,14 @@ version (InDoesRender) {
 import bindbc.opengl;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.backends.opengl.part : oglExecutePartPacket;
-import nijilive.core.shader : Shader;
+import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
 import nijilive.core.render.backends.opengl.drawable_buffers :
     oglGetSharedDeformBuffer,
     oglGetSharedVertexBuffer;
 
 private __gshared Shader maskShader;
+enum ShaderAsset MaskShaderSource = shaderAsset!("opengl/mask.vert","opengl/mask.frag")();
 private __gshared GLint maskOffsetUniform;
 private __gshared GLint maskMvpUniform;
 private __gshared bool maskBackendInitialized = false;
@@ -22,7 +23,7 @@ private void ensureMaskBackendInitialized() {
     if (maskBackendInitialized) return;
     maskBackendInitialized = true;
 
-    maskShader = new Shader(import("mask.vert"), import("mask.frag"));
+    maskShader = new Shader(MaskShaderSource);
     maskOffsetUniform = maskShader.getUniformLocation("offset");
     maskMvpUniform = maskShader.getUniformLocation("mvp");
 }
@@ -127,3 +128,5 @@ void oglExecuteMaskApplyPacket(ref MaskApplyPacket) {}
 void oglInitMaskBackend() {}
 
 }
+
+

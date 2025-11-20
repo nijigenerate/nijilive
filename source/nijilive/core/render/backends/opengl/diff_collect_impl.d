@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.diff_collect_impl;
+﻿module nijilive.core.render.backends.opengl.diff_collect_impl;
 
 import nijilive.core.diff_collect;
 import nijilive.core.render.backends : RenderResourceHandle;
@@ -74,9 +74,9 @@ private struct DifferenceEvaluator {
             return;
         }
 
-        GLuint vertShader = compileShader(GL_VERTEX_SHADER, import("difference_collect.vert"));
-        GLuint fragCollect = compileShader(GL_FRAGMENT_SHADER, import("difference_collect.frag"));
-        GLuint fragReduce = compileShader(GL_FRAGMENT_SHADER, import("difference_reduce.frag"));
+        GLuint vertShader = compileShader(GL_VERTEX_SHADER, import("opengl/difference_collect.vert"));
+        GLuint fragCollect = compileShader(GL_FRAGMENT_SHADER, import("opengl/difference_collect.frag"));
+        GLuint fragReduce = compileShader(GL_FRAGMENT_SHADER, import("opengl/difference_reduce.frag"));
 
         collectProgram = linkProgram(vertShader, fragCollect);
         reduceProgram = linkProgram(vertShader, fragReduce);
@@ -523,3 +523,4 @@ package(nijilive) bool oglFetchDifferenceAggregationResult(out DifferenceEvaluat
 }
 
 }
+

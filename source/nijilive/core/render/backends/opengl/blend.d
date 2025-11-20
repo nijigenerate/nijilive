@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.blend;
+﻿module nijilive.core.render.backends.opengl.blend;
 
 import nijilive.core.nodes.common : BlendMode;
 
@@ -7,7 +7,7 @@ version (InDoesRender) {
 import bindbc.opengl;
 import bindbc.opengl.context;
 import nijilive.core.render.backends.opengl.composite : oglGetCompositeVao;
-import nijilive.core.shader : Shader;
+import nijilive.core.shader : Shader, shaderAsset;
 import nijilive.math : mat4, vec2;
 
 private __gshared Shader[BlendMode] blendShaders;
@@ -15,7 +15,7 @@ private __gshared Shader[BlendMode] blendShaders;
 private void ensureBlendShadersInitialized() {
     if (blendShaders.length > 0) return;
 
-    auto advancedBlendShader = new Shader(import("basic/basic.vert"), import("basic/advanced_blend.frag"));
+    auto advancedBlendShader = new Shader(shaderAsset!("opengl/basic/basic.vert","opengl/basic/advanced_blend.frag")());
     BlendMode[] advancedModes = [
         BlendMode.Multiply,
         BlendMode.Screen,
@@ -207,3 +207,5 @@ bool oglSupportsAdvancedBlend() { return false; }
 bool oglSupportsAdvancedBlendCoherent() { return false; }
 
 }
+
+

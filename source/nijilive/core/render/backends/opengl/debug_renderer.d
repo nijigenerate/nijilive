@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.debug_renderer;
+﻿module nijilive.core.render.backends.opengl.debug_renderer;
 
 import nijilive.math : vec3, vec4, mat4, Vec3Array;
 import nijilive.core.render.backends : RenderResourceHandle;
@@ -6,11 +6,13 @@ import nijilive.core.render.backends : RenderResourceHandle;
 version (InDoesRender) {
 
 import bindbc.opengl;
-import nijilive.core.shader : Shader;
+import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.core.render.backends.opengl.soa_upload : glUploadFloatVecArray;
 
 private Shader lineShader;
 private Shader pointShader;
+enum ShaderAsset LineShaderSource = shaderAsset!("opengl/dbg.vert","opengl/dbgline.frag")();
+enum ShaderAsset PointShaderSource = shaderAsset!("opengl/dbg.vert","opengl/dbgpoint.frag")();
 private GLuint vao;
 private GLuint vbo;
 private GLuint ibo;
@@ -26,8 +28,8 @@ private __gshared bool bufferIsSoA;
 private void ensureInitialized() {
     if (lineShader !is null) return;
 
-    lineShader = new Shader(import("dbg.vert"), import("dbgline.frag"));
-    pointShader = new Shader(import("dbg.vert"), import("dbgpoint.frag"));
+    lineShader = new Shader(LineShaderSource);
+    pointShader = new Shader(PointShaderSource);
 
     lineMvpLocation = lineShader.getUniformLocation("mvp");
     lineColorLocation = lineShader.getUniformLocation("color");
@@ -166,5 +168,7 @@ package(nijilive) void oglDrawDebugPoints(vec4, mat4) {}
 package(nijilive) void oglDrawDebugLines(vec4, mat4) {}
 
 }
+
+
 
 

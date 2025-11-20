@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.part;
+﻿module nijilive.core.render.backends.opengl.part;
 
 version (InDoesRender) {
 
@@ -24,7 +24,7 @@ import nijilive.core.render.backends.opengl.runtime :
     oglSwapMainCompositeBuffers;
 import nijilive.core.render.backends.opengl.blend : oglGetBlendShader, oglBlendToBuffer;
 import nijilive.core.texture : Texture;
-import nijilive.core.shader : Shader;
+import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.math : mat4;
 import nijilive.core.render.backends.opengl.drawable_buffers :
     oglGetSharedDeformBuffer,
@@ -57,17 +57,22 @@ package(nijilive) {
     __gshared GLint gs2ScreenColor;
     __gshared GLint mmvp;
     __gshared GLint mthreshold;
-    __gshared bool partBackendInitialized = false;
+__gshared bool partBackendInitialized = false;
+
+enum ShaderAsset PartShaderSource = shaderAsset!("opengl/basic/basic.vert","opengl/basic/basic.frag")();
+enum ShaderAsset PartShaderStage1Source = shaderAsset!("opengl/basic/basic.vert","opengl/basic/basic-stage1.frag")();
+enum ShaderAsset PartShaderStage2Source = shaderAsset!("opengl/basic/basic.vert","opengl/basic/basic-stage2.frag")();
+enum ShaderAsset PartMaskShaderSource = shaderAsset!("opengl/basic/basic.vert","opengl/basic/basic-mask.frag")();
 }
 
 void oglInitPartBackendResources() {
     if (partBackendInitialized) return;
     partBackendInitialized = true;
 
-    partShader = new Shader(import("basic/basic.vert"), import("basic/basic.frag"));
-    partShaderStage1 = new Shader(import("basic/basic.vert"), import("basic/basic-stage1.frag"));
-    partShaderStage2 = new Shader(import("basic/basic.vert"), import("basic/basic-stage2.frag"));
-    partMaskShader = new Shader(import("basic/basic.vert"), import("basic/basic-mask.frag"));
+    partShader = new Shader(PartShaderSource);
+    partShaderStage1 = new Shader(PartShaderStage1Source);
+    partShaderStage2 = new Shader(PartShaderStage2Source);
+    partMaskShader = new Shader(PartMaskShaderSource);
 
     incDrawableBindVAO();
 
@@ -349,3 +354,5 @@ void oglDrawPartPacket(ref PartDrawPacket) {}
 void oglExecutePartPacket(ref PartDrawPacket) {}
 
 }
+
+

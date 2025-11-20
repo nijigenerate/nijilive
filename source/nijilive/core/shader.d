@@ -7,9 +7,47 @@
 */
 module nijilive.core.shader;
 import nijilive.math;
-import nijilive.core.render.backends : RenderShaderHandle;
+import nijilive.core.render.backends : RenderShaderHandle, BackendEnum, SelectedBackend;
 version (InDoesRender) {
     import nijilive.core.runtime_state : currentRenderBackend, tryRenderBackend;
+}
+
+struct ShaderStageSource {
+    string vertex;
+    string fragment;
+}
+
+struct ShaderAsset {
+    ShaderStageSource opengl;
+    ShaderStageSource directx;
+    ShaderStageSource vulkan;
+
+    ShaderStageSource sourceForCurrentBackend() const {
+        static if (SelectedBackend == BackendEnum.OpenGL) {
+            assert(opengl.vertex.length && opengl.fragment.length,
+                "OpenGL shader source is not provided.");
+            return opengl;
+        } else {
+            static assert(SelectedBackend == BackendEnum.OpenGL,
+                "Selected backend is not supported yet.");
+        }
+    }
+
+    static ShaderAsset fromOpenGLSource(string vertexSource, string fragmentSource) {
+        ShaderAsset asset;
+        asset.opengl = ShaderStageSource(vertexSource, fragmentSource);
+        return asset;
+    }
+}
+
+auto shaderAsset(string vertexPath, string fragmentPath)()
+{
+    enum ShaderAsset asset = ShaderAsset(
+        ShaderStageSource(import(vertexPath), import(fragmentPath)),
+        ShaderStageSource.init,
+        ShaderStageSource.init,
+    );
+    return asset;
 }
 
 /**
@@ -36,12 +74,20 @@ public:
     }
 
     /**
-        Creates a new shader object from source
+        Creates a new shader object from source definitions
+    */
+    this(ShaderAsset sources) {
+        version (InDoesRender) {
+            auto variant = sources.sourceForCurrentBackend();
+            handle = currentRenderBackend().createShader(variant.vertex, variant.fragment);
+        }
+    }
+
+    /**
+        Creates a new shader object from literal source strings (OpenGL fallback)
     */
     this(string vertex, string fragment) {
-        version (InDoesRender) {
-            handle = currentRenderBackend().createShader(vertex, fragment);
-        }
+        this(ShaderAsset.fromOpenGLSource(vertex, fragment));
     }
 
     /**

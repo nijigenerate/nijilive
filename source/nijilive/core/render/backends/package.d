@@ -160,4 +160,5 @@ template RenderingBackend(BackendEnum backendType) {
     }
 }
 
-alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
+enum SelectedBackend = BackendEnum.OpenGL;
+alias RenderBackend = RenderingBackend!(SelectedBackend);

@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.runtime;
+﻿module nijilive.core.render.backends.opengl.runtime;
 
 import bindbc.opengl;
 import std.algorithm.comparison : max;
@@ -6,7 +6,7 @@ import std.algorithm.mutation : swap;
 import core.stdc.string : memcpy;
 
 import nijilive.math;
-import nijilive.core.shader : Shader;
+import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.core.dbg : inInitDebug;
 import nijilive.core.render.backends.opengl.composite : oglGetCompositeVao;
 import nijilive.core.runtime_state :
@@ -82,6 +82,8 @@ private {
     PostProcessingShader basicSceneShader;
     PostProcessingShader basicSceneLighting;
     PostProcessingShader[] postProcessingStack;
+    enum ShaderAsset SceneShaderSource = shaderAsset!("opengl/scene.vert","opengl/scene.frag")();
+    enum ShaderAsset LightingShaderSource = shaderAsset!("opengl/scene.vert","opengl/lighting.frag")();
 
     bool isCompositing;
     struct CompositeFrameState {
@@ -158,7 +160,7 @@ package(nijilive) {
         version (InDoesRender) {
             
             // Shader for scene
-            basicSceneShader = PostProcessingShader(new Shader(import("scene.vert"), import("scene.frag")));
+            basicSceneShader = PostProcessingShader(new Shader(SceneShaderSource));
             glGenVertexArrays(1, &sceneVAO);
             glGenBuffers(1, &sceneVBO);
 
@@ -390,12 +392,7 @@ void oglPostProcessScene() {
     Add basic lighting shader to processing stack
 */
 void oglAddBasicLightingPostProcess() {
-    postProcessingStack ~= PostProcessingShader(
-        new Shader(
-            import("scene.vert"),
-            import("lighting.frag")
-        )
-    );
+    postProcessingStack ~= PostProcessingShader(new Shader(LightingShaderSource));
 }
 
 /**
@@ -634,3 +631,5 @@ void oglDumpViewport(ref ubyte[] dumpTo, int width, int height) {
         glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, dumpTo.ptr);
     }
 }
+
+

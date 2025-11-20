@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.composite;
+﻿module nijilive.core.render.backends.opengl.composite;
 
 import nijilive.core.render.commands : CompositeDrawPacket;
 
@@ -7,11 +7,13 @@ version (InDoesRender) {
 import bindbc.opengl;
 import nijilive.core.nodes.common : inSetBlendMode;
 import nijilive.core.render.backends.opengl.runtime : oglPrepareCompositeScene;
-import nijilive.core.shader : Shader;
+import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.math : mat4;
 
 private __gshared Shader compositeShader;
 private __gshared Shader compositeMaskShader;
+enum ShaderAsset CompositeShaderSource = shaderAsset!("opengl/basic/composite.vert","opengl/basic/composite.frag")();
+enum ShaderAsset CompositeMaskShaderSource = shaderAsset!("opengl/basic/composite.vert","opengl/basic/composite-mask.frag")();
 private __gshared GLuint compositeVAO;
 private __gshared GLuint compositeBuffer;
 private __gshared GLint compositeOpacityUniform;
@@ -41,10 +43,7 @@ private void ensureCompositeBackendResources() {
     if (compositeResourcesInitialized) return;
     compositeResourcesInitialized = true;
 
-    compositeShader = new Shader(
-        import("basic/composite.vert"),
-        import("basic/composite.frag")
-    );
+    compositeShader = new Shader(CompositeShaderSource);
 
     compositeShader.use();
     compositeOpacityUniform = compositeShader.getUniformLocation("opacity");
@@ -54,10 +53,7 @@ private void ensureCompositeBackendResources() {
     compositeShader.setUniform(compositeShader.getUniformLocation("emissive"), 1);
     compositeShader.setUniform(compositeShader.getUniformLocation("bumpmap"), 2);
 
-    compositeMaskShader = new Shader(
-        import("basic/composite.vert"),
-        import("basic/composite-mask.frag")
-    );
+    compositeMaskShader = new Shader(CompositeMaskShaderSource);
     compositeMaskShader.use();
     compositeMaskShader.getUniformLocation("threshold");
     compositeMaskShader.getUniformLocation("opacity");
@@ -155,3 +151,5 @@ GLint oglGetCompositeScreenColorUniform() { return 0; }
 void oglDrawCompositeQuad(ref CompositeDrawPacket) {}
 
 }
+
+
