@@ -15,6 +15,7 @@ preBuildCommands "dub run gitver -- --prefix IN --file source/nijilive/ver.d --m
 configuration "full" {
     dependency "silly" version="~>1.1.1"
     versions "InDoesRender"
+    libs "BindBC_OpenGL" "opengl32"
 }
 
 configuration "win32-directx" {
@@ -33,4 +34,17 @@ configuration "renderless" {
 configuration "queue-backend" {
     versions "InDoesRender"
     versions "UseQueueBackend"
+}
+
+configuration "unity-dll" {
+    targetType "dynamicLibrary"
+    platforms "windows"
+    versions "InDoesRender"
+    versions "UseQueueBackend"
+    versions "UnityDLL"
+    // Unity 用 DLL と判別できる名称にする
+    targetName "nijilive-unity"
+    // Unity 配布用にランタイムを静的リンクし、dllimport を無効化する。
+    dflags "-link-defaultlib-shared=false" "--dllimport=none"
+    excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
 }

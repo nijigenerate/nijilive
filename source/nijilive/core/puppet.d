@@ -12,7 +12,9 @@ import std.json;
 import nijilive.core.render.graph_builder;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.backends : RenderBackend, BackendEnum, RenderGpuState, SelectedBackend, SelectedBackendIsOpenGL;
-static if (SelectedBackendIsOpenGL) {
+version (UseQueueBackend) {
+    import nijilive.core.render.backends.queue : CommandQueueEmitter;
+} else static if (SelectedBackendIsOpenGL) {
     import nijilive.core.render.backends.opengl.queue : RenderQueue;
 }
 import nijilive.core.runtime_state : currentRenderBackend;
@@ -243,9 +245,7 @@ private:
         A dictionary of named animations
     */
     Animation[string] animations;
-    static if (SelectedBackendIsOpenGL) {
-        RenderCommandEmitter commandEmitter;
-    }
+    RenderCommandEmitter commandEmitter;
     RenderGraphBuilder renderGraph;
     package(nijilive) RenderBackend renderBackend;
     TaskScheduler renderScheduler;
@@ -497,7 +497,9 @@ public:
         root = new Node(this.puppetRootNode); 
         root.name = "Root";
         transform = Transform(vec3(0, 0, 0));
-        static if (SelectedBackendIsOpenGL) {
+        version (UseQueueBackend) {
+            commandEmitter = new CommandQueueEmitter();
+        } else static if (SelectedBackendIsOpenGL) {
             commandEmitter = new RenderQueue();
         }
         renderGraph = new RenderGraphBuilder();
@@ -521,7 +523,9 @@ public:
         this.scanParts!true(this.root);
         transform = Transform(vec3(0, 0, 0));
         this.selfSort();
-        static if (SelectedBackendIsOpenGL) {
+        version (UseQueueBackend) {
+            commandEmitter = new CommandQueueEmitter();
+        } else static if (SelectedBackendIsOpenGL) {
             commandEmitter = new RenderQueue();
         }
         renderGraph = new RenderGraphBuilder();
@@ -908,6 +912,11 @@ public:
         auto state = serializer.structBegin;
         serializeSelf(serializer);
         serializer.structEnd(state);
+    }
+
+    version (UseQueueBackend)
+    package(nijilive) RenderCommandEmitter queueEmitter() {
+        return commandEmitter;
     }
 
     /**

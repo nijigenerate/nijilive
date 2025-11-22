@@ -163,25 +163,44 @@ version (RenderBackendOpenGL) {
     enum SelectedBackend = BackendEnum.OpenGL;
 }
 
-enum bool SelectedBackendIsOpenGL = SelectedBackend == BackendEnum.OpenGL;
+version (UseQueueBackend) {
+    enum bool SelectedBackendIsOpenGL = false;
+} else {
+    enum bool SelectedBackendIsOpenGL = SelectedBackend == BackendEnum.OpenGL;
+}
 
 version (InDoesRender) {
-    public import nijilive.core.render.backends.opengl;
-    version (RenderBackendDirectX12) {
-        public import nijilive.core.render.backends.directx12;
-    }
-}
-
-template RenderingBackend(BackendEnum backendType) {
-    static if (backendType == BackendEnum.OpenGL) {
-        alias RenderingBackend = nijilive.core.render.backends.opengl.RenderingBackend!(backendType);
-    } else static if (backendType == BackendEnum.DirectX12) {
-        alias RenderingBackend = nijilive.core.render.backends.directx12.RenderingBackend!(backendType);
+    version (UseQueueBackend) {
+        public import nijilive.core.render.backends.queue;
     } else {
-        enum msg = "RenderingBackend!("~backendType.stringof~") is not implemented. Available options: BackendEnum.OpenGL, BackendEnum.DirectX12.";
-        pragma(msg, msg);
-        static assert(backendType == BackendEnum.OpenGL || backendType == BackendEnum.DirectX12, msg);
+        public import nijilive.core.render.backends.opengl;
+        version (RenderBackendDirectX12) {
+            public import nijilive.core.render.backends.directx12;
+        }
     }
 }
 
-alias RenderBackend = RenderingBackend!(SelectedBackend);
+version (UseQueueBackend) {
+    static import nijilive.core.render.backends.queue;
+} else {
+    static import nijilive.core.render.backends.opengl;
+}
+
+version (UseQueueBackend) {
+    import nijilive.core.render.backends.queue;
+    alias RenderBackend = nijilive.core.render.backends.queue.RenderingBackend!(BackendEnum.OpenGL);
+} else {
+    template RenderingBackend(BackendEnum backendType) {
+        static if (backendType == BackendEnum.OpenGL) {
+            alias RenderingBackend = nijilive.core.render.backends.opengl.RenderingBackend!(backendType);
+        } else static if (backendType == BackendEnum.DirectX12) {
+            alias RenderingBackend = nijilive.core.render.backends.directx12.RenderingBackend!(backendType);
+        } else {
+            enum msg = "RenderingBackend!("~backendType.stringof~") is not implemented. Available options: BackendEnum.OpenGL, BackendEnum.DirectX12.";
+            pragma(msg, msg);
+            static assert(backendType == BackendEnum.OpenGL || backendType == BackendEnum.DirectX12, msg);
+        }
+    }
+
+    alias RenderBackend = RenderingBackend!(SelectedBackend);
+}

@@ -2,7 +2,6 @@ module nijilive.math.veca;
 
 import std.math : approxEqual;
 import std.traits : isFloatingPoint, isIntegral, Unqual;
-import mir.ndslice.slice : sliced;
 import inmath.linalg : Vector;
 import core.memory : GC;
 import core.simd;
@@ -41,9 +40,9 @@ private:
         assert(rawMem !is null, "Failed to allocate veca backing buffer");
         auto alignedAddr = (cast(size_t)rawMem + mask) & ~mask;
         auto result = cast(T*)alignedAddr;
-        auto slice = result[0 .. totalElements];
-        slice[] = T.init;
-        return slice;
+        // We intentionally skip zero-initialization to avoid an O(n) fill;
+        // callers are expected to overwrite the storage before reading.
+        return result[0 .. totalElements];
     }
 
     void allocateBacking(size_t len) @trusted {
@@ -189,8 +188,8 @@ public:
                     continue;
                 }
             }
-            auto dstSlice = lanes[i].sliced;
-            auto srcSlice = rhs.lanes[i].sliced;
+            auto dstSlice = lanes[i];
+            auto srcSlice = rhs.lanes[i];
             static if (op == "+")
                 dstSlice[] += srcSlice[];
             else static if (op == "-")
@@ -206,7 +205,7 @@ public:
     void opOpAssign(string op)(Vector!(T, N) rhs)
     if (op == "+" || op == "-" || op == "*" || op == "/") {
         foreach (laneIdx; 0 .. N) {
-            auto lane = lanes[laneIdx].sliced;
+            auto lane = lanes[laneIdx];
             auto scalar = rhs.vector[laneIdx];
             static if (op == "+")
                 lane[] += scalar;
@@ -224,7 +223,7 @@ public:
     if ((op == "+" || op == "-" || op == "*" || op == "/") && is(typeof(cast(T) rhs))) {
         auto scalar = cast(T)rhs;
         foreach (laneIdx; 0 .. N) {
-            auto lane = lanes[laneIdx].sliced;
+            auto lane = lanes[laneIdx];
             static if (op == "+")
                 lane[] += scalar;
             else static if (op == "-")

@@ -6,7 +6,13 @@ import nijilive.core.nodes.drawable : Drawable;
 import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.render.commands : DynamicCompositePass;
-import nijilive.core.render.backends : RenderBackend, RenderGpuState;
+version (UseQueueBackend) {
+    import nijilive.core.render.backends : RenderGpuState, BackendEnum;
+    import nijilive.core.render.backends.queue : RenderingBackend;
+    alias RenderBackend = RenderingBackend!(BackendEnum.OpenGL);
+} else {
+    import nijilive.core.render.backends : RenderBackend, RenderGpuState;
+}
 
 interface RenderCommandEmitter {
     void beginFrame(RenderBackend backend, ref RenderGpuState state);

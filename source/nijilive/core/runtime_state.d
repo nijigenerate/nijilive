@@ -36,6 +36,10 @@ private void ensureRenderBackend() {
     }
 }
 
+package(nijilive) void inSetRenderBackend(RenderBackend backend) {
+    cachedRenderBackend = backend;
+}
+
 /// Push a new default camera onto the stack.
 void inPushCamera() {
     inPushCamera(new Camera);

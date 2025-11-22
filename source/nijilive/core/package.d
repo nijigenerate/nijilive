@@ -25,8 +25,11 @@ public import nijilive.core.texture_types;
 public import nijilive.core.runtime_state;
 public import nijilive.integration;
 version(InDoesRender) {
-    import nijilive.core.render.backends.opengl;
-    import nijilive.core.render.backends.opengl.runtime;
+    version(UseQueueBackend) {
+    } else {
+        import nijilive.core.render.backends.opengl;
+        import nijilive.core.render.backends.opengl.runtime;
+    }
 }
 //import std.stdio;
 
