@@ -21,3 +21,55 @@
 - Run `set PATH=C:\opt\ldc-1.41\bin;%PATH%` in that shell so LDC 1.41 is used for all `dub` commands.
 - Build via `dub build -q` from inside the same shell to ensure `link.exe`, `rc.exe`, etc., resolve correctly.
 - Place DirectX12 shaders under `shaders/directx12/...`; the project imports them with `import("directx12/…")` and the existing `-Jshaders` switch must continue to find them.
+
+## Unity Integration Interface (DLL Exports)
+When `nijilive` is consumed as a Unity plug-in, Unity (C#/Mono) owns render targets, textures, and the graphics API. The `nijilive` DLL therefore focuses on producing logical command buffers and buffer snapshots. Expose the following C ABI:
+
+1. **Renderer Lifecycle**
+   - `njgCreateRenderer(const UnityRendererConfig*, const UnityResourceCallbacks*, RendererHandle*)`
+   - `njgDestroyRenderer(RendererHandle)`
+   - Callbacks provide `CreateTexture`, `ReleaseTexture`, `MapBuffer`, `UnmapBuffer`, etc., so Unity allocates GPU assets and returns handles back to D.
+
+2. **Scene / Puppet Management**
+   - `njgLoadPuppet(RendererHandle, const char* path, PuppetHandle*)`
+   - `njgUnloadPuppet(RendererHandle, PuppetHandle)`
+   - `njgUpdateParameters(PuppetHandle, const PuppetParameterUpdate*)`, `njgTriggerAnimation`, etc.
+
+3. **Frame Execution**
+   - `njgBeginFrame(RendererHandle, const FrameConfig*)`
+   - `njgTickPuppet(PuppetHandle, double deltaSeconds)`
+   - `njgEmitCommands(RendererHandle, CommandQueueView*)` — returns a view over serialized `QueuedCommand` (Part/Mask/Composite/DynamicComposite packets).
+   - `njgGetSharedBuffers(RendererHandle, SharedBufferSnapshot*)` — provides SOA vertex/uv/deform slices for Unity to copy into `ComputeBuffer` や `NativeArray`.
+
+4. **Resource Synchronization**
+   - Unity registers `UnityTextureHandle` for every `Texture` referenced by packets; `nijilive` stores lightweight IDs and asks for uploads via callbacks.
+   - Unity supplies RenderTexture/FBO handles for composite targets and dynamic composites; `DynamicCompositePass` inside the queue references those handles.
+
+5. **Logging / Errors**
+   - `njgSetLogCallback(void(*)(LogLevel, const char*))` so file-loading failures or validation errors are surfaced to managed code.
+
+This interface keeps graphics ownership on the Unity side while `nijilive` remains a logical backend that emits command queues and shared buffer contents for Unity’s CommandBuffer pipeline.
+
+### Unity C# Host Responsibilities
+The managed side (Mono/Unity) must provide the following pieces to consume the DLL:
+
+1. **P/Invoke Definitions and Handles**
+   - Declare `[DllImport]` stubs for `njgCreateRenderer`, `njgDestroyRenderer`, `njgLoadPuppet`, `njgEmitCommands`, etc.
+   - Implement `SafeHandle`/`IntPtr` wrappers for `RendererHandle`, `PuppetHandle`, `UnityTextureHandle`, ensuring proper disposal semantics.
+
+2. **Resource Callback Struct**
+   - Define a `struct UnityResourceCallbacks` in C# containing function pointers/delegates such as `CreateTexture`, `ReleaseTexture`, `MapSharedBuffer`, `UnmapSharedBuffer`, `Log`.
+   - Populate this struct with methods that allocate Unity `Texture2D`/`RenderTexture`, wrap `GraphicsBuffer`, and raise managed exceptions on failure.
+
+3. **Buffer/Texture Managers**
+   - Maintain dictionaries that map nijilive texture IDs to Unity objects, upload SOA vertex/uv/deform data into `ComputeBuffer`/`NativeArray`.
+   - Convert `QueuedCommand` packets into Unity `CommandBuffer.DrawMesh` / `DrawProcedural` invocations, binding the correct materials and textures.
+
+4. **Frame Loop Integration**
+   - Create a `MonoBehaviour` or RenderPipeline hook that calls `njgBeginFrame`, `njgTickPuppet`, `njgEmitCommands`, and `njgGetSharedBuffers` each frame.
+   - Translate the emitted commands into Unity `CommandBuffer`s inserted in URP/HDRP/Built-in pipelines.
+
+5. **Logging/Error Reporting**
+   - Register a managed callback via `njgSetLogCallback` to surface DLL logs/exceptions into Unity’s console or UI.
+
+These components ensure Unity controls graphics resources while reusing nijilive’s animation/command logic through a clean DLL boundary.
