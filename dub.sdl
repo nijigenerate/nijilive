@@ -17,6 +17,14 @@ configuration "full" {
     versions "InDoesRender"
 }
 
+configuration "win32-directx" {
+    platforms "windows"
+    dependency "silly" version="~>1.1.1"
+    dependency "aurora-directx" version="~>12.1.2+10.0.17763.0"
+    versions "InDoesRender"
+    versions "UseDirectX"
+}
+
 configuration "renderless" {
     versions "InRenderless"
 }

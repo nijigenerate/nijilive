@@ -1,26 +1,23 @@
-# Rendering Command Stream Plan
+# Aurora DirectX Backend Plan
 
-## Objective
-Replace the RenderCommandData/RenderCommandBuffer pipeline with a backend-dependent command emitter. GraphBuilderと各ノードは emitter を通してノード参照を直接渡し、OpenGL など backend 実装がパケット生成と GPU 呼び出しを担う。これによりデータコピーを減らし、将来の backend 追加を容易にする。
+## Current Status
+- DirectX12 backend already handles device / command queue bootstrap and shared SOA atlas uploads via aurora-directx (source/nijilive/core/render/backends/directx12/device.d, shared_buffers.d).
+- Render targets for main/composite/blend plus RTV/DSV descriptor management are implemented and expose RenderResourceHandle values (render_targets.d, descriptor_heap.d).
+- Part rendering now has a root signature / PSO scaffold, constant buffer ring, shared-buffer SRV allocation, and vertex/index binding using the atlas data (pipeline.d, pso_cache.d, constant_buffer_ring.d, package.d).
+- Texture creation/upload/destroy and filtering/wrapping hooks are implemented via DxTextureHandle + descriptor pool management, and part draw packets now bind up to three SRVs (package.d).
+- Runtime config wiring and DX12 smoke tests are still pending; only part geometry was rendered prior to the new draw paths.
+- Mask, composite, dynamic composite, and drawTexture passes now run on DirectX12 command lists with stencil/RTV switching and CPU fallback removed.
 
-## Plan
-1. **Emitter インターフェース設計**
-   - `RenderCommandEmitter` を定義し、Part/Mask/Composite/DynamicComposite の描画・スコープ操作メソッドを列挙する。
-   - 引数は可能な限り `Part` 等のノード参照＋必要なフラグに限定し、状態は backend 側で取得。
-2. **GraphBuilder 書き換え**
-   - GraphBuilder に emitter インスタンスを渡し、`RenderCommandBuffer`/`RenderCommandData` を廃止。
-   - z-sort された RenderPass を emitter 呼び出し列として再生する仕組みを実装する。
-3. **ノード側の更新**
-   - `Part.enqueueRenderCommands` や `Composite`/`DynamicComposite` などが emitter を利用するように書き換え、パケット生成を backend へ移譲。
-   - DynamicComposite の postCommands delegate も emitter 呼び出しへ置き換える。
-4. **キャッシュ/テスト戦略**
-   - Puppet の `cachedCommands` を一時的に廃止し、常に GraphBuilder → emitter として実行。
-   - ユニットテスト用に RecordingEmitter を作成し、既存の挙動検証を置き換える。
-5. **OpenGL 実装**
-   - 旧 RenderQueue をベースに `RenderCommandEmitter` の OpenGL 実装を追加し、パケット生成と flush を内部で完結させる。
-   - Puppet/runtime_state から OpenGL emitter を生成し、既存の flush 経路を更新。
-6. **ドキュメントとフォローアップ**
-   - `doc/rendering.md` や関連資料を emitter ベースのフローに更新。
-   - 将来の DirectX/Vulkan backend を emitter 実装として追加できるよう、公開 API を整理。
+## Next Steps
+1. **Mask / Composite / DynamicComposite / drawTexture Paths**
+   - Port RTV/DSV switching, stencil/blend configuration, multi-stage blend logic, and offscreen surfaces to D3D12.
+2. **Runtime/config/fallback**
+   - Expose DirectX12 backend selection & fallback in runtime_state/configuration files and ensure existing flows keep working.
+3. **Testing & Docs**
+   - Add a DirectX smoke test (e.g., RecordingEmitter) and update doc/task.md, doc/rendering.md, and plan status with current limitations.
 
-依存タスクや進捗は `doc/task.md` で管理する。
+## Build / Run Environment
+- Launch `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoExit -File "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1"` (the VS2022 Developer PowerShell) before doing anything else.
+- Run `set PATH=C:\opt\ldc-1.41\bin;%PATH%` in that shell so LDC 1.41 is used for all `dub` commands.
+- Build via `dub build -q` from inside the same shell to ensure `link.exe`, `rc.exe`, etc., resolve correctly.
+- Place DirectX12 shaders under `shaders/directx12/...`; the project imports them with `import("directx12/…")` and the existing `-Jshaders` switch must continue to find them.

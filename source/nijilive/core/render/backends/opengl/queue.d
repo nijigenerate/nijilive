@@ -24,6 +24,9 @@ import nijilive.core.render.shared_deform_buffer :
     sharedUvBufferDirty,
     sharedUvBufferData,
     sharedUvMarkUploaded;
+version (RenderBackendDirectX12) {
+    import nijilive.core.render.backends.directx12.frame : dxBeginFrame, dxEndFrame;
+}
 
 version (InDoesRender) {
 
@@ -67,10 +70,16 @@ public:
         activeBackend = backend;
         frameState = &state;
         state = RenderGpuState.init;
+        version (RenderBackendDirectX12) {
+            dxBeginFrame(frameState);
+        }
         uploadSharedBuffers();
     }
 
-    void endFrame(RenderBackend, ref RenderGpuState) {
+    void endFrame(RenderBackend, ref RenderGpuState state) {
+        version (RenderBackendDirectX12) {
+            dxEndFrame(&state);
+        }
         activeBackend = null;
         frameState = null;
     }

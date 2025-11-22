@@ -41,6 +41,12 @@ enum BackendEnum {
     Mock,
 }
 
+version (Windows) {
+    version (UseDirectX) {
+        version = RenderBackendDirectX12;
+    }
+}
+
 /*
 class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.OpenGL){
     private auto backendUnsupported(T = void)(string func) {
@@ -162,15 +168,20 @@ enum bool SelectedBackendIsOpenGL = SelectedBackend == BackendEnum.OpenGL;
 
 version (InDoesRender) {
     public import nijilive.core.render.backends.opengl;
+    version (RenderBackendDirectX12) {
+        public import nijilive.core.render.backends.directx12;
+    }
 }
 
 template RenderingBackend(BackendEnum backendType) {
     static if (backendType == BackendEnum.OpenGL) {
         alias RenderingBackend = nijilive.core.render.backends.opengl.RenderingBackend!(backendType);
+    } else static if (backendType == BackendEnum.DirectX12) {
+        alias RenderingBackend = nijilive.core.render.backends.directx12.RenderingBackend!(backendType);
     } else {
-        enum msg = "RenderingBackend!("~backendType.stringof~") is not implemented. Only BackendEnum.OpenGL is supported.";
+        enum msg = "RenderingBackend!("~backendType.stringof~") is not implemented. Available options: BackendEnum.OpenGL, BackendEnum.DirectX12.";
         pragma(msg, msg);
-        static assert(backendType == BackendEnum.OpenGL, msg);
+        static assert(backendType == BackendEnum.OpenGL || backendType == BackendEnum.DirectX12, msg);
     }
 }
 
