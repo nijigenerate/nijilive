@@ -28,3 +28,9 @@ configuration "win32-directx" {
 configuration "renderless" {
     versions "InRenderless"
 }
+
+// Sample stanza to enable the queue command backend for inspection:
+configuration "queue-backend" {
+    versions "InDoesRender"
+    versions "UseQueueBackend"
+}

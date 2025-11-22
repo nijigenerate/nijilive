@@ -38,7 +38,6 @@ enum BackendEnum {
     OpenGL,
     DirectX12,
     Vulkan,
-    Mock,
 }
 
 version (Windows) {
