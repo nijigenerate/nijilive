@@ -115,8 +115,8 @@ public:
     }
 
     /// Returns a copy of the recorded commands.
-    QueuedCommand[] queuedCommands() const {
-        return queueData.dup;
+    const(QueuedCommand)[] queuedCommands() const {
+        return queueData;
     }
 
     /// Clears all recorded commands.
