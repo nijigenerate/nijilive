@@ -146,6 +146,14 @@ private:
 /// Minimal render backend that tracks resource handles without issuing GPU work.
 class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
 private:
+    size_t framebuffer;
+    size_t renderImage;
+    size_t compositeFramebuffer;
+    size_t compositeImage;
+    size_t blendFramebuffer;
+    size_t blendAlbedo;
+    size_t blendEmissive;
+    size_t blendBump;
     class QueueTextureHandle : RenderTextureHandle {
         size_t id;
         int width;
@@ -233,19 +241,19 @@ public:
     void drawTextureAtPosition(Texture, vec2, float, vec3, vec3) {}
     void drawTextureAtRect(Texture, rect, rect, float, vec3, vec3, Shader, Camera) {}
 
-    RenderResourceHandle framebufferHandle() { return 0; }
-    RenderResourceHandle renderImageHandle() { return 0; }
-    RenderResourceHandle compositeFramebufferHandle() { return 0; }
-    RenderResourceHandle compositeImageHandle() { return 0; }
-    RenderResourceHandle mainAlbedoHandle() { return 0; }
-    RenderResourceHandle mainEmissiveHandle() { return 0; }
-    RenderResourceHandle mainBumpHandle() { return 0; }
-    RenderResourceHandle compositeEmissiveHandle() { return 0; }
-    RenderResourceHandle compositeBumpHandle() { return 0; }
-    RenderResourceHandle blendFramebufferHandle() { return 0; }
-    RenderResourceHandle blendAlbedoHandle() { return 0; }
-    RenderResourceHandle blendEmissiveHandle() { return 0; }
-    RenderResourceHandle blendBumpHandle() { return 0; }
+    RenderResourceHandle framebufferHandle() { return framebuffer; }
+    RenderResourceHandle renderImageHandle() { return renderImage; }
+    RenderResourceHandle compositeFramebufferHandle() { return compositeFramebuffer; }
+    RenderResourceHandle compositeImageHandle() { return compositeImage; }
+    RenderResourceHandle mainAlbedoHandle() { return renderImage; }
+    RenderResourceHandle mainEmissiveHandle() { return renderImage; }
+    RenderResourceHandle mainBumpHandle() { return renderImage; }
+    RenderResourceHandle compositeEmissiveHandle() { return compositeImage; }
+    RenderResourceHandle compositeBumpHandle() { return compositeImage; }
+    RenderResourceHandle blendFramebufferHandle() { return blendFramebuffer; }
+    RenderResourceHandle blendAlbedoHandle() { return blendAlbedo; }
+    RenderResourceHandle blendEmissiveHandle() { return blendEmissive; }
+    RenderResourceHandle blendBumpHandle() { return blendBump; }
     void addBasicLightingPostProcess() {}
     void setDifferenceAggregationEnabled(bool enabled) { differenceAggregationEnabled = enabled; }
     bool isDifferenceAggregationEnabled() { return differenceAggregationEnabled; }
@@ -358,6 +366,22 @@ public:
 
     package(nijilive) size_t textureHandleId(RenderTextureHandle texture) {
         return textureNativeHandle(texture);
+    }
+
+    package(nijilive) void setRenderTargets(size_t renderHandle, size_t compositeHandle, size_t blendHandle = 0) {
+        framebuffer = renderHandle;
+        renderImage = renderHandle;
+        compositeFramebuffer = compositeHandle;
+        compositeImage = compositeHandle;
+        blendFramebuffer = blendHandle;
+        blendAlbedo = blendHandle;
+        blendEmissive = blendHandle;
+        blendBump = blendHandle;
+    }
+
+    package(nijilive) void overrideTextureId(RenderTextureHandle tex, size_t id) {
+        auto q = cast(QueueTextureHandle)tex;
+        if (q !is null) q.id = id;
     }
 }
 

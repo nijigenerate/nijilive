@@ -66,6 +66,9 @@ extern(C) struct PuppetParameterUpdate {
 
 extern(C) struct UnityResourceCallbacks {
     void* userData;
+    size_t function(int width, int height, int channels, int mipLevels, int format, bool renderTarget, bool stencil, void* userData) createTexture;
+    void function(size_t handle, const(ubyte)* data, size_t dataLen, int width, int height, int channels, void* userData) updateTexture;
+    void function(size_t handle, void* userData) releaseTexture;
 }
 
 extern(C) struct NjgPartDrawPacket {
@@ -168,9 +171,13 @@ class UnityRenderer {
     RenderBackend backend;
     Puppet[] puppets;
     NjgQueuedCommand[] commandBuffer;
+    UnityResourceCallbacks callbacks;
+    size_t renderHandle;
+    size_t compositeHandle;
 
-    this(RenderBackend backend) {
+    this(RenderBackend backend, UnityResourceCallbacks callbacks) {
         this.backend = backend;
+        this.callbacks = callbacks;
     }
 }
 
@@ -204,6 +211,30 @@ private size_t[] textureHandlesFromPacket(QueueBackend backend, const(Texture)[]
         handles[i] = backend.textureHandleId(handle);
     }
     return handles;
+}
+
+private void ensureTextureHandle(UnityRenderer renderer, Texture tex) {
+    static if (__traits(compiles, tex.getExternalHandle())) {
+        if (tex.getExternalHandle() != 0) return;
+    } else {
+        return;
+    }
+    if (renderer.callbacks.createTexture is null || renderer.callbacks.updateTexture is null) {
+        return;
+    }
+    auto w = tex.width();
+    auto h = tex.height();
+    auto c = tex.channels();
+    auto handle = renderer.callbacks.createTexture(w, h, c, 1, c, false, false, renderer.callbacks.userData);
+    auto data = tex.getTextureData();
+    renderer.callbacks.updateTexture(handle, data.ptr, data.length, w, h, c, renderer.callbacks.userData);
+    static if (__traits(compiles, tex.setExternalHandle(0))) {
+        tex.setExternalHandle(handle);
+        auto backend = cast(QueueBackend)renderer.backend;
+        if (backend !is null && tex.backendHandle() !is null) {
+            backend.overrideTextureId(tex.backendHandle(), handle);
+        }
+    }
 }
 
 private NjgPartDrawPacket serializePartPacket(QueueBackend backend, const ref PartDrawPacket packet) {
@@ -331,7 +362,7 @@ private NjgQueuedCommand serializeCommand(QueueBackend backend, const(QueuedComm
 }
 
 extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
-                                             const UnityResourceCallbacks*,
+                                             const UnityResourceCallbacks* callbacks,
                                              RendererHandle* outHandle) {
     if (outHandle is null) return NjgResult.InvalidArgument;
     try {
@@ -346,7 +377,8 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
             inSetViewport(config.viewportWidth, config.viewportHeight);
         }
 
-        auto renderer = new UnityRenderer(backend);
+        UnityResourceCallbacks cb = callbacks is null ? UnityResourceCallbacks.init : *cast(UnityResourceCallbacks*)callbacks;
+        auto renderer = new UnityRenderer(backend, cb);
         activeRenderers ~= renderer;
         *outHandle = cast(RendererHandle)renderer;
         return NjgResult.Ok;
@@ -370,6 +402,10 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
         import std.conv : to;
         import nijilive.fmt : inLoadPuppet;
         auto puppet = inLoadPuppet!Puppet(to!string(path));
+        foreach (tex; puppet.textureSlots) {
+            if (tex is null) continue;
+            ensureTextureHandle(renderer, tex);
+        }
         renderer.puppets ~= puppet;
         *outPuppet = cast(PuppetHandle)puppet;
         return NjgResult.Ok;
@@ -391,7 +427,18 @@ extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfi
     if (handle is null) return NjgResult.InvalidArgument;
     auto renderer = cast(UnityRenderer)handle;
     renderer.commandBuffer.length = 0;
-    return setViewport(cast(FrameConfig*)config);
+    auto res = setViewport(cast(FrameConfig*)config);
+    if (renderer.callbacks.createTexture !is null && config !is null) {
+        if (renderer.renderHandle == 0 && config.viewportWidth > 0 && config.viewportHeight > 0) {
+            renderer.renderHandle = renderer.callbacks.createTexture(config.viewportWidth, config.viewportHeight, 4, 1, 4, true, false, renderer.callbacks.userData);
+            renderer.compositeHandle = renderer.callbacks.createTexture(config.viewportWidth, config.viewportHeight, 4, 1, 4, true, false, renderer.callbacks.userData);
+            auto backend = cast(QueueBackend)renderer.backend;
+            if (backend !is null) {
+                backend.setRenderTargets(renderer.renderHandle, renderer.compositeHandle);
+            }
+        }
+    }
+    return res;
 }
 
 extern(C) export NjgResult njgTickPuppet(PuppetHandle puppetHandle, double deltaSeconds) {

@@ -160,6 +160,7 @@ private:
     int height_;
     int channels_;
     bool stencil_;
+    size_t externalHandle = 0;
 
     uint uuid;
 
@@ -427,6 +428,17 @@ public:
 
     RenderTextureHandle backendHandle() {
         return handle;
+    }
+
+    /// Unity/queue backend: allow external handle injection.
+    version (UseQueueBackend) {
+        void setExternalHandle(size_t h) {
+            externalHandle = h;
+        }
+
+        size_t getExternalHandle() const {
+            return externalHandle;
+        }
     }
 
     Texture dup() {
