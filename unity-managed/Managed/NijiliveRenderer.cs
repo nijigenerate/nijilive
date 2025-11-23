@@ -1,7 +1,5 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Nijilive.Unity.Interop;
 
@@ -13,31 +11,38 @@ namespace Nijilive.Unity.Managed;
 /// </summary>
 public sealed class NijiliveRenderer : IDisposable
 {
-    private static NijiliveRenderer _current;
+    private static readonly NijiliveNative.CreateTextureDelegate CreateTextureThunk = OnCreateTexture;
+    private static readonly NijiliveNative.UpdateTextureDelegate UpdateTextureThunk = OnUpdateTexture;
+    private static readonly NijiliveNative.ReleaseTextureDelegate ReleaseTextureThunk = OnReleaseTexture;
+
+    private static NijiliveRenderer? _current;
+
     private IntPtr _renderer;
     private readonly List<Puppet> _puppets = new();
     private readonly TextureRegistry _registry = new();
     private nuint _nextHandle = 1;
+    private GCHandle _selfHandle;
     private bool _disposed;
     private CommandStream.Command[]? _decodedCache;
 
-    private NijiliveRenderer(IntPtr renderer)
+    private NijiliveRenderer()
     {
-        _renderer = renderer;
+        _selfHandle = GCHandle.Alloc(this);
         _current = this;
     }
 
     public static NijiliveRenderer Create(int viewportWidth, int viewportHeight)
     {
+        var renderer = new NijiliveRenderer();
         var cfg = new NijiliveNative.UnityRendererConfig
         {
             ViewportWidth = viewportWidth,
             ViewportHeight = viewportHeight,
         };
-        var callbacks = BuildCallbacks();
-        var res = NijiliveNative.CreateRenderer(ref cfg, ref callbacks, out var handle);
-        EnsureOk(res, "CreateRenderer");
-        return new NijiliveRenderer(handle);
+        var callbacks = renderer.BuildCallbacks();
+        EnsureOk(NijiliveNative.CreateRenderer(ref cfg, ref callbacks, out var handle), "CreateRenderer");
+        renderer._renderer = handle;
+        return renderer;
     }
 
     public Puppet LoadPuppet(string path)
@@ -116,104 +121,26 @@ public sealed class NijiliveRenderer : IDisposable
             _renderer = IntPtr.Zero;
         }
         _registry.Clear();
+        if (_selfHandle.IsAllocated) _selfHandle.Free();
         if (ReferenceEquals(_current, this)) _current = null;
     }
 
-    private static void EnsureOk(NijiliveNative.NjgResult result, string context)
+    internal static void EnsureOk(NijiliveNative.NjgResult result, string context)
     {
         if (result == NijiliveNative.NjgResult.Ok) return;
         throw new NijiliveInteropException($"{context} failed: {result}");
     }
-}
 
-public sealed class Puppet : IDisposable
-{
-    internal IntPtr Handle { get; private set; }
-    private readonly NijiliveRenderer _owner;
-    private bool _disposed;
-
-    internal Puppet(NijiliveRenderer owner, IntPtr handle)
-    {
-        _owner = owner;
-        Handle = handle;
-    }
-
-    public unsafe void UpdateParameters(ReadOnlySpan<NijiliveNative.PuppetParameterUpdate> updates)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(Puppet));
-        if (updates.IsEmpty) return;
-        fixed (NijiliveNative.PuppetParameterUpdate* ptr = updates)
-        {
-            var res = NijiliveNative.UpdateParameters(Handle, (IntPtr)ptr, (nuint)updates.Length);
-            if (res != NijiliveNative.NjgResult.Ok)
-            {
-                throw new NijiliveInteropException($"UpdateParameters failed: {res}");
-            }
-        }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        if (Handle != IntPtr.Zero)
-        {
-            _owner.UnloadPuppet(this);
-            Handle = IntPtr.Zero;
-        }
-    }
-}
-
-/// <summary>
-/// Provides typed spans over the shared SOA buffers.
-/// </summary>
-    public sealed class NijiliveSharedBuffers
-{
-    public float[] Vertices { get; }
-    public float[] Uvs { get; }
-    public float[] Deform { get; }
-    public nuint VertexCount { get; }
-    public nuint UvCount { get; }
-    public nuint DeformCount { get; }
-    public NijiliveNative.SharedBufferSnapshot Raw { get; }
-
-    internal unsafe NijiliveSharedBuffers(NijiliveNative.SharedBufferSnapshot snapshot)
-    {
-        Raw = snapshot;
-        Vertices = CopySlice(snapshot.Vertices);
-        Uvs = CopySlice(snapshot.Uvs);
-        Deform = CopySlice(snapshot.Deform);
-        VertexCount = snapshot.VertexCount;
-        UvCount = snapshot.UvCount;
-        DeformCount = snapshot.DeformCount;
-    }
-
-    private static unsafe float[] CopySlice(NijiliveNative.NjgBufferSlice slice)
-    {
-        if (slice.Length == 0 || slice.Data == IntPtr.Zero) return Array.Empty<float>();
-        var len = checked((int)slice.Length);
-        var arr = new float[len];
-        var span = new ReadOnlySpan<float>((void*)slice.Data, len);
-        span.CopyTo(arr);
-        return arr;
-    }
-
-    internal TextureRegistry Registry => _registry;
-
-    private static NijiliveNative.UnityResourceCallbacks BuildCallbacks()
+    private NijiliveNative.UnityResourceCallbacks BuildCallbacks()
     {
         return new NijiliveNative.UnityResourceCallbacks
         {
-            UserData = IntPtr.Zero,
+            UserData = GCHandle.ToIntPtr(_selfHandle),
             CreateTexture = Marshal.GetFunctionPointerForDelegate(CreateTextureThunk),
             UpdateTexture = Marshal.GetFunctionPointerForDelegate(UpdateTextureThunk),
             ReleaseTexture = Marshal.GetFunctionPointerForDelegate(ReleaseTextureThunk),
         };
     }
-
-    private static readonly NijiliveNative.CreateTextureDelegate CreateTextureThunk = OnCreateTexture;
-    private static readonly NijiliveNative.UpdateTextureDelegate UpdateTextureThunk = OnUpdateTexture;
-    private static readonly NijiliveNative.ReleaseTextureDelegate ReleaseTextureThunk = OnReleaseTexture;
 
     private static NijiliveRenderer FromUserData(IntPtr userData)
     {
@@ -276,7 +203,119 @@ public sealed class Puppet : IDisposable
     }
 }
 
+public sealed class Puppet : IDisposable
+{
+    internal IntPtr Handle { get; private set; }
+    private readonly NijiliveRenderer _owner;
+    private bool _disposed;
+
+    internal Puppet(NijiliveRenderer owner, IntPtr handle)
+    {
+        _owner = owner;
+        Handle = handle;
+    }
+
+    public unsafe void UpdateParameters(ReadOnlySpan<NijiliveNative.PuppetParameterUpdate> updates)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(Puppet));
+        if (updates.IsEmpty) return;
+        fixed (NijiliveNative.PuppetParameterUpdate* ptr = updates)
+        {
+            var res = NijiliveNative.UpdateParameters(Handle, (IntPtr)ptr, (nuint)updates.Length);
+            if (res != NijiliveNative.NjgResult.Ok)
+            {
+                throw new NijiliveInteropException($"UpdateParameters failed: {res}");
+            }
+        }
+    }
+
+    public IReadOnlyList<ParameterDescriptor> GetParameters()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(Puppet));
+
+        NijiliveRenderer.EnsureOk(NijiliveNative.GetParameters(Handle, IntPtr.Zero, 0, out var count), "GetParameters(count)");
+        if (count == 0) return Array.Empty<ParameterDescriptor>();
+
+        var infos = new NijiliveNative.ParameterInfo[count];
+        unsafe
+        {
+            fixed (NijiliveNative.ParameterInfo* ptr = infos)
+            {
+                NijiliveRenderer.EnsureOk(NijiliveNative.GetParameters(Handle, (IntPtr)ptr, count, out _), "GetParameters(data)");
+            }
+        }
+
+        var list = new List<ParameterDescriptor>(infos.Length);
+        foreach (var info in infos)
+        {
+            var name = Marshal.PtrToStringUTF8(info.Name, checked((int)info.NameLength)) ?? string.Empty;
+            list.Add(new ParameterDescriptor(
+                info.Uuid,
+                name,
+                info.IsVec2,
+                info.Min,
+                info.Max,
+                info.Defaults));
+        }
+        return list;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (Handle != IntPtr.Zero)
+        {
+            _owner.UnloadPuppet(this);
+            Handle = IntPtr.Zero;
+        }
+    }
+}
+
+/// <summary>
+/// Provides typed spans over the shared SOA buffers.
+/// </summary>
+public sealed class NijiliveSharedBuffers
+{
+    public float[] Vertices { get; }
+    public float[] Uvs { get; }
+    public float[] Deform { get; }
+    public nuint VertexCount { get; }
+    public nuint UvCount { get; }
+    public nuint DeformCount { get; }
+    public NijiliveNative.SharedBufferSnapshot Raw { get; }
+
+    internal unsafe NijiliveSharedBuffers(NijiliveNative.SharedBufferSnapshot snapshot)
+    {
+        Raw = snapshot;
+        Vertices = CopySlice(snapshot.Vertices);
+        Uvs = CopySlice(snapshot.Uvs);
+        Deform = CopySlice(snapshot.Deform);
+        VertexCount = snapshot.VertexCount;
+        UvCount = snapshot.UvCount;
+        DeformCount = snapshot.DeformCount;
+    }
+
+    private static unsafe float[] CopySlice(NijiliveNative.NjgBufferSlice slice)
+    {
+        if (slice.Length == 0 || slice.Data == IntPtr.Zero) return Array.Empty<float>();
+        var len = checked((int)slice.Length);
+        var arr = new float[len];
+        var span = new ReadOnlySpan<float>((void*)slice.Data, len);
+        span.CopyTo(arr);
+        return arr;
+    }
+}
+
 public sealed class NijiliveInteropException : Exception
 {
     public NijiliveInteropException(string message) : base(message) { }
 }
+
+public readonly record struct ParameterDescriptor(
+    uint Uuid,
+    string Name,
+    bool IsVec2,
+    NijiliveNative.Vec2 Min,
+    NijiliveNative.Vec2 Max,
+    NijiliveNative.Vec2 Defaults);

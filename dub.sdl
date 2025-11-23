@@ -44,7 +44,7 @@ configuration "unity-dll" {
     versions "UnityDLL"
     // Unity 用 DLL と判別できる名称にする
     targetName "nijilive-unity"
-    // Unity 配布用にランタイムを静的リンクし、dllimport を無効化する。
+    // Unity 配置向けにランタイムを静的リンクし、dllimport を無効化する
     dflags "-link-defaultlib-shared=false" "--dllimport=none"
     excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
 }

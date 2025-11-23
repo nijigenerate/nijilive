@@ -64,6 +64,18 @@ public static class NijiliveNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct ParameterInfo
+    {
+        public uint Uuid;
+        [MarshalAs(UnmanagedType.I1)] public bool IsVec2;
+        public Vec2 Min;
+        public Vec2 Max;
+        public Vec2 Defaults;
+        public IntPtr Name;
+        public nuint NameLength;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct UnityResourceCallbacks
     {
         public IntPtr UserData;
@@ -255,6 +267,9 @@ public static class NijiliveNative
 
     [DllImport(DllName, EntryPoint = "njgGetSharedBuffers", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult GetSharedBuffers(IntPtr renderer, out SharedBufferSnapshot snapshot);
+
+    [DllImport(DllName, EntryPoint = "njgGetParameters", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern NjgResult GetParameters(IntPtr puppet, IntPtr buffer, nuint bufferLength, out nuint outCount);
 
     [DllImport(DllName, EntryPoint = "njgUpdateParameters", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult UpdateParameters(IntPtr puppet, IntPtr updates, nuint updateCount);

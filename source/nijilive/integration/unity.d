@@ -64,6 +64,16 @@ extern(C) struct PuppetParameterUpdate {
     float value;
 }
 
+extern(C) struct NjgParameterInfo {
+    uint uuid;
+    bool isVec2;
+    vec2 min;
+    vec2 max;
+    vec2 defaults;
+    const(char)* name;
+    size_t nameLength;
+}
+
 extern(C) struct UnityResourceCallbacks {
     void* userData;
     size_t function(int width, int height, int channels, int mipLevels, int format, bool renderTarget, bool stencil, void* userData) createTexture;
@@ -495,6 +505,31 @@ extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBuff
     snapshot.deform.length = dRaw.length;
     snapshot.deformCount = deform.length;
 
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgGetParameters(PuppetHandle puppetHandle,
+                                            NjgParameterInfo* buffer,
+                                            size_t bufferLength,
+                                            size_t* outCount) {
+    if (outCount is null) return NjgResult.InvalidArgument;
+    *outCount = 0;
+    if (puppetHandle is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto params = puppet.parameters;
+    *outCount = params.length;
+    if (buffer is null) return NjgResult.Ok;
+    if (bufferLength < params.length) return NjgResult.InvalidArgument;
+
+    foreach (i, param; params) {
+        buffer[i].uuid = param.uuid;
+        buffer[i].isVec2 = param.isVec2;
+        buffer[i].min = param.min;
+        buffer[i].max = param.max;
+        buffer[i].defaults = param.defaults;
+        buffer[i].name = param.name.ptr;
+        buffer[i].nameLength = param.name.length;
+    }
     return NjgResult.Ok;
 }
 

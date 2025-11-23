@@ -30,6 +30,9 @@ public sealed class NijiliveBehaviour : MonoBehaviour
     public CommandExecutor.UnityCommandBufferSink.PropertyConfig PropertyConfig =
         new CommandExecutor.UnityCommandBufferSink.PropertyConfig();
 
+    [Tooltip("Use RenderPipeline hook to drive frames automatically.")]
+    public bool UseRenderPipelineHook = true;
+
     [Serializable]
     public struct TextureBindingEntry
     {
@@ -46,6 +49,12 @@ public sealed class NijiliveBehaviour : MonoBehaviour
     private UnityCommandBufferSink _sink;
     private readonly TextureRegistry _textures = new();
     private SharedBufferUploader _buffers;
+    private static readonly List<NijiliveBehaviour> Active = new();
+    private static bool _hooked;
+    private int _lastFrameRun = -1;
+
+    internal NijiliveRenderer Renderer => _renderer;
+    internal Puppet Puppet => _puppet;
 
     [ContextMenu("Reload Puppet")]
     public void ReloadPuppet()
@@ -72,18 +81,51 @@ public sealed class NijiliveBehaviour : MonoBehaviour
         _buffers = new SharedBufferUploader();
         _sink = new UnityCommandBufferSink(_cb, PartMaterial, CompositeMaterial, _textures, _buffers, null, PropertyConfig);
         Camera.main?.AddCommandBuffer(CameraEvent.BeforeImageEffects, _cb);
+        RegisterHook();
     }
 
     private void Update()
     {
         if (_renderer == null) return;
+        if (UseRenderPipelineHook && _lastFrameRun == Time.frameCount) return;
+        RunFrame(Time.deltaTime);
+    }
+
+    private void OnEnable()
+    {
+        if (!Active.Contains(this)) Active.Add(this);
+        RegisterHook();
+    }
+
+    private void OnDisable()
+    {
+        Active.Remove(this);
+        if (Active.Count == 0 && _hooked)
+        {
+#if UNITY_5_3_OR_NEWER
+            UnityEngine.Rendering.RenderPipelineManager.beginFrameRendering -= OnBeginFrameRendering;
+#endif
+            _hooked = false;
+        }
+    }
+
+    private void OnBeginFrameRendering(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera[] cams)
+    {
+        if (_renderer == null) return;
+        if (_lastFrameRun == Time.frameCount) return;
+        RunFrame(Time.deltaTime);
+    }
+
+    private void RunFrame(float delta)
+    {
+        _lastFrameRun = Time.frameCount;
         var vp = Viewport;
         if (vp.x <= 0 || vp.y <= 0)
             vp = new Vector2Int(Screen.width, Screen.height);
 
         _renderer.BeginFrame(vp.x, vp.y);
         if (_puppet != null)
-            _renderer.TickPuppet(_puppet, Time.deltaTime);
+            _renderer.TickPuppet(_puppet, delta);
 
         var commands = _renderer.DecodeCommands();
         var shared = _renderer.GetSharedBuffers();
@@ -130,6 +172,17 @@ public sealed class NijiliveBehaviour : MonoBehaviour
         if (System.IO.Path.IsPathRooted(path))
             return path;
         return System.IO.Path.Combine(Application.streamingAssetsPath, path);
+    }
+
+    private void RegisterHook()
+    {
+#if UNITY_5_3_OR_NEWER
+        if (UseRenderPipelineHook && !_hooked)
+        {
+            UnityEngine.Rendering.RenderPipelineManager.beginFrameRendering += OnBeginFrameRendering;
+            _hooked = true;
+        }
+#endif
     }
 }
 #endif
