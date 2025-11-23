@@ -1,13 +1,15 @@
 using System;
 using System.Collections.Generic;
 using Nijilive.Unity.Interop;
-
-namespace Nijilive.Unity.Managed;
-
 #if UNITY_5_3_OR_NEWER
 using UnityEngine;
 using UnityEngine.Rendering;
+#endif
 
+namespace Nijilive.Unity.Managed
+{
+
+#if UNITY_5_3_OR_NEWER
 /// <summary>
 /// MonoBehaviour glue to drive nijilive-unity each frame and emit CommandBuffers.
 /// This is a minimal sample; adapt for your pipeline (URP/HDRP/Built-in).
@@ -27,8 +29,8 @@ public sealed class NijiliveBehaviour : MonoBehaviour
     public Material CompositeMaterial;
 
     [Header("Property Config (URP)")]
-    public CommandExecutor.UnityCommandBufferSink.PropertyConfig PropertyConfig =
-        new CommandExecutor.UnityCommandBufferSink.PropertyConfig();
+    public UnityCommandBufferSink.PropertyConfig PropertyConfig =
+        new UnityCommandBufferSink.PropertyConfig();
 
     [Tooltip("Use RenderPipeline hook to drive frames automatically.")]
     public bool UseRenderPipelineHook = true;
@@ -47,14 +49,15 @@ public sealed class NijiliveBehaviour : MonoBehaviour
     private Puppet _puppet;
     private CommandBuffer _cb;
     private UnityCommandBufferSink _sink;
-    private readonly TextureRegistry _textures = new();
+    private TextureRegistry _textures;
     private SharedBufferUploader _buffers;
     private static readonly List<NijiliveBehaviour> Active = new();
     private static bool _hooked;
     private int _lastFrameRun = -1;
 
-    internal NijiliveRenderer Renderer => _renderer;
-    internal Puppet Puppet => _puppet;
+    // Exposed for editor tooling (Parameter editor, etc.)
+    public NijiliveRenderer Renderer => _renderer;
+    public Puppet Puppet => _puppet;
 
     [ContextMenu("Reload Puppet")]
     public void ReloadPuppet()
@@ -73,10 +76,12 @@ public sealed class NijiliveBehaviour : MonoBehaviour
 
         EnsureMaterials();
         _renderer = NijiliveRenderer.Create(vp.x, vp.y);
+        _textures = _renderer.TextureRegistry;
         if (!string.IsNullOrWhiteSpace(PuppetPath))
             _puppet = _renderer.LoadPuppet(ResolvePath(PuppetPath));
 
         RegisterTextures();
+
         _cb = new CommandBuffer { name = "nijilive" };
         _buffers = new SharedBufferUploader();
         _sink = new UnityCommandBufferSink(_cb, PartMaterial, CompositeMaterial, _textures, _buffers, null, PropertyConfig);
@@ -186,3 +191,4 @@ public sealed class NijiliveBehaviour : MonoBehaviour
     }
 }
 #endif
+}

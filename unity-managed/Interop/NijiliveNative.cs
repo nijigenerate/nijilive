@@ -1,8 +1,8 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Nijilive.Unity.Interop;
-
+namespace Nijilive.Unity.Interop
+{
 /// <summary>
 /// P/Invoke surface that mirrors the C ABI exported by nijilive-unity.dll.
 /// Struct layouts and field types must stay aligned with source/nijilive/integration/unity.d.
@@ -273,4 +273,5 @@ public static class NijiliveNative
 
     [DllImport(DllName, EntryPoint = "njgUpdateParameters", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult UpdateParameters(IntPtr puppet, IntPtr updates, nuint updateCount);
+}
 }

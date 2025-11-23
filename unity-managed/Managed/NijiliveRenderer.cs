@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Nijilive.Unity.Interop;
 
-namespace Nijilive.Unity.Managed;
-
+namespace Nijilive.Unity.Managed
+{
 /// <summary>
 /// Minimal managed wrapper around the nijilive-unity native plugin.
 /// Handles renderer/puppet lifecycles, command emission, and shared buffer access.
@@ -15,7 +15,7 @@ public sealed class NijiliveRenderer : IDisposable
     private static readonly NijiliveNative.UpdateTextureDelegate UpdateTextureThunk = OnUpdateTexture;
     private static readonly NijiliveNative.ReleaseTextureDelegate ReleaseTextureThunk = OnReleaseTexture;
 
-    private static NijiliveRenderer? _current;
+        private static NijiliveRenderer _current;
 
     private IntPtr _renderer;
     private readonly List<Puppet> _puppets = new();
@@ -23,13 +23,15 @@ public sealed class NijiliveRenderer : IDisposable
     private nuint _nextHandle = 1;
     private GCHandle _selfHandle;
     private bool _disposed;
-    private CommandStream.Command[]? _decodedCache;
+        private CommandStream.Command[] _decodedCache;
 
     private NijiliveRenderer()
     {
         _selfHandle = GCHandle.Alloc(this);
         _current = this;
     }
+
+    public TextureRegistry TextureRegistry => _registry;
 
     public static NijiliveRenderer Create(int viewportWidth, int viewportHeight)
     {
@@ -307,15 +309,34 @@ public sealed class NijiliveSharedBuffers
     }
 }
 
-public sealed class NijiliveInteropException : Exception
-{
-    public NijiliveInteropException(string message) : base(message) { }
-}
+    public sealed class NijiliveInteropException : Exception
+    {
+        public NijiliveInteropException(string message) : base(message) { }
+    }
 
-public readonly record struct ParameterDescriptor(
-    uint Uuid,
-    string Name,
-    bool IsVec2,
-    NijiliveNative.Vec2 Min,
-    NijiliveNative.Vec2 Max,
-    NijiliveNative.Vec2 Defaults);
+    public struct ParameterDescriptor
+    {
+        public uint Uuid;
+        public string Name;
+        public bool IsVec2;
+        public NijiliveNative.Vec2 Min;
+        public NijiliveNative.Vec2 Max;
+        public NijiliveNative.Vec2 Defaults;
+
+        public ParameterDescriptor(
+            uint uuid,
+            string name,
+            bool isVec2,
+            NijiliveNative.Vec2 min,
+            NijiliveNative.Vec2 max,
+            NijiliveNative.Vec2 defaults)
+        {
+            Uuid = uuid;
+            Name = name;
+            IsVec2 = isVec2;
+            Min = min;
+            Max = max;
+            Defaults = defaults;
+        }
+    }
+}

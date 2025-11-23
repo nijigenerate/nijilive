@@ -2,18 +2,18 @@ using System;
 using System.Collections.Generic;
 using Nijilive.Unity.Interop;
 
-namespace Nijilive.Unity.Managed;
-
-/// <summary>
-/// Decodes native queued commands into managed DTOs for easier rendering integration.
-/// This does not issue Unity rendering API calls directly; it prepares a stream you can
-/// translate into CommandBuffer / material bindings on the Unity side.
-/// </summary>
-public static unsafe class CommandStream
+namespace Nijilive.Unity.Managed
 {
-    public abstract record Command(NijiliveNative.NjgRenderCommandKind Kind);
+    /// <summary>
+    /// Decodes native queued commands into managed DTOs for easier rendering integration.
+    /// This does not issue Unity rendering API calls directly; it prepares a stream you can
+    /// translate into CommandBuffer / material bindings on the Unity side.
+    /// </summary>
+    public static unsafe class CommandStream
+    {
+        public abstract record Command(NijiliveNative.NjgRenderCommandKind Kind);
 
-    public sealed record DrawPart(DrawPacket Part) : Command(NijiliveNative.NjgRenderCommandKind.DrawPart);
+        public sealed record DrawPart(DrawPacket Part) : Command(NijiliveNative.NjgRenderCommandKind.DrawPart);
     public sealed record DrawMask(MaskPacket Mask) : Command(NijiliveNative.NjgRenderCommandKind.DrawMask);
     public sealed record ApplyMask(MaskApplyPacket Apply) : Command(NijiliveNative.NjgRenderCommandKind.ApplyMask);
     public sealed record BeginDynamicComposite(DynamicCompositePass Pass) : Command(NijiliveNative.NjgRenderCommandKind.BeginDynamicComposite);
@@ -22,10 +22,10 @@ public static unsafe class CommandStream
     public sealed record BeginMaskContent() : Command(NijiliveNative.NjgRenderCommandKind.BeginMaskContent);
     public sealed record EndMask() : Command(NijiliveNative.NjgRenderCommandKind.EndMask);
     public sealed record BeginComposite() : Command(NijiliveNative.NjgRenderCommandKind.BeginComposite);
-    public sealed record DrawCompositeQuad(CompositePacket Composite) : Command(NijiliveNative.NjgRenderCommandKind.DrawCompositeQuad);
-    public sealed record EndComposite() : Command(NijiliveNative.NjgRenderCommandKind.EndComposite);
+        public sealed record DrawCompositeQuad(CompositePacket Composite) : Command(NijiliveNative.NjgRenderCommandKind.DrawCompositeQuad);
+        public sealed record EndComposite() : Command(NijiliveNative.NjgRenderCommandKind.EndComposite);
 
-    public sealed record DrawPacket(
+        public sealed record DrawPacket(
         bool IsMask,
         bool Renderable,
         NijiliveNative.Mat4 ModelMatrix,
@@ -50,7 +50,7 @@ public static unsafe class CommandStream
         nuint IndexCount,
         nuint VertexCount);
 
-    public sealed record MaskPacket(
+        public sealed record MaskPacket(
         NijiliveNative.Mat4 ModelMatrix,
         NijiliveNative.Mat4 Mvp,
         NijiliveNative.Vec2 Origin,
@@ -62,20 +62,20 @@ public static unsafe class CommandStream
         nuint IndexCount,
         nuint VertexCount);
 
-    public sealed record MaskApplyPacket(
+        public sealed record MaskApplyPacket(
         NijiliveNative.MaskDrawableKind Kind,
         bool IsDodge,
         DrawPacket Part,
         MaskPacket Mask);
 
-    public sealed record CompositePacket(
+        public sealed record CompositePacket(
         bool Valid,
         float Opacity,
         NijiliveNative.Vec3 Tint,
         NijiliveNative.Vec3 ScreenTint,
         int BlendingMode);
 
-    public sealed record DynamicCompositePass(
+        public sealed record DynamicCompositePass(
         ReadOnlyMemory<nuint> Textures,
         nuint Stencil,
         NijiliveNative.Vec2 Scale,
@@ -208,4 +208,5 @@ public static unsafe class CommandStream
             p.OrigBuffer,
             (p.OrigViewport0, p.OrigViewport1, p.OrigViewport2, p.OrigViewport3));
     }
+}
 }

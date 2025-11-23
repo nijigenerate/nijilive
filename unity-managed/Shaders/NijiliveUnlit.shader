@@ -74,32 +74,31 @@ Shader "Nijilive/UnlitURP"
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
-                OUT.positionHCS = TransformObjectToHClip(IN.positionOS.xyz);
-                OUT.uv = IN.uv;
+                OUT.positionHCS = float4(IN.positionOS.xy, 0, 1);
+                OUT.uv = float2(IN.uv.x, 1.0 - IN.uv.y);
                 UNITY_TRANSFER_FOG(OUT, OUT.positionHCS);
                 return OUT;
             }
 
             float4 frag(Varyings IN) : SV_Target
             {
-                float4 baseSample = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv);
-                float4 maskSample = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, IN.uv);
-                float4 extraSample = SAMPLE_TEXTURE2D(_ExtraTex, sampler_ExtraTex, IN.uv);
+                float2 uv = IN.uv;
 
-                // Simple mask apply: lerp alpha with mask threshold.
+                float4 baseSample  = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv);
+                float4 maskSample  = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, uv);
+                float4 extraSample = SAMPLE_TEXTURE2D(_ExtraTex, sampler_ExtraTex, uv);
+
                 float maskFactor = maskSample.r >= _MaskThreshold ? 1.0 : 0.0;
                 float alpha = baseSample.a * _BaseColorAlpha * maskFactor;
 
                 float3 color = baseSample.rgb * _BaseColor.rgb;
-                // Optional multistage blend hook.
+
                 if (_UseMultistageBlend != 0)
                 {
                     color = lerp(color, color + extraSample.rgb, saturate(extraSample.a));
                 }
 
-                // Screen tint is applied additively.
                 color += _ScreenTint.rgb;
-                // Emission additive.
                 color += _EmissionColor.rgb;
 
                 UNITY_APPLY_FOG(IN.fogCoord, color);

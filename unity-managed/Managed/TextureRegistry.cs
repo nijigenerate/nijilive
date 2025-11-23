@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+#if UNITY_5_3_OR_NEWER
+using UnityEngine;
+#endif
 
-namespace Nijilive.Unity.Managed;
-
+namespace Nijilive.Unity.Managed
+{
 /// <summary>
 /// Maps native texture handle ids to managed objects.
 /// The actual Unity objects are abstracted via the ITextureBinding interface to allow
@@ -57,6 +60,14 @@ public sealed class TextureRegistry
         _bindings.Clear();
         _nextHandle = 1;
     }
+
+    /// <summary>
+    /// Enumerate all registered texture bindings (for debugging / editor tools).
+    /// </summary>
+    public IEnumerable<KeyValuePair<nuint, ITextureBinding>> Enumerate()
+    {
+        return _bindings;
+    }
 }
 
 /// <summary>
@@ -68,8 +79,6 @@ public interface ITextureBinding : IDisposable
 }
 
 #if UNITY_5_3_OR_NEWER
-using UnityEngine;
-
 /// <summary>
 /// Unity binding that wraps Texture/RenderTexture.
 /// </summary>
@@ -98,3 +107,4 @@ public sealed class UnityTextureBinding : ITextureBinding
     }
 }
 #endif
+}

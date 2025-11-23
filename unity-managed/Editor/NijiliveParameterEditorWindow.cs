@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using Nijilive.Unity.Interop;
 
 namespace Nijilive.Unity.Managed.Editor
 {
@@ -89,6 +90,7 @@ namespace Nijilive.Unity.Managed.Editor
             EditorGUILayout.LabelField($"{p.Name} ({p.Uuid})", EditorStyles.boldLabel);
             var current = _values.TryGetValue(p.Uuid, out var val) ? val : ToVec2(p.Defaults);
 
+            EditorGUI.BeginChangeCheck();
             if (p.IsVec2)
             {
                 current.x = EditorGUILayout.Slider("X", current.x, p.Min.X, p.Max.X);
@@ -97,6 +99,11 @@ namespace Nijilive.Unity.Managed.Editor
             else
             {
                 current.x = EditorGUILayout.Slider("Value", current.x, p.Min.X, p.Max.X);
+            }
+            if (EditorGUI.EndChangeCheck())
+            {
+                _values[p.Uuid] = current;
+                ApplySingle(p.Uuid, current.x);
             }
 
             _values[p.Uuid] = current;
@@ -135,6 +142,17 @@ namespace Nijilive.Unity.Managed.Editor
         }
 
         private static Vector2 ToVec2(NijiliveNative.Vec2 v) => new Vector2(v.X, v.Y);
+
+        private void ApplySingle(uint uuid, float value)
+        {
+            if (_target?.Puppet == null) return;
+            var update = new NijiliveNative.PuppetParameterUpdate
+            {
+                ParameterUuid = uuid,
+                Value = value,
+            };
+            _target.Puppet.UpdateParameters(new[] { update });
+        }
     }
 }
 #endif
