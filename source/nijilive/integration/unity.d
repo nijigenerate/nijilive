@@ -61,7 +61,7 @@ extern(C) struct FrameConfig {
 
 extern(C) struct PuppetParameterUpdate {
     uint parameterUuid;
-    float value;
+    vec2 value;
 }
 
 extern(C) struct NjgParameterInfo {
@@ -544,10 +544,10 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
         auto param = puppet.findParameter(update.parameterUuid);
         if (param !is null) {
             if (param.isVec2) {
-                param.value = vec2(update.value, update.value);
+                param.value = update.value;
             } else {
                 auto current = param.value;
-                current.x = update.value;
+                current.x = update.value.x;
                 param.value = current;
             }
         }

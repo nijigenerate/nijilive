@@ -103,7 +103,7 @@ namespace Nijilive.Unity.Managed.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 _values[p.Uuid] = current;
-                ApplySingle(p.Uuid, current.x);
+                ApplySingle(p.Uuid, current);
             }
 
             _values[p.Uuid] = current;
@@ -115,7 +115,7 @@ namespace Nijilive.Unity.Managed.Editor
             var updates = _values.Select(kv => new NijiliveNative.PuppetParameterUpdate
             {
                 ParameterUuid = kv.Key,
-                Value = kv.Value.x,
+                Value = new NijiliveNative.Vec2 { X = kv.Value.x, Y = kv.Value.y },
             }).ToArray();
 
             _target.Puppet.UpdateParameters(updates);
@@ -143,13 +143,13 @@ namespace Nijilive.Unity.Managed.Editor
 
         private static Vector2 ToVec2(NijiliveNative.Vec2 v) => new Vector2(v.X, v.Y);
 
-        private void ApplySingle(uint uuid, float value)
+        private void ApplySingle(uint uuid, Vector2 value)
         {
             if (_target?.Puppet == null) return;
             var update = new NijiliveNative.PuppetParameterUpdate
             {
                 ParameterUuid = uuid,
-                Value = value,
+                Value = new NijiliveNative.Vec2 { X = value.x, Y = value.y },
             };
             _target.Puppet.UpdateParameters(new[] { update });
         }

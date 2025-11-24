@@ -60,7 +60,7 @@ public static class NijiliveNative
     public struct PuppetParameterUpdate
     {
         public uint ParameterUuid;
-        public float Value;
+        public Vec2 Value;
     }
 
     [StructLayout(LayoutKind.Sequential)]
