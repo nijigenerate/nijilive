@@ -9,6 +9,7 @@ namespace Nijilive.Unity.Managed.Editor
     {
         SerializedProperty _puppetPath;
         SerializedProperty _viewport;
+        SerializedProperty _pixelsPerUnit;
         SerializedProperty _partMat;
         SerializedProperty _compositeMat;
         SerializedProperty _propertyConfig;
@@ -18,6 +19,7 @@ namespace Nijilive.Unity.Managed.Editor
         {
             _puppetPath = serializedObject.FindProperty(nameof(NijiliveBehaviour.PuppetPath));
             _viewport = serializedObject.FindProperty(nameof(NijiliveBehaviour.Viewport));
+            _pixelsPerUnit = serializedObject.FindProperty("_pixelsPerUnit");
             _partMat = serializedObject.FindProperty(nameof(NijiliveBehaviour.PartMaterial));
             _compositeMat = serializedObject.FindProperty(nameof(NijiliveBehaviour.CompositeMaterial));
             _propertyConfig = serializedObject.FindProperty(nameof(NijiliveBehaviour.PropertyConfig));
@@ -53,6 +55,7 @@ namespace Nijilive.Unity.Managed.Editor
                 }
             }
             EditorGUILayout.PropertyField(_viewport, new GUIContent("Viewport (0=Screen)"));
+            EditorGUILayout.PropertyField(_pixelsPerUnit);
             EditorGUILayout.PropertyField(_partMat);
             EditorGUILayout.PropertyField(_compositeMat);
 

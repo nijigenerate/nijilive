@@ -160,6 +160,9 @@ public sealed class NijiliveRenderer : IDisposable
         var renderer = FromUserData(userData);
         var handle = renderer._nextHandle++;
 #if UNITY_5_3_OR_NEWER
+        UnityEngine.Debug.Log($"[Nijilive] OnCreateTexture: Handle={handle}, W={width}, H={height}, Channels={channels}, Format={format}, RT={renderTarget}");
+#endif
+#if UNITY_5_3_OR_NEWER
         if (renderTarget)
         {
             var rt = new UnityEngine.RenderTexture(width, height, stencil ? 16 : 0, UnityEngine.RenderTextureFormat.ARGB32)

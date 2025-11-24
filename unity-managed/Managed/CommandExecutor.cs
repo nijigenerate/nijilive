@@ -15,12 +15,13 @@ namespace Nijilive.Unity.Managed
             NijiliveNative.SharedBufferSnapshot sharedBuffers,
             IRenderCommandSink sink,
             int viewportWidth,
-            int viewportHeight)
+            int viewportHeight,
+            float pixelsPerUnit = 100f)
         {
             if (commands == null) throw new ArgumentNullException(nameof(commands));
             if (sink == null) throw new ArgumentNullException(nameof(sink));
 
-            sink.Begin(sharedBuffers, viewportWidth, viewportHeight);
+            sink.Begin(sharedBuffers, viewportWidth, viewportHeight, pixelsPerUnit);
             foreach (var cmd in commands)
             {
                 switch (cmd)
@@ -69,7 +70,7 @@ namespace Nijilive.Unity.Managed
 
     public interface IRenderCommandSink
     {
-        void Begin(NijiliveNative.SharedBufferSnapshot sharedBuffers, int viewportWidth, int viewportHeight);
+        void Begin(NijiliveNative.SharedBufferSnapshot sharedBuffers, int viewportWidth, int viewportHeight, float pixelsPerUnit);
         void End();
         void DrawPart(CommandStream.DrawPacket part);
         void DrawMask(CommandStream.MaskPacket mask);
@@ -91,12 +92,14 @@ namespace Nijilive.Unity.Managed
         public NijiliveNative.SharedBufferSnapshot SharedBuffers;
         public int ViewportWidth;
         public int ViewportHeight;
+        public float PixelsPerUnit;
 
-        public void Begin(NijiliveNative.SharedBufferSnapshot sharedBuffers, int viewportWidth, int viewportHeight)
+        public void Begin(NijiliveNative.SharedBufferSnapshot sharedBuffers, int viewportWidth, int viewportHeight, float pixelsPerUnit)
         {
             SharedBuffers = sharedBuffers;
             ViewportWidth = viewportWidth;
             ViewportHeight = viewportHeight;
+            PixelsPerUnit = pixelsPerUnit;
         }
 
         public void End() { }
@@ -158,6 +161,7 @@ namespace Nijilive.Unity.Managed
         private NijiliveNative.SharedBufferSnapshot _snapshot;
         private int _viewportW;
         private int _viewportH;
+        private float _pixelsPerUnit;
 
         public UnityCommandBufferSink(
             CommandBuffer cb,
@@ -180,13 +184,14 @@ namespace Nijilive.Unity.Managed
             _deformProp = Shader.PropertyToID(_props.DeformBuffer);
         }
 
-        public void Begin(NijiliveNative.SharedBufferSnapshot sharedBuffers, int viewportWidth, int viewportHeight)
+        public void Begin(NijiliveNative.SharedBufferSnapshot sharedBuffers, int viewportWidth, int viewportHeight, float pixelsPerUnit)
         {
             _cb.Clear();
             _snapshot = sharedBuffers;
             _stencilActive = false;
             _viewportW = viewportWidth;
             _viewportH = viewportHeight;
+            _pixelsPerUnit = Mathf.Max(0.001f, pixelsPerUnit);
             if (_buffers.VertexBuffer != null) _cb.SetGlobalBuffer(_vertProp, _buffers.VertexBuffer);
             if (_buffers.UvBuffer != null) _cb.SetGlobalBuffer(_uvProp, _buffers.UvBuffer);
             if (_buffers.DeformBuffer != null) _cb.SetGlobalBuffer(_deformProp, _buffers.DeformBuffer);
@@ -204,8 +209,8 @@ namespace Nijilive.Unity.Managed
         public void DrawPart(CommandStream.DrawPacket part)
         {
             var matrix = Matrix4x4.identity;
-            BindTextures(_partMaterial, part.TextureHandles);
             _mpb.Clear();
+            BindTextures(_mpb, part.TextureHandles);
             _mpb.SetFloat(_props.Opacity, part.Opacity);
             _mpb.SetColor(_props.Tint, new Color(part.ClampedTint.X, part.ClampedTint.Y, part.ClampedTint.Z, 1));
             _mpb.SetColor(_props.ScreenTint, new Color(part.ClampedScreen.X, part.ClampedScreen.Y, part.ClampedScreen.Z, 1));
@@ -268,7 +273,7 @@ namespace Nijilive.Unity.Managed
             return mesh;
         }
 
-        private void BindTextures(Material mat, ReadOnlyMemory<nuint> handles)
+        private void BindTextures(MaterialPropertyBlock block, ReadOnlyMemory<nuint> handles)
         {
             var span = handles.Span;
             Texture tex0 = ResolveTexture(span, 0, Color.white);
@@ -279,9 +284,9 @@ namespace Nijilive.Unity.Managed
             if (tex1 == null) tex1 = PlaceholderWhite();
             if (tex2 == null) tex2 = PlaceholderBlack();
 
-            mat.SetTexture(_props.MainTex, tex0);
-            mat.SetTexture(_props.MaskTex, tex1);
-            mat.SetTexture(_props.ExtraTex, tex2);
+            block.SetTexture(_props.MainTex, tex0);
+            block.SetTexture(_props.MaskTex, tex1);
+            block.SetTexture(_props.ExtraTex, tex2);
         }
 
         private Mesh BuildMesh(
@@ -302,8 +307,7 @@ namespace Nijilive.Unity.Managed
                 var vPtr = (float*)vSlice.Data;
                 var uvPtr = (float*)uvSlice.Data;
                 var m = ToMatrix(model);
-                var halfW = Mathf.Max(1, _viewportW) * 0.5f;
-                var halfH = Mathf.Max(1, _viewportH) * 0.5f;
+
 
                 for (int i = 0; i < count; i++)
                 {
@@ -311,8 +315,8 @@ namespace Nijilive.Unity.Managed
                     var vy = vPtr[vertexOffset + vertexStride + (nuint)i];
                     var local = new Vector4(vx, vy, 0, 1);
                     var world = m * local;
-                    var nx = world.x / halfW;
-                    var ny = -world.y / halfH;
+                    var nx = world.x / _pixelsPerUnit;
+                    var ny = -world.y / _pixelsPerUnit;
                     verts[i] = new Vector3(nx, ny, 0);
 
                     if (uvSlice.Data != IntPtr.Zero && uvSlice.Length > 0)
@@ -390,16 +394,93 @@ namespace Nijilive.Unity.Managed
 
         private void ApplyBlend(MaterialPropertyBlock block, int mode)
         {
-            var src = mode == 1 ? BlendMode.One : BlendMode.SrcAlpha;
-            var dst = mode == 1 ? BlendMode.One : BlendMode.OneMinusSrcAlpha;
-            var op = BlendOp.Add;
+            // Mappings based on standard Live2D/Nijilive specs
+            BlendMode src, dst;
+            BlendOp op = BlendOp.Add;
+
+            switch (mode)
+            {
+                case 0: // Normal
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 1: // Multiply
+                    src = BlendMode.DstColor;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 2: // Screen
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcColor;
+                    break;
+                case 3: // Overlay (Not supported by HW blend)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 4: // Darken
+                    src = BlendMode.One;
+                    dst = BlendMode.One;
+                    op = BlendOp.Min;
+                    break;
+                case 5: // Lighten
+                    src = BlendMode.One;
+                    dst = BlendMode.One;
+                    op = BlendOp.Max;
+                    break;
+                case 6: // ColorDodge (Not supported)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 7: // LinearDodge (Add)
+                    src = BlendMode.One;
+                    dst = BlendMode.One;
+                    break;
+                case 8: // AddGlow (Add)
+                    src = BlendMode.One;
+                    dst = BlendMode.One;
+                    break;
+                case 9: // ColorBurn (Not supported)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 10: // HardLight (Not supported)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 11: // SoftLight (Not supported)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 12: // Difference (Not supported by standard BlendOp)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 13: // Exclusion (Not supported)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 14: // Subtract (RevSub)
+                    src = BlendMode.One;
+                    dst = BlendMode.One;
+                    op = BlendOp.ReverseSubtract;
+                    break;
+                case 15: // Inverse (Not supported)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 16: // DestinationIn (Masking)
+                    src = BlendMode.Zero;
+                    dst = BlendMode.SrcAlpha;
+                    break;
+                default: // Normal or Special (Clip/Slice)
+                    src = BlendMode.One;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+            }
+
             block.SetInt(_props.SrcBlend, (int)src);
             block.SetInt(_props.DstBlend, (int)dst);
             block.SetInt(_props.BlendOp, (int)op);
             block.SetInt(_props.ZWrite, 0);
-
-            _partMaterial.renderQueue = mode == 1 ? (int)RenderQueue.Transparent + 50 : (int)RenderQueue.Transparent;
-            _compositeMaterial.renderQueue = _partMaterial.renderQueue;
         }
 
         private static Texture2D _white, _black;

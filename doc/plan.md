@@ -22,6 +22,43 @@
 - Build via `dub build -q` from inside the same shell to ensure `link.exe`, `rc.exe`, etc., resolve correctly.
 - Place DirectX12 shaders under `shaders/directx12/...`; the project imports them with `import("directx12/…")` and the existing `-Jshaders` switch must continue to find them.
 
+### Static-runtime Unity DLL build (nijilive-unity.dll)
+To build the Unity plug-in DLL with a fully static D runtime (including `mir-core`, `mir-algorithm`, `fghj`, `inmath`), use the following sequence in the same VS2022 Developer PowerShell configured with LDC 1.41:
+
+1. **Rebuild dependencies with static runtime**
+   - `cd %LOCALAPPDATA%\dub\packages\mir-core\1.7.3\mir-core`
+   - `set DFLAGS=-link-defaultlib-shared=false --dllimport=none`
+   - `dub build -q --compiler=ldc2 --force`
+   - `cd %LOCALAPPDATA%\dub\packages\mir-algorithm\3.22.4\mir-algorithm`
+   - `set DFLAGS=-link-defaultlib-shared=false --dllimport=none`
+   - `dub build -q --compiler=ldc2 --force`
+   - `cd %LOCALAPPDATA%\dub\packages\fghj\1.0.2\fghj`
+   - `set DFLAGS=-link-defaultlib-shared=false --dllimport=none`
+   - `dub build -q --compiler=ldc2 --force`
+   - `cd %LOCALAPPDATA%\dub\packages\inmath\1.0.6\inmath`
+   - `set DFLAGS=-link-defaultlib-shared=false --dllimport=none`
+   - `dub build -q --compiler=ldc2 --force`
+
+   These commands regenerate `mir-core.lib`, `mir-algorithm.lib`, `fghj.lib`, and `inmath.lib` with the same static-runtime flags that the Unity DLL uses.
+
+2. **Ensure `dub.sdl` unity configuration matches**
+   - In `nijilive/dub.sdl`, the `configuration "unity-dll"` stanza must contain:
+     - `dflags "-link-defaultlib-shared=false" "--dllimport=none"`
+     - `targetType "dynamicLibrary"`
+     - `targetName "nijilive-unity"`
+     - `versions "InDoesRender"`, `versions "UseQueueBackend"`, `versions "UnityDLL"`
+
+3. **Build the Unity DLL itself**
+   - `cd C:\Users\siget\src\nijigenerate\nijilive`
+   - `set DFLAGS=-link-defaultlib-shared=false --dllimport=none`
+   - `dub build -q -c unity-dll --force`
+
+   On success this produces a fully static `nijilive-unity.dll` (plus `.lib`/`.exp`) in the nijilive root directory.
+
+4. **Unity project deployment**
+   - Copy `nijilive-unity.dll` into your Unity project under `Assets/Plugins/x86_64/nijilive-unity.dll`.
+   - Keep the managed C# sources (`unity-managed`) in `Assets/Nijilive/...` as described in the unity-managed README.
+
 ## Unity Integration Interface (DLL Exports)
 When `nijilive` is consumed as a Unity plug-in, Unity (C#/Mono) owns render targets, textures, and the graphics API. The `nijilive` DLL therefore focuses on producing logical command buffers and buffer snapshots. Expose the following C ABI:
 

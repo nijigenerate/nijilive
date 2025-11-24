@@ -1,4 +1,4 @@
-name "nijilive"
+﻿name "nijilive"
 description "A bring-your-own-renderer realtime 2D puppet library"
 authors "Luna Nielsen"
 copyright "Copyright © 2024, nijigenerate project"
@@ -42,9 +42,9 @@ configuration "unity-dll" {
     versions "InDoesRender"
     versions "UseQueueBackend"
     versions "UnityDLL"
-    // Unity 用 DLL と判別できる名称にする
+    // Use a recognizable name for Unity DLL
     targetName "nijilive-unity"
-    // Unity 配置向けにランタイムを静的リンクし、dllimport を無効化する
+    // Statically link D runtime for Unity DLL and disable dllimport
     dflags "-link-defaultlib-shared=false" "--dllimport=none"
     excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
 }

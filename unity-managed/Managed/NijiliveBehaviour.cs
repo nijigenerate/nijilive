@@ -28,12 +28,22 @@ public sealed class NijiliveBehaviour : MonoBehaviour
     [Tooltip("Material used for composite passes (optional).")]
     public Material CompositeMaterial;
 
-    [Header("Property Config (URP)")]
+    [Header("Property Config")]
     public UnityCommandBufferSink.PropertyConfig PropertyConfig =
         new UnityCommandBufferSink.PropertyConfig();
 
     [Tooltip("Use RenderPipeline hook to drive frames automatically.")]
     public bool UseRenderPipelineHook = true;
+
+    [Tooltip("Pixels Per Unit (PPU) for scaling.")]
+    [SerializeField]
+    private float _pixelsPerUnit = 100f;
+
+    public float PixelsPerUnit
+    {
+        get => _pixelsPerUnit;
+        set => _pixelsPerUnit = value;
+    }
 
     [Serializable]
     public struct TextureBindingEntry
@@ -123,6 +133,7 @@ public sealed class NijiliveBehaviour : MonoBehaviour
 
     private void RunFrame(float delta)
     {
+        if (_renderer == null || _buffers == null || _sink == null) return;
         _lastFrameRun = Time.frameCount;
         var vp = Viewport;
         if (vp.x <= 0 || vp.y <= 0)
@@ -135,7 +146,7 @@ public sealed class NijiliveBehaviour : MonoBehaviour
         var commands = _renderer.DecodeCommands();
         var shared = _renderer.GetSharedBuffers();
         _buffers.Upload(shared.Raw);
-        CommandExecutor.Execute(commands, shared.Raw, _sink, vp.x, vp.y);
+        CommandExecutor.Execute(commands, shared.Raw, _sink, vp.x, vp.y, PixelsPerUnit);
     }
 
     private void OnDestroy()

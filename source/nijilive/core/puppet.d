@@ -651,7 +651,20 @@ public:
         Draws the puppet
     */
     final void draw() {
-        static if (SelectedBackendIsOpenGL) {
+        version (UseQueueBackend) {
+            if (commandEmitter is null || renderBackend is null) {
+                drawImmediateFallback();
+                return;
+            }
+            if (renderGraph.empty()) {
+                drawImmediateFallback();
+                return;
+            }
+
+            commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
+            renderGraph.playback(commandEmitter);
+            commandEmitter.endFrame(renderBackend, renderContext.gpuState);
+        } else static if (SelectedBackendIsOpenGL) {
             if (commandEmitter is null || renderBackend is null) {
                 drawImmediateFallback();
                 return;
