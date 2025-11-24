@@ -354,7 +354,7 @@ namespace Nijilive.Unity.Managed
             _mpb.SetInt(_props.UsesStencil, 0);
             ApplyBlend(_mpb, composite.BlendingMode);
             ApplyStencil(_mpb, StencilMode.Off);
-            // Scale the blit quad so that RT pixels map 1:1 to the current viewport.
+            // Draw with a quad scaled to match the RenderTexture texel size relative to the current viewport.
             var wFactor = (_viewportW > 0) ? (float)rt.width / _viewportW : 1f;
             var hFactor = (_viewportH > 0) ? (float)rt.height / _viewportH : 1f;
             var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f * wFactor, 2f * hFactor, 1f));
