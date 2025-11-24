@@ -221,14 +221,26 @@ namespace Nijilive.Unity.Managed
             _mpb.SetInt(_props.UsesStencil, _stencilActive ? 1 : 0);
             ApplyBlend(_mpb, part.BlendingMode);
             ApplyStencil(_mpb, _stencilActive ? StencilMode.TestEqual : StencilMode.Off);
-            var mesh = BuildMesh(part.ModelMatrix, part.VertexOffset, part.VertexAtlasStride, part.UvOffset, part.UvAtlasStride, part.VertexCount, part.IndexCount, part.Indices);
+            var mesh = BuildMesh(
+                part.ModelMatrix,
+                part.Origin,
+                part.VertexOffset, part.VertexAtlasStride,
+                part.UvOffset, part.UvAtlasStride,
+                part.DeformOffset, part.DeformAtlasStride,
+                part.VertexCount, part.IndexCount, part.Indices);
             _cb.DrawMesh(mesh, matrix, _partMaterial, 0, 0, _mpb);
         }
 
         public void DrawMask(CommandStream.MaskPacket mask)
         {
             var matrix = Matrix4x4.identity;
-            var mesh = BuildMesh(mask.ModelMatrix, mask.VertexOffset, mask.VertexAtlasStride, 0, 0, mask.VertexCount, mask.IndexCount, mask.Indices);
+            var mesh = BuildMesh(
+                mask.ModelMatrix,
+                mask.Origin,
+                mask.VertexOffset, mask.VertexAtlasStride,
+                0, 0,
+                mask.DeformOffset, mask.DeformAtlasStride,
+                mask.VertexCount, mask.IndexCount, mask.Indices);
             _mpb.Clear();
             _mpb.SetInt(_props.UsesStencil, 1);
             ApplyStencil(_mpb, StencilMode.WriteReplace);
@@ -291,8 +303,10 @@ namespace Nijilive.Unity.Managed
 
         private Mesh BuildMesh(
             NijiliveNative.Mat4 model,
+            NijiliveNative.Vec2 origin,
             nuint vertexOffset, nuint vertexStride,
             nuint uvOffset, nuint uvStride,
+            nuint deformOffset, nuint deformStride,
             nuint vertexCount, nuint indexCount,
             IntPtr indicesPtr)
         {
@@ -301,28 +315,40 @@ namespace Nijilive.Unity.Managed
             var uvs = new Vector2[count];
             var vSlice = _snapshot.Vertices;
             var uvSlice = _snapshot.Uvs;
+            var dSlice = _snapshot.Deform;
 
             unsafe
             {
                 var vPtr = (float*)vSlice.Data;
                 var uvPtr = (float*)uvSlice.Data;
+                var dPtr = (float*)dSlice.Data;
                 var m = ToMatrix(model);
+                var ox = origin.X;
+                var oy = origin.Y;
+                var hasDeform = dSlice.Data != IntPtr.Zero && dSlice.Length > 0 && deformStride != 0;
 
 
                 for (int i = 0; i < count; i++)
                 {
-                    var vx = vPtr[vertexOffset + (nuint)i];
-                    var vy = vPtr[vertexOffset + vertexStride + (nuint)i];
-                    var local = new Vector4(vx, vy, 0, 1);
+                    var idx = (nuint)i;
+                    var vx = vPtr[vertexOffset + idx];
+                    var vy = vPtr[vertexOffset + vertexStride + idx];
+                    float dx = 0, dy = 0;
+                    if (hasDeform)
+                    {
+                        dx = dPtr[deformOffset + idx];
+                        dy = dPtr[deformOffset + deformStride + idx];
+                    }
+                    var local = new Vector4(vx - ox + dx, vy - oy + dy, 0, 1);
                     var world = m * local;
                     var nx = world.x / _pixelsPerUnit;
                     var ny = -world.y / _pixelsPerUnit;
                     verts[i] = new Vector3(nx, ny, 0);
 
-                    if (uvSlice.Data != IntPtr.Zero && uvSlice.Length > 0)
+                    if (uvSlice.Data != IntPtr.Zero && uvSlice.Length > 0 && uvStride != 0)
                     {
-                        var ux = uvPtr[uvOffset + (nuint)i];
-                        var uy = uvPtr[uvOffset + uvStride + (nuint)i];
+                        var ux = uvPtr[uvOffset + idx];
+                        var uy = uvPtr[uvOffset + uvStride + idx];
                         uvs[i] = new Vector2(ux, uy);
                     }
                 }
