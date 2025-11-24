@@ -354,7 +354,10 @@ namespace Nijilive.Unity.Managed
             _mpb.SetInt(_props.UsesStencil, 0);
             ApplyBlend(_mpb, composite.BlendingMode);
             ApplyStencil(_mpb, StencilMode.Off);
-            var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, 2f, 1f));
+            // Scale the blit quad so that RT pixels map 1:1 to the current viewport.
+            var wFactor = (_viewportW > 0) ? (float)rt.width / _viewportW : 1f;
+            var hFactor = (_viewportH > 0) ? (float)rt.height / _viewportH : 1f;
+            var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f * wFactor, 2f * hFactor, 1f));
             _cb.DrawMesh(_quadMesh, matrix, _compositeMaterial, 0, 0, _mpb);
             RenderTexture.ReleaseTemporary(rt);
         }
