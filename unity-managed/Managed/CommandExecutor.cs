@@ -160,6 +160,7 @@ namespace Nijilive.Unity.Managed
         private readonly Stack<RenderTargetIdentifier> _targetStack = new();
         private readonly Stack<RenderTexture> _compositeTargets = new();
         private readonly Stack<float> _ppuStack = new();
+        private bool _inDynamicComposite;
         private RenderTargetIdentifier _currentTarget = BuiltinRenderTextureType.CameraTarget;
         private bool _stencilActive;
         private NijiliveNative.SharedBufferSnapshot _snapshot;
@@ -193,6 +194,7 @@ namespace Nijilive.Unity.Managed
             _cb.Clear();
             _snapshot = sharedBuffers;
             _stencilActive = false;
+            _inDynamicComposite = false;
             _viewportW = viewportWidth;
             _viewportH = viewportHeight;
             _pixelsPerUnit = Mathf.Max(0.001f, pixelsPerUnit);
@@ -259,6 +261,7 @@ namespace Nijilive.Unity.Managed
             {
                 _currentTarget = BuiltinRenderTextureType.CameraTarget;
                 _pixelsPerUnit = _ppuStack.Pop(); // restore immediately
+                _inDynamicComposite = false;
                 _cb.SetRenderTarget(_currentTarget);
                 return;
             }
@@ -268,6 +271,7 @@ namespace Nijilive.Unity.Managed
                 ? (float)target.height / _viewportH
                 : 1f;
             _pixelsPerUnit = Mathf.Max(0.001f, _pixelsPerUnit * factor);
+            _inDynamicComposite = true;
             _cb.SetRenderTarget(target);
             _cb.ClearRenderTarget(true, true, Color.clear);
         }
@@ -286,6 +290,7 @@ namespace Nijilive.Unity.Managed
             {
                 _pixelsPerUnit = _ppuStack.Pop();
             }
+            _inDynamicComposite = false;
             _cb.SetRenderTarget(_currentTarget);
         }
 
@@ -306,6 +311,7 @@ namespace Nijilive.Unity.Managed
             ApplyStencil(_mpb, _stencilActive ? StencilMode.TestEqual : StencilMode.Off);
             var mesh = BuildMesh(
                 part.ModelMatrix,
+                part.PuppetMatrix,
                 part.Origin,
                 part.VertexOffset, part.VertexAtlasStride,
                 part.UvOffset, part.UvAtlasStride,
@@ -319,6 +325,7 @@ namespace Nijilive.Unity.Managed
             var matrix = Matrix4x4.identity;
             var mesh = BuildMesh(
                 mask.ModelMatrix,
+                default,
                 mask.Origin,
                 mask.VertexOffset, mask.VertexAtlasStride,
                 0, 0,
@@ -404,6 +411,7 @@ namespace Nijilive.Unity.Managed
 
         private Mesh BuildMesh(
             NijiliveNative.Mat4 model,
+            NijiliveNative.Mat4 puppet,
             NijiliveNative.Vec2 origin,
             nuint vertexOffset, nuint vertexStride,
             nuint uvOffset, nuint uvStride,
@@ -423,7 +431,11 @@ namespace Nijilive.Unity.Managed
                 var vPtr = (float*)vSlice.Data;
                 var uvPtr = (float*)uvSlice.Data;
                 var dPtr = (float*)dSlice.Data;
-                var m = ToMatrix(model);
+                var mModel = ToMatrix(model);
+                var mPuppet = puppet.M11 == 0 && puppet.M22 == 0 && puppet.M33 == 0 && puppet.M44 == 0
+                    ? Matrix4x4.identity
+                    : ToMatrix(puppet);
+                var m = mPuppet * mModel;
                 var ox = origin.X;
                 var oy = origin.Y;
                 var hasDeform = dSlice.Data != IntPtr.Zero && dSlice.Length > 0 && deformStride != 0;
@@ -443,6 +455,7 @@ namespace Nijilive.Unity.Managed
                     var local = new Vector4(vx - ox + dx, vy - oy + dy, 0, 1);
                     var world = m * local;
                     var nx = world.x / _pixelsPerUnit;
+                    // Geometryは常に同じ向きに描く
                     var ny = -world.y / _pixelsPerUnit;
                     verts[i] = new Vector3(nx, ny, 0);
 
@@ -450,6 +463,11 @@ namespace Nijilive.Unity.Managed
                     {
                         var ux = uvPtr[uvOffset + idx];
                         var uy = uvPtr[uvOffset + uvStride + idx];
+                        if (_inDynamicComposite)
+                        {
+                            // DynamicCompositeに書くときはRTの上下反転分をUVで補正
+                            uy = 1f - uy;
+                        }
                         uvs[i] = new Vector2(ux, uy);
                     }
                 }
