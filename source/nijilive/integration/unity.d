@@ -209,7 +209,7 @@ private NjgResult setViewport(FrameConfig* cfg) {
     return NjgResult.Ok;
 }
 
-private size_t[] textureHandlesFromPacket(QueueBackend backend, const(Texture)[] textures) {
+private size_t[] textureHandlesFromPacket(QueueBackend backend, UnityRenderer renderer, const(Texture)[] textures) {
     size_t[] handles;
     handles.length = textures.length;
     foreach (i, tex; textures) {
@@ -223,31 +223,32 @@ private size_t[] textureHandlesFromPacket(QueueBackend backend, const(Texture)[]
     return handles;
 }
 
-private void ensureTextureHandle(UnityRenderer renderer, Texture tex) {
-    static if (__traits(compiles, tex.getExternalHandle())) {
-        if (tex.getExternalHandle() != 0) return;
+private void ensureTextureHandle(UnityRenderer renderer, const(Texture) tex, bool renderTarget = false, bool stencil = false) {
+    auto mutableTex = cast(Texture)tex;
+    static if (__traits(compiles, mutableTex.getExternalHandle())) {
+        if (mutableTex.getExternalHandle() != 0) return;
     } else {
         return;
     }
     if (renderer.callbacks.createTexture is null || renderer.callbacks.updateTexture is null) {
         return;
     }
-    auto w = tex.width();
-    auto h = tex.height();
-    auto c = tex.channels();
-    auto handle = renderer.callbacks.createTexture(w, h, c, 1, c, false, false, renderer.callbacks.userData);
-    auto data = tex.getTextureData();
+    auto w = mutableTex.width();
+    auto h = mutableTex.height();
+    auto c = mutableTex.channels();
+    auto handle = renderer.callbacks.createTexture(w, h, c, 1, c, renderTarget, stencil, renderer.callbacks.userData);
+    auto data = mutableTex.getTextureData();
     renderer.callbacks.updateTexture(handle, data.ptr, data.length, w, h, c, renderer.callbacks.userData);
-    static if (__traits(compiles, tex.setExternalHandle(0))) {
-        tex.setExternalHandle(handle);
+    static if (__traits(compiles, mutableTex.setExternalHandle(0))) {
+        mutableTex.setExternalHandle(handle);
         auto backend = cast(QueueBackend)renderer.backend;
-        if (backend !is null && tex.backendHandle() !is null) {
-            backend.overrideTextureId(tex.backendHandle(), handle);
+        if (backend !is null && mutableTex.backendHandle() !is null) {
+            backend.overrideTextureId(mutableTex.backendHandle(), handle);
         }
     }
 }
 
-private NjgPartDrawPacket serializePartPacket(QueueBackend backend, const ref PartDrawPacket packet) {
+private NjgPartDrawPacket serializePartPacket(QueueBackend backend, UnityRenderer renderer, const ref PartDrawPacket packet) {
     NjgPartDrawPacket result;
     result.isMask = packet.isMask;
     result.renderable = packet.renderable;
@@ -262,7 +263,7 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, const ref Pa
     result.useMultistageBlend = packet.useMultistageBlend;
     result.hasEmissionOrBumpmap = packet.hasEmissionOrBumpmap;
 
-    auto handles = textureHandlesFromPacket(backend, packet.textures);
+    auto handles = textureHandlesFromPacket(backend, renderer, packet.textures);
     auto count = min(handles.length, result.textureHandles.length);
     result.textureCount = count;
     foreach (i; 0 .. count) {
@@ -288,7 +289,7 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, const ref Pa
     return result;
 }
 
-private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, const ref MaskDrawPacket packet) {
+private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, UnityRenderer renderer, const ref MaskDrawPacket packet) {
     NjgMaskDrawPacket result;
     result.modelMatrix = packet.modelMatrix;
     result.mvp = packet.mvp;
@@ -305,7 +306,7 @@ private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, const ref Ma
     return result;
 }
 
-private NjgDynamicCompositePass serializeDynamicPass(QueueBackend backend, const DynamicCompositePass pass) {
+private NjgDynamicCompositePass serializeDynamicPass(QueueBackend backend, UnityRenderer renderer, const DynamicCompositePass pass) {
     NjgDynamicCompositePass result;
     if (pass is null) return result;
     result.scale = pass.scale;
@@ -317,30 +318,37 @@ private NjgDynamicCompositePass serializeDynamicPass(QueueBackend backend, const
         foreach (i; 0 .. pass.surface.textures.length) {
             if (i >= result.textures.length) break;
             auto tex = pass.surface.textures[i];
-            result.textures[i] = tex is null ? 0 : backend.textureHandleId((cast(Texture)tex).backendHandle());
+            if (tex !is null) {
+                // Ensure Unity-side RenderTexture exists and override handle.
+                ensureTextureHandle(renderer, tex, true, false);
+                result.textures[i] = backend.textureHandleId((cast(Texture)tex).backendHandle());
+            } else {
+                result.textures[i] = 0;
+            }
         }
         if (pass.surface.stencil !is null) {
             auto stencilTex = cast(Texture)pass.surface.stencil;
+            ensureTextureHandle(renderer, stencilTex, true, true);
             result.stencil = backend.textureHandleId(stencilTex.backendHandle());
         }
     }
     return result;
 }
 
-private NjgQueuedCommand serializeCommand(QueueBackend backend, const(QueuedCommand) cmd) {
+private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend backend, const(QueuedCommand) cmd) {
     NjgQueuedCommand outCmd;
     outCmd.kind = cast(NjgRenderCommandKind)cmd.kind;
     outCmd.usesStencil = cmd.usesStencil;
     final switch (cmd.kind) {
         case RenderCommandKind.DrawPart:
-            outCmd.partPacket = serializePartPacket(backend, cmd.payload.partPacket);
+            outCmd.partPacket = serializePartPacket(backend, renderer, cmd.payload.partPacket);
             break;
         case RenderCommandKind.DrawMask:
-            outCmd.maskPacket = serializeMaskPacket(backend, cmd.payload.maskPacket);
+            outCmd.maskPacket = serializeMaskPacket(backend, renderer, cmd.payload.maskPacket);
             break;
         case RenderCommandKind.BeginDynamicComposite:
         case RenderCommandKind.EndDynamicComposite:
-            outCmd.dynamicPass = serializeDynamicPass(backend, cmd.payload.dynamicPass);
+            outCmd.dynamicPass = serializeDynamicPass(backend, renderer, cmd.payload.dynamicPass);
             break;
         case RenderCommandKind.BeginMask:
         case RenderCommandKind.BeginMaskContent:
@@ -363,8 +371,8 @@ private NjgQueuedCommand serializeCommand(QueueBackend backend, const(QueuedComm
             NjgMaskApplyPacket apply;
             apply.kind = cmd.payload.maskApplyPacket.kind;
             apply.isDodge = cmd.payload.maskApplyPacket.isDodge;
-            apply.partPacket = serializePartPacket(backend, cmd.payload.maskApplyPacket.partPacket);
-            apply.maskPacket = serializeMaskPacket(backend, cmd.payload.maskApplyPacket.maskPacket);
+            apply.partPacket = serializePartPacket(backend, renderer, cmd.payload.maskApplyPacket.partPacket);
+            apply.maskPacket = serializeMaskPacket(backend, renderer, cmd.payload.maskApplyPacket.maskPacket);
             outCmd.maskApplyPacket = apply;
             break;
     }
@@ -473,7 +481,7 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
         auto emitter = cast(CommandQueueEmitter)puppet.queueEmitter();
         if (emitter is null) continue;
         foreach (cmd; emitter.queuedCommands()) {
-            renderer.commandBuffer ~= serializeCommand(backend, cmd);
+            renderer.commandBuffer ~= serializeCommand(renderer, backend, cmd);
         }
         emitter.clearQueue();
     }

@@ -157,6 +157,10 @@ namespace Nijilive.Unity.Managed
         private readonly int _vertProp;
         private readonly int _uvProp;
         private readonly int _deformProp;
+        private readonly Stack<RenderTargetIdentifier> _targetStack = new();
+        private readonly Stack<RenderTexture> _compositeTargets = new();
+        private readonly Stack<float> _ppuStack = new();
+        private RenderTargetIdentifier _currentTarget = BuiltinRenderTextureType.CameraTarget;
         private bool _stencilActive;
         private NijiliveNative.SharedBufferSnapshot _snapshot;
         private int _viewportW;
@@ -192,6 +196,10 @@ namespace Nijilive.Unity.Managed
             _viewportW = viewportWidth;
             _viewportH = viewportHeight;
             _pixelsPerUnit = Mathf.Max(0.001f, pixelsPerUnit);
+            _targetStack.Clear();
+            _compositeTargets.Clear();
+            _ppuStack.Clear();
+            _currentTarget = BuiltinRenderTextureType.CameraTarget;
             if (_buffers.VertexBuffer != null) _cb.SetGlobalBuffer(_vertProp, _buffers.VertexBuffer);
             if (_buffers.UvBuffer != null) _cb.SetGlobalBuffer(_uvProp, _buffers.UvBuffer);
             if (_buffers.DeformBuffer != null) _cb.SetGlobalBuffer(_deformProp, _buffers.DeformBuffer);
@@ -201,10 +209,85 @@ namespace Nijilive.Unity.Managed
         public void BeginMask(bool usesStencil) { _stencilActive = usesStencil; }
         public void BeginMaskContent() { }
         public void EndMask() { }
-        public void BeginComposite() { }
-        public void EndComposite() { }
-        public void BeginDynamicComposite(CommandStream.DynamicCompositePass pass) { }
-        public void EndDynamicComposite(CommandStream.DynamicCompositePass pass) { }
+
+        public void BeginComposite()
+        {
+            // Render composite contents into a temporary RenderTexture,
+            // then DrawCompositeQuad will blit it back to the parent target.
+            var previous = _currentTarget;
+            _targetStack.Push(previous);
+            var width = Mathf.Max(1, _viewportW);
+            var height = Mathf.Max(1, _viewportH);
+            var rt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
+            rt.name = "Nijilive/CompositeRT";
+            _compositeTargets.Push(rt);
+            _currentTarget = new RenderTargetIdentifier(rt);
+            _cb.SetRenderTarget(rt);
+            _cb.ClearRenderTarget(true, true, Color.clear);
+        }
+
+        public void EndComposite()
+        {
+            if (_targetStack.Count > 0)
+            {
+                _currentTarget = _targetStack.Pop();
+            }
+            else
+            {
+                _currentTarget = BuiltinRenderTextureType.CameraTarget;
+            }
+            _cb.SetRenderTarget(_currentTarget);
+        }
+
+        public void BeginDynamicComposite(CommandStream.DynamicCompositePass pass)
+        {
+            // Route subsequent draws into the first dynamic composite texture if available.
+            var previous = _currentTarget;
+            _targetStack.Push(previous);
+            _ppuStack.Push(_pixelsPerUnit);
+            RenderTexture target = null;
+            var texSpan = pass.Textures.Span;
+            if (texSpan.Length > 0)
+            {
+                var handle = texSpan[0];
+                if (handle != 0 && _textures.TryGet(handle, out var binding) && binding.NativeObject is RenderTexture rt)
+                {
+                    target = rt;
+                }
+            }
+            if (target == null)
+            {
+                _currentTarget = BuiltinRenderTextureType.CameraTarget;
+                _pixelsPerUnit = _ppuStack.Pop(); // restore immediately
+                _cb.SetRenderTarget(_currentTarget);
+                return;
+            }
+            _currentTarget = new RenderTargetIdentifier(target);
+            // Adjust PPU so that model space maps 1:1 to the RenderTexture texels.
+            var factor = (_viewportH > 0 && target.height > 0)
+                ? (float)target.height / _viewportH
+                : 1f;
+            _pixelsPerUnit = Mathf.Max(0.001f, _pixelsPerUnit * factor);
+            _cb.SetRenderTarget(target);
+            _cb.ClearRenderTarget(true, true, Color.clear);
+        }
+
+        public void EndDynamicComposite(CommandStream.DynamicCompositePass pass)
+        {
+            if (_targetStack.Count > 0)
+            {
+                _currentTarget = _targetStack.Pop();
+            }
+            else
+            {
+                _currentTarget = BuiltinRenderTextureType.CameraTarget;
+            }
+            if (_ppuStack.Count > 0)
+            {
+                _pixelsPerUnit = _ppuStack.Pop();
+            }
+            _cb.SetRenderTarget(_currentTarget);
+        }
 
         public void DrawPart(CommandStream.DrawPacket part)
         {
@@ -258,6 +341,22 @@ namespace Nijilive.Unity.Managed
         {
             if (!composite.Valid)
                 return;
+            if (_compositeTargets.Count == 0)
+                return;
+            var rt = _compositeTargets.Pop();
+            _mpb.Clear();
+            _mpb.SetTexture(_props.MainTex, rt);
+            _mpb.SetTexture(_props.MaskTex, PlaceholderWhite());
+            _mpb.SetTexture(_props.ExtraTex, PlaceholderBlack());
+            _mpb.SetFloat(_props.Opacity, composite.Opacity);
+            _mpb.SetInt(_props.BlendMode, composite.BlendingMode);
+            _mpb.SetInt(_props.UseMultistageBlend, 0);
+            _mpb.SetInt(_props.UsesStencil, 0);
+            ApplyBlend(_mpb, composite.BlendingMode);
+            ApplyStencil(_mpb, StencilMode.Off);
+            var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, 2f, 1f));
+            _cb.DrawMesh(_quadMesh, matrix, _compositeMaterial, 0, 0, _mpb);
+            RenderTexture.ReleaseTemporary(rt);
         }
 
         public void Unknown(CommandStream.Command cmd)
