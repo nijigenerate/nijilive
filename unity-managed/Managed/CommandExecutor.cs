@@ -160,13 +160,25 @@ namespace Nijilive.Unity.Managed
         private readonly Stack<RenderTargetIdentifier> _targetStack = new();
         private readonly Stack<RenderTexture> _compositeTargets = new();
         private readonly Stack<float> _ppuStack = new();
+        private readonly Stack<ProjectionState> _projectionStack = new();
         private bool _inDynamicComposite;
+        private int _dynRtWidth;
+        private int _dynRtHeight;
         private RenderTargetIdentifier _currentTarget = BuiltinRenderTextureType.CameraTarget;
         private bool _stencilActive;
         private NijiliveNative.SharedBufferSnapshot _snapshot;
         private int _viewportW;
         private int _viewportH;
         private float _pixelsPerUnit;
+        private ProjectionState _currentProjection;
+
+        private struct ProjectionState
+        {
+            public int Width;
+            public int Height;
+            public float PixelsPerUnit;
+            public bool RenderToTexture;
+        }
 
         public UnityCommandBufferSink(
             CommandBuffer cb,
@@ -201,7 +213,18 @@ namespace Nijilive.Unity.Managed
             _targetStack.Clear();
             _compositeTargets.Clear();
             _ppuStack.Clear();
+            _projectionStack.Clear();
+            _dynRtWidth = 0;
+            _dynRtHeight = 0;
             _currentTarget = BuiltinRenderTextureType.CameraTarget;
+            _currentProjection = new ProjectionState
+            {
+                Width = _viewportW,
+                Height = _viewportH,
+                PixelsPerUnit = _pixelsPerUnit,
+                RenderToTexture = false
+            };
+            ApplyProjectionState(_currentProjection);
             if (_buffers.VertexBuffer != null) _cb.SetGlobalBuffer(_vertProp, _buffers.VertexBuffer);
             if (_buffers.UvBuffer != null) _cb.SetGlobalBuffer(_uvProp, _buffers.UvBuffer);
             if (_buffers.DeformBuffer != null) _cb.SetGlobalBuffer(_deformProp, _buffers.DeformBuffer);
@@ -218,12 +241,21 @@ namespace Nijilive.Unity.Managed
             // then DrawCompositeQuad will blit it back to the parent target.
             var previous = _currentTarget;
             _targetStack.Push(previous);
+            _projectionStack.Push(_currentProjection);
             var width = Mathf.Max(1, _viewportW);
             var height = Mathf.Max(1, _viewportH);
             var rt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
             rt.name = "Nijilive/CompositeRT";
             _compositeTargets.Push(rt);
             _currentTarget = new RenderTargetIdentifier(rt);
+            _currentProjection = new ProjectionState
+            {
+                Width = width,
+                Height = height,
+                PixelsPerUnit = _pixelsPerUnit,
+                RenderToTexture = true
+            };
+            ApplyProjectionState(_currentProjection);
             _cb.SetRenderTarget(rt);
             _cb.ClearRenderTarget(true, true, Color.clear);
         }
@@ -238,6 +270,12 @@ namespace Nijilive.Unity.Managed
             {
                 _currentTarget = BuiltinRenderTextureType.CameraTarget;
             }
+            if (_projectionStack.Count > 0)
+            {
+                _currentProjection = _projectionStack.Pop();
+                _pixelsPerUnit = _currentProjection.PixelsPerUnit;
+                ApplyProjectionState(_currentProjection);
+            }
             _cb.SetRenderTarget(_currentTarget);
         }
 
@@ -247,6 +285,7 @@ namespace Nijilive.Unity.Managed
             var previous = _currentTarget;
             _targetStack.Push(previous);
             _ppuStack.Push(_pixelsPerUnit);
+            _projectionStack.Push(_currentProjection);
             RenderTexture target = null;
             var texSpan = pass.Textures.Span;
             if (texSpan.Length > 0)
@@ -259,19 +298,32 @@ namespace Nijilive.Unity.Managed
             }
             if (target == null)
             {
-                _currentTarget = BuiltinRenderTextureType.CameraTarget;
-                _pixelsPerUnit = _ppuStack.Pop(); // restore immediately
+                _currentTarget = previous;
+                if (_ppuStack.Count > 0)
+                    _pixelsPerUnit = _ppuStack.Pop(); // restore immediately
+                if (_projectionStack.Count > 0)
+                {
+                    _currentProjection = _projectionStack.Pop();
+                    ApplyProjectionState(_currentProjection);
+                }
                 _inDynamicComposite = false;
                 _cb.SetRenderTarget(_currentTarget);
                 return;
             }
             _currentTarget = new RenderTargetIdentifier(target);
-            // Adjust PPU so that model space maps 1:1 to the RenderTexture texels.
-            var factor = (_viewportH > 0 && target.height > 0)
-                ? (float)target.height / _viewportH
-                : 1f;
-            _pixelsPerUnit = Mathf.Max(0.001f, _pixelsPerUnit * factor);
+            _dynRtWidth = Mathf.Max(1, target.width);
+            _dynRtHeight = Mathf.Max(1, target.height);
+            // Use RT pixel space where (w, h) maps to (w, h) after transform.
+            _pixelsPerUnit = 1f;
+            _currentProjection = new ProjectionState
+            {
+                Width = _dynRtWidth,
+                Height = _dynRtHeight,
+                PixelsPerUnit = _pixelsPerUnit,
+                RenderToTexture = true
+            };
             _inDynamicComposite = true;
+            ApplyProjectionState(_currentProjection);
             _cb.SetRenderTarget(target);
             _cb.ClearRenderTarget(true, true, Color.clear);
         }
@@ -290,7 +342,15 @@ namespace Nijilive.Unity.Managed
             {
                 _pixelsPerUnit = _ppuStack.Pop();
             }
+            if (_projectionStack.Count > 0)
+            {
+                _currentProjection = _projectionStack.Pop();
+                _pixelsPerUnit = _currentProjection.PixelsPerUnit;
+                ApplyProjectionState(_currentProjection);
+            }
             _inDynamicComposite = false;
+            _dynRtWidth = 0;
+            _dynRtHeight = 0;
             _cb.SetRenderTarget(_currentTarget);
         }
 
@@ -317,9 +377,73 @@ namespace Nijilive.Unity.Managed
                 part.UvOffset, part.UvAtlasStride,
                 part.DeformOffset, part.DeformAtlasStride,
                 part.VertexCount, part.IndexCount, part.Indices);
+#if UNITY_5_3_OR_NEWER
+            // If this part uses a RenderTexture (DynamicComposite), log mesh bounds for comparison.
+            var span = part.TextureHandles.Span;
+            Texture firstTex = span.Length > 0 ? ResolveTexture(span, 0, Color.white) : null;
+            if (firstTex is RenderTexture)
+            {
+                // Compute bounds from raw shared buffers (before dividing by PPU).
+                unsafe
+                {
+                    var vSlice = _snapshot.Vertices;
+                    var dSlice = _snapshot.Deform;
+                    var vPtr = (float*)vSlice.Data;
+                    var dPtr = (float*)dSlice.Data;
+                    var mModel = ToMatrix(part.ModelMatrix);
+                    var mPuppet = part.PuppetMatrix.M11 == 0 && part.PuppetMatrix.M22 == 0 && part.PuppetMatrix.M33 == 0 && part.PuppetMatrix.M44 == 0
+                        ? Matrix4x4.identity
+                        : ToMatrix(part.PuppetMatrix);
+                    var m = mPuppet * mModel;
+                    var ox = part.Origin.X;
+                    var oy = part.Origin.Y;
+                    var hasDeform = dSlice.Data != IntPtr.Zero && dSlice.Length > 0 && part.DeformAtlasStride != 0;
+
+                    float minX = 0, maxX = 0, minY = 0, maxY = 0;
+                    bool initialized = false;
+                    for (int i = 0; i < (int)part.VertexCount; i++)
+                    {
+                        var idx = (nuint)i;
+                        var vx = vPtr[part.VertexOffset + idx];
+                        var vy = vPtr[part.VertexOffset + part.VertexAtlasStride + idx];
+                        float dx = 0, dy = 0;
+                        if (hasDeform)
+                        {
+                            dx = dPtr[part.DeformOffset + idx];
+                            dy = dPtr[part.DeformOffset + part.DeformAtlasStride + idx];
+                        }
+                        var local = new Vector4(vx - ox + dx, vy - oy + dy, 0, 1);
+                        var world = m * local;
+                        var wx = world.x;
+                        var wy = _inDynamicComposite ? world.y : -world.y;
+                        if (!initialized)
+                        {
+                            minX = maxX = wx;
+                            minY = maxY = wy;
+                            initialized = true;
+                        }
+                        else
+                        {
+                            if (wx < minX) minX = wx;
+                            if (wx > maxX) maxX = wx;
+                            if (wy < minY) minY = wy;
+                            if (wy > maxY) maxY = wy;
+                        }
+                    }
+                    if (initialized)
+                    {
+                        var sizeX = maxX - minX;
+                        var sizeY = maxY - minY;
+                        Debug.Log($"[Nijilive] DrawPart(DynamicComposite) raw world size=({sizeX},{sizeY}) target={_currentTarget}");
+                    }
+                }
+            }
+#endif
             _cb.DrawMesh(mesh, matrix, _partMaterial, 0, 0, _mpb);
         }
 
+#if UNITY_5_3_OR_NEWER
+#endif
         public void DrawMask(CommandStream.MaskPacket mask)
         {
             var matrix = Matrix4x4.identity;
@@ -364,6 +488,28 @@ namespace Nijilive.Unity.Managed
             // OpenGL backend draws a full-screen quad (clip space -1..1) with UV 0..1.
             // Mirror that behaviour: fixed full-screen scale, no per-RT scaling.
             var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, 2f, 1f));
+
+#if UNITY_5_3_OR_NEWER
+            // Debug: log RT info and UV bounds used for composite draw.
+            var uvs = _quadMesh.uv;
+            if (uvs != null && uvs.Length > 0)
+            {
+                float minU = uvs[0].x, maxU = uvs[0].x, minV = uvs[0].y, maxV = uvs[0].y;
+                for (int i = 1; i < uvs.Length; i++)
+                {
+                    var uv = uvs[i];
+                    if (uv.x < minU) minU = uv.x;
+                    if (uv.x > maxU) maxU = uv.x;
+                    if (uv.y < minV) minV = uv.y;
+                    if (uv.y > maxV) maxV = uv.y;
+                }
+                Debug.Log($"[Nijilive] DrawCompositeQuad RT={rt.name} size={rt.width}x{rt.height} UV min=({minU},{minV}) max=({maxU},{maxV}) target={_currentTarget}");
+            }
+            else
+            {
+                Debug.Log($"[Nijilive] DrawCompositeQuad RT={rt.name} size={rt.width}x{rt.height} (no UV data) target={_currentTarget}");
+            }
+#endif
             _cb.DrawMesh(_quadMesh, matrix, _compositeMaterial, 0, 0, _mpb);
             RenderTexture.ReleaseTemporary(rt);
         }
@@ -439,6 +585,7 @@ namespace Nijilive.Unity.Managed
                 var ox = origin.X;
                 var oy = origin.Y;
                 var hasDeform = dSlice.Data != IntPtr.Zero && dSlice.Length > 0 && deformStride != 0;
+                var pxPerUnit = Mathf.Max(0.001f, _pixelsPerUnit);
 
 
                 for (int i = 0; i < count; i++)
@@ -454,20 +601,15 @@ namespace Nijilive.Unity.Managed
                     }
                     var local = new Vector4(vx - ox + dx, vy - oy + dy, 0, 1);
                     var world = m * local;
-                    var nx = world.x / _pixelsPerUnit;
-                    // Geometryは常に同じ向きに描く
-                    var ny = -world.y / _pixelsPerUnit;
+                    var nx = world.x / pxPerUnit;
+                    // Flip Y for both main and DynamicComposite to keep texture orientation consistent.
+                    var ny = -world.y / pxPerUnit;
                     verts[i] = new Vector3(nx, ny, 0);
 
                     if (uvSlice.Data != IntPtr.Zero && uvSlice.Length > 0 && uvStride != 0)
                     {
                         var ux = uvPtr[uvOffset + idx];
                         var uy = uvPtr[uvOffset + uvStride + idx];
-                        if (_inDynamicComposite)
-                        {
-                            // DynamicCompositeに書くときはRTの上下反転分をUVで補正
-                            uy = 1f - uy;
-                        }
                         uvs[i] = new Vector2(ux, uy);
                     }
                 }
@@ -642,6 +784,19 @@ namespace Nijilive.Unity.Managed
             }
 
             return null;
+        }
+
+        private void ApplyProjectionState(in ProjectionState state)
+        {
+            var width = Mathf.Max(1, state.Width);
+            var height = Mathf.Max(1, state.Height);
+            // Vertices are already scaled by PPU; use pixel-aligned ortho based solely on target size.
+            var halfW = (float)width * 0.5f;
+            var halfH = (float)height * 0.5f;
+            var proj = Matrix4x4.Ortho(-halfW, halfW, -halfH, halfH, -1f, 1f);
+            proj = GL.GetGPUProjectionMatrix(proj, state.RenderToTexture);
+            _cb.SetViewport(new Rect(0, 0, width, height));
+            _cb.SetViewProjectionMatrices(Matrix4x4.identity, proj);
         }
 
         private static Texture2D PlaceholderWhite()
