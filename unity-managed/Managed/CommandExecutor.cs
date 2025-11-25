@@ -308,6 +308,8 @@ namespace Nijilive.Unity.Managed
                 }
                 _inDynamicComposite = false;
                 _cb.SetRenderTarget(_currentTarget);
+                // Ensure alpha from prior work does not bleed into the reference for Clip/Slice.
+                _cb.ClearRenderTarget(true, true, Color.clear);
                 return;
             }
             _currentTarget = new RenderTargetIdentifier(target);
@@ -359,12 +361,16 @@ namespace Nijilive.Unity.Managed
             var matrix = Matrix4x4.identity;
             _mpb.Clear();
             BindTextures(_mpb, part.TextureHandles);
-            _mpb.SetFloat(_props.Opacity, part.Opacity);
+            var blendingMode = part.BlendingMode;
+            var opacity = part.Opacity;
+            // ClipToLower should rely solely on destination alpha; force src alpha to 1.
+            if (blendingMode == 17) opacity = 1f;
+            _mpb.SetFloat(_props.Opacity, opacity);
             _mpb.SetColor(_props.Tint, new Color(part.ClampedTint.X, part.ClampedTint.Y, part.ClampedTint.Z, 1));
             _mpb.SetColor(_props.ScreenTint, new Color(part.ClampedScreen.X, part.ClampedScreen.Y, part.ClampedScreen.Z, 1));
             _mpb.SetColor(_props.Emission, new Color(part.EmissionStrength, part.EmissionStrength, part.EmissionStrength, 1));
             _mpb.SetFloat(_props.MaskThreshold, part.MaskThreshold);
-            _mpb.SetInt(_props.BlendMode, part.BlendingMode);
+            _mpb.SetInt(_props.BlendMode, blendingMode);
             _mpb.SetInt(_props.UseMultistageBlend, part.UseMultistageBlend ? 1 : 0);
             _mpb.SetInt(_props.UsesStencil, _stencilActive ? 1 : 0);
             ApplyBlend(_mpb, part.BlendingMode);
@@ -377,73 +383,9 @@ namespace Nijilive.Unity.Managed
                 part.UvOffset, part.UvAtlasStride,
                 part.DeformOffset, part.DeformAtlasStride,
                 part.VertexCount, part.IndexCount, part.Indices);
-#if UNITY_5_3_OR_NEWER
-            // If this part uses a RenderTexture (DynamicComposite), log mesh bounds for comparison.
-            var span = part.TextureHandles.Span;
-            Texture firstTex = span.Length > 0 ? ResolveTexture(span, 0, Color.white) : null;
-            if (firstTex is RenderTexture)
-            {
-                // Compute bounds from raw shared buffers (before dividing by PPU).
-                unsafe
-                {
-                    var vSlice = _snapshot.Vertices;
-                    var dSlice = _snapshot.Deform;
-                    var vPtr = (float*)vSlice.Data;
-                    var dPtr = (float*)dSlice.Data;
-                    var mModel = ToMatrix(part.ModelMatrix);
-                    var mPuppet = part.PuppetMatrix.M11 == 0 && part.PuppetMatrix.M22 == 0 && part.PuppetMatrix.M33 == 0 && part.PuppetMatrix.M44 == 0
-                        ? Matrix4x4.identity
-                        : ToMatrix(part.PuppetMatrix);
-                    var m = mPuppet * mModel;
-                    var ox = part.Origin.X;
-                    var oy = part.Origin.Y;
-                    var hasDeform = dSlice.Data != IntPtr.Zero && dSlice.Length > 0 && part.DeformAtlasStride != 0;
-
-                    float minX = 0, maxX = 0, minY = 0, maxY = 0;
-                    bool initialized = false;
-                    for (int i = 0; i < (int)part.VertexCount; i++)
-                    {
-                        var idx = (nuint)i;
-                        var vx = vPtr[part.VertexOffset + idx];
-                        var vy = vPtr[part.VertexOffset + part.VertexAtlasStride + idx];
-                        float dx = 0, dy = 0;
-                        if (hasDeform)
-                        {
-                            dx = dPtr[part.DeformOffset + idx];
-                            dy = dPtr[part.DeformOffset + part.DeformAtlasStride + idx];
-                        }
-                        var local = new Vector4(vx - ox + dx, vy - oy + dy, 0, 1);
-                        var world = m * local;
-                        var wx = world.x;
-                        var wy = _inDynamicComposite ? world.y : -world.y;
-                        if (!initialized)
-                        {
-                            minX = maxX = wx;
-                            minY = maxY = wy;
-                            initialized = true;
-                        }
-                        else
-                        {
-                            if (wx < minX) minX = wx;
-                            if (wx > maxX) maxX = wx;
-                            if (wy < minY) minY = wy;
-                            if (wy > maxY) maxY = wy;
-                        }
-                    }
-                    if (initialized)
-                    {
-                        var sizeX = maxX - minX;
-                        var sizeY = maxY - minY;
-                        Debug.Log($"[Nijilive] DrawPart(DynamicComposite) raw world size=({sizeX},{sizeY}) target={_currentTarget}");
-                    }
-                }
-            }
-#endif
             _cb.DrawMesh(mesh, matrix, _partMaterial, 0, 0, _mpb);
         }
 
-#if UNITY_5_3_OR_NEWER
-#endif
         public void DrawMask(CommandStream.MaskPacket mask)
         {
             var matrix = Matrix4x4.identity;
@@ -489,27 +431,6 @@ namespace Nijilive.Unity.Managed
             // Mirror that behaviour: fixed full-screen scale, no per-RT scaling.
             var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, 2f, 1f));
 
-#if UNITY_5_3_OR_NEWER
-            // Debug: log RT info and UV bounds used for composite draw.
-            var uvs = _quadMesh.uv;
-            if (uvs != null && uvs.Length > 0)
-            {
-                float minU = uvs[0].x, maxU = uvs[0].x, minV = uvs[0].y, maxV = uvs[0].y;
-                for (int i = 1; i < uvs.Length; i++)
-                {
-                    var uv = uvs[i];
-                    if (uv.x < minU) minU = uv.x;
-                    if (uv.x > maxU) maxU = uv.x;
-                    if (uv.y < minV) minV = uv.y;
-                    if (uv.y > maxV) maxV = uv.y;
-                }
-                Debug.Log($"[Nijilive] DrawCompositeQuad RT={rt.name} size={rt.width}x{rt.height} UV min=({minU},{minV}) max=({maxU},{maxV}) target={_currentTarget}");
-            }
-            else
-            {
-                Debug.Log($"[Nijilive] DrawCompositeQuad RT={rt.name} size={rt.width}x{rt.height} (no UV data) target={_currentTarget}");
-            }
-#endif
             _cb.DrawMesh(_quadMesh, matrix, _compositeMaterial, 0, 0, _mpb);
             RenderTexture.ReleaseTemporary(rt);
         }
@@ -757,6 +678,14 @@ namespace Nijilive.Unity.Managed
                 case 16: // DestinationIn (Masking)
                     src = BlendMode.Zero;
                     dst = BlendMode.SrcAlpha;
+                    break;
+                case 17: // ClipToLower
+                    src = BlendMode.DstAlpha;
+                    dst = BlendMode.OneMinusSrcAlpha;
+                    break;
+                case 18: // SliceFromLower
+                    src = BlendMode.Zero;
+                    dst = BlendMode.OneMinusSrcAlpha;
                     break;
                 default: // Normal or Special (Clip/Slice)
                     src = BlendMode.One;
