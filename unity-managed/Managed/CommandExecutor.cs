@@ -161,6 +161,11 @@ namespace Nijilive.Unity.Managed
         private readonly Stack<RenderTexture> _compositeTargets = new();
         private readonly Stack<float> _ppuStack = new();
         private readonly Stack<ProjectionState> _projectionStack = new();
+        private readonly List<Mesh> _meshPool = new();
+        private int _meshPoolCursor;
+        private Vector3[] _vertexBuffer = Array.Empty<Vector3>();
+        private Vector2[] _uvBuffer = Array.Empty<Vector2>();
+        private int[] _indexBuffer = Array.Empty<int>();
         private bool _inDynamicComposite;
         private int _dynRtWidth;
         private int _dynRtHeight;
@@ -214,6 +219,7 @@ namespace Nijilive.Unity.Managed
             _compositeTargets.Clear();
             _ppuStack.Clear();
             _projectionStack.Clear();
+            _meshPoolCursor = 0;
             _dynRtWidth = 0;
             _dynRtHeight = 0;
             _currentTarget = BuiltinRenderTextureType.CameraTarget;
@@ -487,8 +493,9 @@ namespace Nijilive.Unity.Managed
             IntPtr indicesPtr)
         {
             var count = checked((int)vertexCount);
-            var verts = new Vector3[count];
-            var uvs = new Vector2[count];
+            EnsureVertexCapacity(count);
+            var verts = _vertexBuffer;
+            var uvs = _uvBuffer;
             var vSlice = _snapshot.Vertices;
             var uvSlice = _snapshot.Uvs;
             var dSlice = _snapshot.Deform;
@@ -536,32 +543,56 @@ namespace Nijilive.Unity.Managed
                 }
             }
 
-            var mesh = new Mesh();
-            mesh.SetVertices(verts);
-            mesh.SetUVs(0, uvs);
+            var mesh = AcquireMesh();
+            mesh.SetVertices(verts, 0, count);
+            mesh.SetUVs(0, uvs, 0, count);
 
             if (indexCount > 0 && indicesPtr != IntPtr.Zero)
             {
                 var icount = checked((int)indexCount);
-                var indices = new ushort[icount];
+                EnsureIndexCapacity(icount);
+                var ints = _indexBuffer;
                 unsafe
                 {
                     var span = new ReadOnlySpan<ushort>((void*)indicesPtr, icount);
-                    span.CopyTo(indices);
+                    for (int i = 0; i < icount; i++) ints[i] = span[i];
                 }
-                var ints = new int[icount];
-                for (int i = 0; i < icount; i++) ints[i] = indices[i];
-                mesh.SetIndices(ints, MeshTopology.Triangles, 0);
+                mesh.SetIndices(ints, 0, icount, MeshTopology.Triangles, 0);
             }
             else
             {
-                var seq = new int[count];
-                for (int i = 0; i < count; i++) seq[i] = i;
-                mesh.SetIndices(seq, MeshTopology.Triangles, 0);
+                EnsureIndexCapacity(count);
+                for (int i = 0; i < count; i++) _indexBuffer[i] = i;
+                mesh.SetIndices(_indexBuffer, 0, count, MeshTopology.Triangles, 0);
             }
 
             mesh.RecalculateBounds();
             return mesh;
+        }
+
+        private Mesh AcquireMesh()
+        {
+            if (_meshPoolCursor < _meshPool.Count)
+            {
+                var pooled = _meshPool[_meshPoolCursor++];
+                pooled.Clear();
+                return pooled;
+            }
+            var mesh = new Mesh { name = $"Nijilive/ReusableMesh/{_meshPool.Count}" };
+            _meshPool.Add(mesh);
+            _meshPoolCursor++;
+            return mesh;
+        }
+
+        private void EnsureVertexCapacity(int count)
+        {
+            if (_vertexBuffer.Length < count) _vertexBuffer = new Vector3[count];
+            if (_uvBuffer.Length < count) _uvBuffer = new Vector2[count];
+        }
+
+        private void EnsureIndexCapacity(int count)
+        {
+            if (_indexBuffer.Length < count) _indexBuffer = new int[count];
         }
 
         private static Matrix4x4 ToMatrix(NijiliveNative.Mat4 m)
