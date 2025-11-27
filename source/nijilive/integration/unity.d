@@ -25,6 +25,7 @@ import nijilive.core.render.commands :
 import nijilive.core.puppet : Puppet;
 import nijilive.core.texture : Texture;
 import nijilive.math : vec2, vec3, vec4, mat4;
+import core.memory : GC;
 
 alias RendererHandle = void*;
 alias PuppetHandle = void*;
@@ -161,6 +162,12 @@ extern(C) struct CommandQueueView {
     size_t count;
 }
 
+extern(C) struct TextureStats {
+    size_t created;
+    size_t released;
+    size_t current;
+}
+
 extern(C) struct NjgBufferSlice {
     const(float)* data;
     size_t length;
@@ -184,6 +191,8 @@ class UnityRenderer {
     UnityResourceCallbacks callbacks;
     size_t renderHandle;
     size_t compositeHandle;
+    size_t createdTextures;
+    size_t releasedTextures;
 
     this(RenderBackend backend, UnityResourceCallbacks callbacks) {
         this.backend = backend;
@@ -237,6 +246,7 @@ private void ensureTextureHandle(UnityRenderer renderer, const(Texture) tex, boo
     auto h = mutableTex.height();
     auto c = mutableTex.channels();
     auto handle = renderer.callbacks.createTexture(w, h, c, 1, c, renderTarget, stencil, renderer.callbacks.userData);
+    renderer.createdTextures += 1;
     auto data = mutableTex.getTextureData();
     renderer.callbacks.updateTexture(handle, data.ptr, data.length, w, h, c, renderer.callbacks.userData);
     static if (__traits(compiles, mutableTex.setExternalHandle(0))) {
@@ -411,6 +421,7 @@ extern(C) export void njgDestroyRenderer(RendererHandle handle) {
     auto renderer = cast(UnityRenderer)handle;
     activeRenderers = activeRenderers.filter!(r => r !is renderer).array;
     renderer.puppets.length = 0;
+    renderer.commandBuffer.length = 0;
 }
 
 extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path, PuppetHandle* outPuppet) {
@@ -480,8 +491,12 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
         puppet.draw();
         auto emitter = cast(CommandQueueEmitter)puppet.queueEmitter();
         if (emitter is null) continue;
-        foreach (cmd; emitter.queuedCommands()) {
-            renderer.commandBuffer ~= serializeCommand(renderer, backend, cmd);
+        auto cmds = emitter.queuedCommands();
+        if (cmds.length) {
+            renderer.commandBuffer.reserve(renderer.commandBuffer.length + cmds.length);
+            foreach (cmd; cmds) {
+                renderer.commandBuffer ~= serializeCommand(renderer, backend, cmd);
+            }
         }
         emitter.clearQueue();
     }
@@ -489,6 +504,24 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
     outView.commands = renderer.commandBuffer.ptr;
     outView.count = renderer.commandBuffer.length;
     return NjgResult.Ok;
+}
+
+/// Clears the native command buffer and requests a GC collection.
+/// Call only after the managed side has copied/consumed the commands.
+extern(C) export void njgFlushCommandBuffer(RendererHandle handle) {
+    if (handle is null) return;
+    auto renderer = cast(UnityRenderer)handle;
+    renderer.commandBuffer.length = 0;
+}
+
+extern(C) export TextureStats njgGetTextureStats(RendererHandle handle) {
+    TextureStats stats;
+    if (handle is null) return stats;
+    auto renderer = cast(UnityRenderer)handle;
+    stats.created = renderer.createdTextures;
+    stats.released = renderer.releasedTextures;
+    stats.current = renderer.createdTextures - renderer.releasedTextures;
+    return stats;
 }
 
 extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBufferSnapshot* snapshot) {
@@ -514,6 +547,11 @@ extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBuff
     snapshot.deformCount = deform.length;
 
     return NjgResult.Ok;
+}
+
+extern(C) export size_t njgGetGcHeapSize() {
+    auto stats = GC.stats;
+    return stats.usedSize;
 }
 
 extern(C) export NjgResult njgGetParameters(PuppetHandle puppetHandle,

@@ -157,8 +157,10 @@ namespace Nijilive.Unity.Managed
         private readonly int _vertProp;
         private readonly int _uvProp;
         private readonly int _deformProp;
+        private readonly Dictionary<int, Material> _materialCache = new();
         private readonly Stack<RenderTargetIdentifier> _targetStack = new();
-        private readonly Stack<RenderTexture> _compositeTargets = new();
+        private readonly Stack<CompositeContext> _composites = new();
+        private readonly Stack<bool> _compositeDrawn = new();
         private readonly Stack<float> _ppuStack = new();
         private readonly Stack<ProjectionState> _projectionStack = new();
         private readonly List<Mesh> _meshPool = new();
@@ -176,6 +178,15 @@ namespace Nijilive.Unity.Managed
         private int _viewportH;
         private float _pixelsPerUnit;
         private ProjectionState _currentProjection;
+        private int _nextCompositeId;
+
+        private struct CompositeContext
+        {
+            public RenderTexture Rt;
+            public int Id;
+            public RenderTargetIdentifier ParentTarget;
+            public ProjectionState ParentProjection;
+        }
 
         private struct ProjectionState
         {
@@ -216,13 +227,14 @@ namespace Nijilive.Unity.Managed
             _viewportH = viewportHeight;
             _pixelsPerUnit = Mathf.Max(0.001f, pixelsPerUnit);
             _targetStack.Clear();
-            _compositeTargets.Clear();
+            _composites.Clear();
             _ppuStack.Clear();
             _projectionStack.Clear();
             _meshPoolCursor = 0;
             _dynRtWidth = 0;
             _dynRtHeight = 0;
             _currentTarget = BuiltinRenderTextureType.CameraTarget;
+            _nextCompositeId = 0;
             _currentProjection = new ProjectionState
             {
                 Width = _viewportW,
@@ -245,14 +257,19 @@ namespace Nijilive.Unity.Managed
         {
             // Render composite contents into a temporary RenderTexture,
             // then DrawCompositeQuad will blit it back to the parent target.
+            var compositeId = ++_nextCompositeId;
             var previous = _currentTarget;
-            _targetStack.Push(previous);
-            _projectionStack.Push(_currentProjection);
             var width = Mathf.Max(1, _viewportW);
             var height = Mathf.Max(1, _viewportH);
             var rt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
             rt.name = "Nijilive/CompositeRT";
-            _compositeTargets.Push(rt);
+            _composites.Push(new CompositeContext
+            {
+                Rt = rt,
+                Id = compositeId,
+                ParentTarget = previous,
+                ParentProjection = _currentProjection
+            });
             _currentTarget = new RenderTargetIdentifier(rt);
             _currentProjection = new ProjectionState
             {
@@ -264,25 +281,26 @@ namespace Nijilive.Unity.Managed
             ApplyProjectionState(_currentProjection);
             _cb.SetRenderTarget(rt);
             _cb.ClearRenderTarget(true, true, Color.clear);
+            Debug.Log($"[Nijilive] BeginComposite#{compositeId} -> RT {rt.name} size={width}x{height}");
         }
 
         public void EndComposite()
         {
-            if (_targetStack.Count > 0)
+            // 子の描画終了。親に戻すがRTは保持したままDrawCompositeQuadで消費する。
+            if (_composites.Count > 0)
             {
-                _currentTarget = _targetStack.Pop();
+                var ctx = _composites.Peek();
+                _currentTarget = ctx.ParentTarget;
+                _currentProjection = ctx.ParentProjection;
+                _pixelsPerUnit = _currentProjection.PixelsPerUnit;
+                ApplyProjectionState(_currentProjection);
+                _cb.SetRenderTarget(_currentTarget);
             }
             else
             {
                 _currentTarget = BuiltinRenderTextureType.CameraTarget;
+                _cb.SetRenderTarget(_currentTarget);
             }
-            if (_projectionStack.Count > 0)
-            {
-                _currentProjection = _projectionStack.Pop();
-                _pixelsPerUnit = _currentProjection.PixelsPerUnit;
-                ApplyProjectionState(_currentProjection);
-            }
-            _cb.SetRenderTarget(_currentTarget);
         }
 
         public void BeginDynamicComposite(CommandStream.DynamicCompositePass pass)
@@ -379,7 +397,8 @@ namespace Nijilive.Unity.Managed
             _mpb.SetInt(_props.BlendMode, blendingMode);
             _mpb.SetInt(_props.UseMultistageBlend, part.UseMultistageBlend ? 1 : 0);
             _mpb.SetInt(_props.UsesStencil, _stencilActive ? 1 : 0);
-            ApplyBlend(_mpb, part.BlendingMode);
+            var material = ResolveMaterial(blendingMode, false);
+            ApplyBlendToMaterial(material, blendingMode);
             ApplyStencil(_mpb, _stencilActive ? StencilMode.TestEqual : StencilMode.Off);
             var mesh = BuildMesh(
                 part.ModelMatrix,
@@ -389,7 +408,7 @@ namespace Nijilive.Unity.Managed
                 part.UvOffset, part.UvAtlasStride,
                 part.DeformOffset, part.DeformAtlasStride,
                 part.VertexCount, part.IndexCount, part.Indices);
-            _cb.DrawMesh(mesh, matrix, _partMaterial, 0, 0, _mpb);
+            _cb.DrawMesh(mesh, matrix, material, 0, 0, _mpb);
         }
 
         public void DrawMask(CommandStream.MaskPacket mask)
@@ -406,8 +425,9 @@ namespace Nijilive.Unity.Managed
             _mpb.Clear();
             _mpb.SetInt(_props.UsesStencil, 1);
             ApplyStencil(_mpb, StencilMode.WriteReplace);
-            ApplyBlend(_mpb, 0);
-            _cb.DrawMesh(mesh, matrix, _partMaterial, 0, 0, _mpb);
+            var material = ResolveMaterial(0, false);
+            ApplyBlendToMaterial(material, 0);
+            _cb.DrawMesh(mesh, matrix, material, 0, 0, _mpb);
         }
 
         public void ApplyMask(CommandStream.MaskApplyPacket apply)
@@ -418,11 +438,21 @@ namespace Nijilive.Unity.Managed
 
         public void DrawCompositeQuad(CommandStream.CompositePacket composite)
         {
+            if (_composites.Count == 0)
+            {
+                Debug.LogWarning("[Nijilive] DrawCompositeQuad called with no pending composite RT");
+                return;
+            }
+            var ctx = _composites.Pop();
+            var rt = ctx.Rt;
+            var compositeId = ctx.Id;
             if (!composite.Valid)
+            {
+                Debug.Log($"[Nijilive] DrawCompositeQuad#{compositeId} skipped: invalid packet, releasing {rt.name}");
+                RenderTexture.ReleaseTemporary(rt);
                 return;
-            if (_compositeTargets.Count == 0)
-                return;
-            var rt = _compositeTargets.Pop();
+            }
+            Debug.Log($"[Nijilive] DrawCompositeQuad#{compositeId} srcRT={rt.name} size={rt.width}x{rt.height} target={_currentTarget}");
             _mpb.Clear();
             _mpb.SetTexture(_props.MainTex, rt);
             _mpb.SetTexture(_props.MaskTex, PlaceholderWhite());
@@ -431,13 +461,23 @@ namespace Nijilive.Unity.Managed
             _mpb.SetInt(_props.BlendMode, composite.BlendingMode);
             _mpb.SetInt(_props.UseMultistageBlend, 0);
             _mpb.SetInt(_props.UsesStencil, 0);
-            ApplyBlend(_mpb, composite.BlendingMode);
+            var material = ResolveMaterial(composite.BlendingMode, true);
+            ApplyBlendToMaterial(material, composite.BlendingMode);
             ApplyStencil(_mpb, StencilMode.Off);
-            // OpenGL backend draws a full-screen quad (clip space -1..1) with UV 0..1.
-            // Mirror that behaviour: fixed full-screen scale, no per-RT scaling.
+            // Blit back to the parent target using clip-space full-screen quad.
+            var parentTarget = ctx.ParentTarget;
+            var parentProj = ctx.ParentProjection;
+            _currentTarget = parentTarget;
+            _currentProjection = parentProj;
+            _cb.SetRenderTarget(parentTarget);
+            _cb.SetViewport(new Rect(0, 0, parentProj.Width, parentProj.Height));
+            _cb.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
+            // Full-screen quad (-1..1) -> scale 2 in clip space.
             var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, 2f, 1f));
 
-            _cb.DrawMesh(_quadMesh, matrix, _compositeMaterial, 0, 0, _mpb);
+            _cb.DrawMesh(_quadMesh, matrix, material, 0, 0, _mpb);
+            // 親の射影設定を後続描画のために復元する
+            ApplyProjectionState(_currentProjection);
             RenderTexture.ReleaseTemporary(rt);
         }
 
@@ -584,6 +624,18 @@ namespace Nijilive.Unity.Managed
             return mesh;
         }
 
+        private Material ResolveMaterial(int blendMode, bool useCompositeMaterial)
+        {
+            // Clamp to supported blend modes to avoid unbounded material creation.
+            int clamped = Mathf.Clamp(blendMode, 0, 18);
+            int key = (useCompositeMaterial ? 1 << 16 : 0) | clamped;
+            if (_materialCache.TryGetValue(key, out var cached)) return cached;
+            var source = useCompositeMaterial ? _compositeMaterial : _partMaterial;
+            var mat = new Material(source) { name = $"{source.name}/blend{clamped}" };
+            _materialCache[key] = mat;
+            return mat;
+        }
+
         private void EnsureVertexCapacity(int count)
         {
             if (_vertexBuffer.Length < count) _vertexBuffer = new Vector3[count];
@@ -631,7 +683,7 @@ namespace Nijilive.Unity.Managed
             }
         }
 
-        private void ApplyBlend(MaterialPropertyBlock block, int mode)
+        private void ApplyBlendToMaterial(Material material, int mode)
         {
             // Mappings based on standard Live2D/Nijilive specs
             BlendMode src, dst;
@@ -724,10 +776,10 @@ namespace Nijilive.Unity.Managed
                     break;
             }
 
-            block.SetInt(_props.SrcBlend, (int)src);
-            block.SetInt(_props.DstBlend, (int)dst);
-            block.SetInt(_props.BlendOp, (int)op);
-            block.SetInt(_props.ZWrite, 0);
+            material.SetInt(_props.SrcBlend, (int)src);
+            material.SetInt(_props.DstBlend, (int)dst);
+            material.SetInt(_props.BlendOp, (int)op);
+            material.SetInt(_props.ZWrite, 0);
         }
 
         private static Texture2D _white, _black;

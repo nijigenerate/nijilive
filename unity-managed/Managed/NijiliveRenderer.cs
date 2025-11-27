@@ -32,6 +32,7 @@ public sealed class NijiliveRenderer : IDisposable
     }
 
     public TextureRegistry TextureRegistry => _registry;
+    public IntPtr Handle => _renderer;
 
     public static NijiliveRenderer Create(int viewportWidth, int viewportHeight)
     {
@@ -90,6 +91,8 @@ public sealed class NijiliveRenderer : IDisposable
         }
         var decoded = CommandStream.Decode(native);
         _decodedCache = decoded as CommandStream.Command[] ?? new List<CommandStream.Command>(decoded).ToArray();
+        // Release native command buffer after managed copy is available.
+        NijiliveNative.FlushCommandBuffer(_renderer);
         return _decodedCache;
     }
 

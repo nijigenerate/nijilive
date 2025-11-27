@@ -64,6 +64,8 @@ public sealed class NijiliveBehaviour : MonoBehaviour
     private static readonly List<NijiliveBehaviour> Active = new();
     private static bool _hooked;
     private int _lastFrameRun = -1;
+    private float _gcLogTimer;
+    private float _texLogTimer;
 
     // Exposed for editor tooling (Parameter editor, etc.)
     public NijiliveRenderer Renderer => _renderer;
@@ -147,6 +149,23 @@ public sealed class NijiliveBehaviour : MonoBehaviour
         var shared = _renderer.GetSharedBuffers();
         _buffers.Upload(shared.Raw);
         CommandExecutor.Execute(commands, shared.Raw, _sink, vp.x, vp.y, PixelsPerUnit);
+
+        _gcLogTimer += delta;
+        if (_gcLogTimer >= 1f)
+        {
+            _gcLogTimer = 0f;
+            var bytes = NijiliveNative.GetGcHeapSize();
+            var mb = bytes / (1024f * 1024f);
+            Debug.Log($"[Nijilive] Native GC heap ~ {mb:F1} MB");
+        }
+
+        _texLogTimer += delta;
+        if (_texLogTimer >= 1f)
+        {
+            _texLogTimer = 0f;
+            var stats = NijiliveNative.GetTextureStats(_renderer.Handle);
+            Debug.Log($"[Nijilive] Texture stats created={stats.Created} released={stats.Released} current={stats.Current}");
+        }
     }
 
     private void OnDestroy()

@@ -227,6 +227,23 @@ public static class NijiliveNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct TextureStats
+    {
+        public nuint Created;
+        public nuint Released;
+        public nuint Current;
+    }
+
+    [DllImport(DllName, EntryPoint = "njgFlushCommandBuffer", CallingConvention = CallingConvention.Cdecl)]
+    public static extern NjgResult FlushCommandBuffer(IntPtr renderer);
+
+    [DllImport(DllName, EntryPoint = "njgGetGcHeapSize", CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint GetGcHeapSize();
+
+    [DllImport(DllName, EntryPoint = "njgGetTextureStats", CallingConvention = CallingConvention.Cdecl)]
+    public static extern TextureStats GetTextureStats(IntPtr renderer);
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct NjgBufferSlice
     {
         public IntPtr Data;
