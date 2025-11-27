@@ -472,8 +472,8 @@ namespace Nijilive.Unity.Managed
             _cb.SetRenderTarget(parentTarget);
             _cb.SetViewport(new Rect(0, 0, parentProj.Width, parentProj.Height));
             _cb.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
-            // Full-screen quad (-1..1) -> scale 2 in clip space.
-            var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, 2f, 1f));
+            // Full-screen quad (-1..1) -> scale 2 in clip space. Flip Y to account for RT vertical inversion.
+            var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, -2f, 1f));
 
             _cb.DrawMesh(_quadMesh, matrix, material, 0, 0, _mpb);
             // 親の射影設定を後続描画のために復元する
