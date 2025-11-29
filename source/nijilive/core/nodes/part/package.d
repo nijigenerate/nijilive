@@ -305,7 +305,10 @@ protected:
     // TODO: Cache this
     size_t maskCount() {
         size_t c;
-        foreach(m; masks) if (m.mode == MaskingMode.Mask) c++;
+        foreach(m; masks) {
+            if (m.maskSrc is null) continue;
+            if (m.mode == MaskingMode.Mask || m.mode == MaskingMode.DodgeMask) c++;
+        }
         return c;
     }
 
@@ -569,9 +572,28 @@ public:
     void enqueueRenderCommands(RenderContext ctx, void delegate(RenderCommandEmitter) postCommands = null) {
         if (!renderEnabled() || ctx.renderGraph is null) return;
 
-        bool hasMasks = masks.length > 0;
-        bool useStencil = hasMasks && maskCount > 0;
-        auto maskBindings = masks.dup;
+        MaskBinding[] dedupMaskBindings() {
+            MaskBinding[] result;
+            bool[ulong] seen;
+            foreach (m; masks) {
+                if (m.maskSrc is null) continue;
+                auto key = (cast(ulong)m.maskSrc.uuid << 32) | cast(uint)m.mode;
+                if (key in seen) continue;
+                seen[key] = true;
+                result ~= m;
+            }
+            return result;
+        }
+
+        auto maskBindings = dedupMaskBindings();
+        bool hasMasks = maskBindings.length > 0;
+        bool useStencil = false;
+        foreach (m; maskBindings) {
+            if (m.mode == MaskingMode.Mask) {
+                useStencil = true;
+                break;
+            }
+        }
         auto scopeHint = determineRenderScopeHint();
         if (scopeHint.skip) return;
         auto partNode = this;
@@ -582,6 +604,11 @@ public:
                 foreach (binding; maskBindings) {
                     if (binding.maskSrc is null) continue;
                     bool isDodge = binding.mode == MaskingMode.DodgeMask;
+                    import std.stdio : writefln;
+                    debug (UnityDLLLog) writefln("[nijilive] applyMask part=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
+                        partNode.name, partNode.uuid,
+                        binding.maskSrc.name, binding.maskSrc.uuid,
+                        binding.mode, isDodge);
                     emitter.applyMask(binding.maskSrc, isDodge);
                 }
                 emitter.beginMaskContent();
@@ -617,13 +644,33 @@ public:
             auto backend = puppet ? puppet.renderBackend : null;
             if (backend is null) return;
             
-            size_t cMasks = maskCount;
+            MaskBinding[] dedupMaskBindings() {
+                MaskBinding[] result;
+                bool[ulong] seen;
+                foreach (m; masks) {
+                    if (m.maskSrc is null) continue;
+                    auto key = (cast(ulong)m.maskSrc.uuid << 32) | cast(uint)m.mode;
+                    if (key in seen) continue;
+                    seen[key] = true;
+                    result ~= m;
+                }
+                return result;
+            }
 
-            if (masks.length > 0) {
-//                import std.stdio : writeln;
-                backend.beginMask(cMasks > 0);
+            auto maskBindings = dedupMaskBindings();
+            bool hasNormalMask = false;
+            foreach (m; maskBindings) {
+                if (m.mode == MaskingMode.Mask) {
+                    hasNormalMask = true;
+                    break;
+                }
+            }
 
-                foreach(ref mask; masks) {
+            if (maskBindings.length > 0) {
+                // useStencil == true when there is at least one normal mask.
+                backend.beginMask(hasNormalMask);
+
+                foreach(ref mask; maskBindings) {
                     mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
                 }
 

@@ -226,7 +226,10 @@ public:
     // TODO: Cache this
     size_t maskCount() {
         size_t c;
-        foreach(m; masks) if (m.mode == MaskingMode.Mask) c++;
+        foreach(m; masks) {
+            if (m.maskSrc is null) continue;
+            if (m.mode == MaskingMode.Mask || m.mode == MaskingMode.DodgeMask) c++;
+        }
         return c;
     }
 
@@ -450,16 +453,31 @@ public:
             if (subParts.length == 0) return;
         }
 
-        MaskBinding[] maskBindings;
+        MaskBinding[] dedupMaskBindings() {
+            MaskBinding[] result;
+            bool[ulong] seen;
+            foreach (m; masks) {
+                if (m.maskSrc is null) continue;
+                auto key = (cast(ulong)m.maskSrc.uuid << 32) | cast(uint)m.mode;
+                if (key in seen) continue;
+                seen[key] = true;
+                result ~= m;
+            }
+            return result;
+        }
+
+        auto maskBindings = dedupMaskBindings();
         bool useStencil = false;
-        if (masks.length > 0) {
-            useStencil = maskCount() > 0;
-            foreach (ref mask; masks) {
-                if (mask.maskSrc !is null) {
-                    maskBindings ~= mask;
-                }
+        foreach (m; maskBindings) {
+            if (m.mode == MaskingMode.Mask) {
+                useStencil = true;
+                break;
             }
         }
+        // ログ: マスク個数と useStencil 判定
+        import std.stdio : writefln;
+        debug (UnityDLLLog) writefln("[nijilive] pushComposite name=%s maskCount=%s bindings=%s useStencil=%s",
+            name, masks.length, maskBindings.length, useStencil);
 
         compositeScopeToken = ctx.renderGraph.pushComposite(this, zSort(), useStencil, maskBindings);
         compositeScopeActive = true;
@@ -533,12 +551,32 @@ public:
             auto backend = puppet ? puppet.renderBackend : null;
             if (backend is null) return;
 
-            size_t cMasks = maskCount;
+            MaskBinding[] dedupMaskBindings() {
+                MaskBinding[] result;
+                bool[ulong] seen;
+                foreach (m; masks) {
+                    if (m.maskSrc is null) continue;
+                    auto key = (cast(ulong)m.maskSrc.uuid << 32) | cast(uint)m.mode;
+                    if (key in seen) continue;
+                    seen[key] = true;
+                    result ~= m;
+                }
+                return result;
+            }
+            auto maskBindings = dedupMaskBindings();
+            bool hasNormalMask = false;
+            foreach (m; maskBindings) {
+                if (m.mode == MaskingMode.Mask) {
+                    hasNormalMask = true;
+                    break;
+                }
+            }
 
-            if (masks.length > 0) {
-                backend.beginMask(cMasks > 0);
+            if (maskBindings.length > 0) {
+                // useStencil == true when there is at least one normal mask.
+                backend.beginMask(hasNormalMask);
 
-                foreach(ref mask; masks) {
+                foreach(ref mask; maskBindings) {
                     mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
                 }
 

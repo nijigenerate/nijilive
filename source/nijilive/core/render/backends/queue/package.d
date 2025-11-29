@@ -43,6 +43,9 @@ private:
     QueuedCommand[] queueData;
     RenderBackend activeBackend;
     RenderGpuState* statePtr;
+    // Defer BeginMask emission until we know ApplyMask is valid.
+    bool pendingMask;
+    bool pendingMaskUsesStencil;
 
 public:
     void beginFrame(RenderBackend backend, ref RenderGpuState state) {
@@ -81,25 +84,40 @@ public:
     }
 
     void beginMask(bool useStencil) {
-        record(RenderCommandKind.BeginMask, (ref QueuedCommand cmd) {
-            cmd.usesStencil = useStencil;
-        });
+        // Do not emit yet; wait until ApplyMask succeeds.
+        pendingMask = true;
+        pendingMaskUsesStencil = useStencil;
     }
 
     void applyMask(Drawable drawable, bool isDodge) {
         if (drawable is null) return;
         MaskApplyPacket packet;
-        if (!tryMakeMaskApplyPacket(drawable, isDodge, packet)) return;
+        if (!tryMakeMaskApplyPacket(drawable, isDodge, packet)) {
+            // Invalidate pending mask block if ApplyMask is unusable.
+            pendingMask = false;
+            return;
+        }
+        if (pendingMask) {
+            record(RenderCommandKind.BeginMask, (ref QueuedCommand cmd) {
+                cmd.usesStencil = pendingMaskUsesStencil;
+            });
+            pendingMask = false;
+        }
         record(RenderCommandKind.ApplyMask, (ref QueuedCommand cmd) {
             cmd.payload.maskApplyPacket = packet;
         });
     }
 
     void beginMaskContent() {
+        if (pendingMask) return; // Skip when ApplyMask was invalid.
         record(RenderCommandKind.BeginMaskContent, (ref QueuedCommand) {});
     }
 
     void endMask() {
+        if (pendingMask) {
+            pendingMask = false;
+            return;
+        }
         record(RenderCommandKind.EndMask, (ref QueuedCommand) {});
     }
 
@@ -169,8 +187,10 @@ private:
 
     class QueueShaderHandle : RenderShaderHandle { }
 
+    import core.memory : GC;
     struct IndexBufferData {
-        ushort[] indices;
+        ushort* data;
+        size_t length;
     }
 
     size_t nextTextureId = 1;
@@ -204,7 +224,21 @@ public:
         ibo = nextIndexHandle++;
     }
     void uploadDrawableIndices(RenderResourceHandle ibo, ushort[] indices) {
-        indexBuffers[ibo] = IndexBufferData(indices.dup);
+        // 位置が動かない領域に確保してからコピーする
+        auto bytes = cast(size_t)indices.length * ushort.sizeof;
+        auto ptr = cast(ushort*)GC.malloc(bytes, GC.BlkAttr.NO_SCAN | GC.BlkAttr.NO_MOVE);
+        if (indices.length && ptr !is null) {
+            ptr[0 .. indices.length] = indices[];
+        }
+        // 既存バッファがあれば解放
+        if (auto existing = ibo in indexBuffers) {
+            if (existing.data !is null) GC.free(existing.data);
+        }
+        indexBuffers[ibo] = IndexBufferData(ptr, indices.length);
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            debug (UnityDLLLog) writefln("[nijilive] uploadDrawableIndices ibo=%s len=%s ptr=%s", ibo, indices.length, cast(size_t)ptr);
+        }
     }
     void uploadSharedVertexBuffer(Vec2Array) {}
     void uploadSharedUvBuffer(Vec2Array) {}
@@ -359,7 +393,8 @@ public:
 
     package(nijilive) const(ushort)[] findIndexBuffer(RenderResourceHandle handle) {
         if (auto found = handle in indexBuffers) {
-            return (*found).indices;
+            if (found.data is null || found.length == 0) return null;
+            return found.data[0 .. found.length];
         }
         return null;
     }

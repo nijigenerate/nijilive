@@ -6,6 +6,10 @@
     Authors: Luna Nielsen
 */
 module nijilive.core.texture;
+
+version (UseQueueBackend) {
+    extern(C) __gshared void function(size_t handle) ngReleaseExternalHandle; // module-level hook for Unity external texture release
+}
 import nijilive.math;
 import std.exception;
 import std.format;
@@ -423,6 +427,12 @@ public:
             auto backend = tryRenderBackend();
             if (backend !is null) backend.destroyTextureHandle(handle);
             handle = null;
+        }
+        version (UseQueueBackend) {
+            if (externalHandle && ngReleaseExternalHandle !is null) {
+                ngReleaseExternalHandle(externalHandle);
+            }
+            externalHandle = 0;
         }
     }
 

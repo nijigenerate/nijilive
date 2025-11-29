@@ -97,6 +97,10 @@ private:
         auto maskBindings = pass.maskBindings.dup;
         bool maskUsesStencil = pass.maskUsesStencil;
         bool hasMasks = maskBindings.length > 0 || maskUsesStencil;
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            debug (UnityDLLLog) writefln("[nijilive] finalizeCompositePass masks=%s stencil=%s composite=%s", maskBindings.length, maskUsesStencil, compositeNode is null ? 0 : compositeNode.uuid);
+        }
 
         RenderCommandBuilder builder = (RenderCommandEmitter emitter) {
             emitter.beginComposite(compositeNode);
@@ -108,6 +112,12 @@ private:
                 foreach (binding; maskBindings) {
                     if (binding.maskSrc is null) continue;
                     bool isDodge = binding.mode == MaskingMode.DodgeMask;
+                    import std.stdio : writefln;
+                    debug (UnityDLLLog) writefln("[nijilive] applyMask composite=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
+                        compositeNode is null ? "" : compositeNode.name,
+                        compositeNode is null ? 0 : compositeNode.uuid,
+                        binding.maskSrc.name, binding.maskSrc.uuid,
+                        binding.mode, isDodge);
                     emitter.applyMask(binding.maskSrc, isDodge);
                 }
                 emitter.beginMaskContent();

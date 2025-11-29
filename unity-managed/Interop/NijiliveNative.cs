@@ -201,9 +201,10 @@ public static class NijiliveNative
 
     public enum MaskDrawableKind : int
     {
-        Unknown = 0,
         // Keep in sync with nijilive.core.render.commands.MaskDrawableKind
-        Drawable = 1,
+        Part = 0,
+        Mask = 1,
+        // Reserved for future use; not emitted by the native side today.
         Composite = 2,
     }
 

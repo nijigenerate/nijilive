@@ -128,6 +128,13 @@ public:
         packet.indexBuffer = ibo;
         packet.indexCount = cast(uint)data.indices.length;
         packet.vertexCount = cast(uint)data.vertices.length;
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            debug (UnityDLLLog) writefln("[nijilive] fillMaskDrawPacket ibo=%s vCount=%s iCount=%s vOff/Stride=%s/%s deformOff/Stride=%s/%s",
+                ibo, packet.vertexCount, packet.indexCount,
+                packet.vertexOffset, packet.vertexAtlasStride,
+                packet.deformOffset, packet.deformAtlasStride);
+        }
     }
 
     override

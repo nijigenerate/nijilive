@@ -78,7 +78,12 @@ struct MeshData {
         Whether the mesh data is ready to be used
     */
     bool isReady() {
-        return indices.length != 0 && indices.length % 3 == 0;
+        if (indices.length == 0 || indices.length % 3 != 0) return false;
+        size_t maxIdx = 0;
+        foreach (idx; indices) {
+            if (idx > maxIdx) maxIdx = idx;
+        }
+        return maxIdx < vertices.length;
     }
 
     /**

@@ -272,7 +272,7 @@ public:
         PartPixelConstants pixelConsts;
         pixelConsts.tint = vec4(packet.clampedTint, packet.opacity);
         pixelConsts.screen = vec4(packet.clampedScreen, packet.opacity);
-        pixelConsts.extra = vec4(packet.maskThreshold, packet.emissionStrength, 0, 0);
+        pixelConsts.extra = vec4(packet.maskThreshold, packet.emissionStrength, packet.isMask ? 1 : 0, 0);
         auto pixelGpu = constantBufferRing.upload(&pixelConsts, PartPixelConstants.sizeof);
         cmdList.SetGraphicsRootConstantBufferView(3, pixelGpu);
 

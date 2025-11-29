@@ -108,6 +108,7 @@ public:
 
     void beginMask(bool useStencil) {
         if (!ready()) return;
+        // useStencil == true when normal masks exist; false when dodge-only.
         activeBackend.beginMask(useStencil);
     }
 

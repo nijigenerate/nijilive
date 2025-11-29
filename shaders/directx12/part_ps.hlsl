@@ -17,6 +17,14 @@ struct PSInput {
 
 float4 ps_main(PSInput input) : SV_TARGET {
     float4 baseColor = albedoTexture.Sample(linearSampler, input.uv);
+    const float maskThreshold = extraParams.x;
+    const bool isMask = (extraParams.z > 0.5f);
+
+    if (isMask) {
+        if (baseColor.a <= maskThreshold) discard;
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
     float4 tinted = baseColor * tintColor;
     tinted.rgb += screenColor.rgb * baseColor.a;
     return tinted;

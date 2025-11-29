@@ -21,22 +21,31 @@ namespace Nijilive.Unity.Managed
 
         public void Upload(Nijilive.Unity.Interop.NijiliveNative.SharedBufferSnapshot snapshot)
         {
-            Upload(ref _vertexBuffer, snapshot.Vertices);
-            Upload(ref _uvBuffer, snapshot.Uvs);
-            Upload(ref _deformBuffer, snapshot.Deform);
+            Upload(ref _vertexBuffer, snapshot.Vertices, "Vertices");
+            Upload(ref _uvBuffer, snapshot.Uvs, "UVs");
+            Upload(ref _deformBuffer, snapshot.Deform, "Deform");
+            Debug.Log($"[Nijilive] SharedBuffer lengths V={snapshot.Vertices.Length} U={snapshot.Uvs.Length} D={snapshot.Deform.Length} counts V={snapshot.VertexCount} U={snapshot.UvCount} D={snapshot.DeformCount}");
         }
 
-        private static unsafe void Upload(ref ComputeBuffer buffer, Nijilive.Unity.Interop.NijiliveNative.NjgBufferSlice slice)
+        private static unsafe void Upload(ref ComputeBuffer buffer, Nijilive.Unity.Interop.NijiliveNative.NjgBufferSlice slice, string label)
         {
             var length = (int)slice.Length;
             if (length <= 0 || slice.Data == IntPtr.Zero)
             {
+                if (buffer != null)
+                {
+                    Debug.LogWarning($"[Nijilive] SharedBuffer {label} length={length} data=null, releasing buffer");
+                }
                 buffer?.Release();
                 buffer = null;
                 return;
             }
             if (buffer == null || buffer.count != length)
             {
+                if (buffer != null)
+                {
+                    Debug.LogWarning($"[Nijilive] SharedBuffer {label} resize {buffer.count} -> {length}");
+                }
                 buffer?.Release();
                 buffer = new ComputeBuffer(length, sizeof(float));
             }

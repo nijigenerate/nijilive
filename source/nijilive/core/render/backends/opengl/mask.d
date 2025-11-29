@@ -32,10 +32,18 @@ void oglInitMaskBackend() {
     ensureMaskBackendInitialized();
 }
 
-void oglBeginMask(bool hasMasks) {
+/// Prepare stencil for mask rendering.
+/// useStencil == true when there is at least one normal mask (write 1 to masked area).
+/// useStencil == false when only dodge masks are present (keep stencil at 1 and punch 0 holes).
+void oglBeginMask(bool useStencil) {
     glEnable(GL_STENCIL_TEST);
-    glClearStencil(hasMasks ? 0 : 1);
+    // Clear stencil to 0 for normal-mask path, 1 for dodge-only path.
+    glClearStencil(useStencil ? 0 : 1);
     glClear(GL_STENCIL_BUFFER_BIT);
+    // Reset state to a known baseline before ApplyMask sets specific ops/func.
+    glStencilMask(0xFF);
+    glStencilFunc(GL_ALWAYS, useStencil ? 0 : 1, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 }
 
 void oglEndMask() {
