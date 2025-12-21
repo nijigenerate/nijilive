@@ -941,8 +941,8 @@ public:
     }
 
     protected void runRenderTask(ref RenderContext ctx) {
-        // 基底ノードは直接描画しない。描画が必要なノードは個別にオーバーライドして
-        // RenderQueue へコマンドを積む。
+        // Base nodes do not render directly. Nodes that need rendering
+        // should override and push commands into the RenderQueue.
     }
 
     protected void runRenderBeginTask(ref RenderContext ctx) {

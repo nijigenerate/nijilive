@@ -232,43 +232,43 @@ public:
 }
 
 class SplineCurve : Curve {
-    // スプラインの制御点配列
+    // Spline control point array
     Vec2Array _controlPoints;
 
-    // キャッシュ: 計算済みの t => point(t)
+    // Cache: computed t -> point(t)
     vec2[float] pointCache;
-    // キャッシュ: 計算済みの t => derivative(t)
+    // Cache: computed t -> derivative(t)
     vec2[float] derivativeCache;
 
 public:
-    // コンストラクタ
+    // Constructor
     this(Vec2Array controlPoints) {
-        // 制御点をコピー
+        // Copy control points
         this.controlPoints = controlPoints.dup;
-        // キャッシュの初期化
+        // Initialize cache
         pointCache.clear();
         derivativeCache.clear();
     }
 
-    // インターフェイス実装: 制御点のゲッター
+    // Interface impl: control point getter
     override
     ref Vec2Array controlPoints() { 
         return _controlPoints; 
     }
 
-    // インターフェイス実装: 制御点のセッター
+    // Interface impl: control point setter
     override
     void controlPoints(ref Vec2Array points) {
         this._controlPoints = points;
-        // 制御点変更時はキャッシュをクリア
+        // Clear cache when control points change
         pointCache.clear();
         derivativeCache.clear();
     }
 
-    // インターフェイス実装: スプライン上の点 (0 <= t <= 1)
+    // Interface impl: point on spline (0 <= t <= 1)
     override
     vec2 point(float t) {
-        // すでにキャッシュにあれば再利用
+        // Reuse cache if present
         if (t in pointCache)
             return pointCache[t];
 
@@ -281,10 +281,10 @@ public:
         return result;
     }
 
-    // インターフェイス実装: スプライン上の接線（微分）
+    // Interface impl: tangent on spline (derivative)
     override
     vec2 derivative(float t) {
-        // すでにキャッシュにあれば再利用
+        // Reuse cache if present
         if (t in derivativeCache)
             return derivativeCache[t];
 
@@ -297,7 +297,7 @@ public:
         return result;
     }
 
-    // インターフェイス実装: 与えられた点に最も近いパラメータ t を探索
+    // Interface impl: find parameter t closest to the given point
     override
     float closestPoint(vec2 point, int nSamples = 100) {
         //float minDistanceSquared = float.max;

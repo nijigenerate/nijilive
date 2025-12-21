@@ -10,7 +10,7 @@ import nijilive.core.texture : Texture;
 import nijilive.core.render.backends : RenderResourceHandle;
 import nijilive.core.render.passes : RenderPassKind;
 
-/// GPU繧ｳ繝槭Φ繝臥ｨｮ蛻･縲・ackend 蛛ｴ縺ｧ switch 縺励※蜃ｦ逅・☆繧九・
+/// GPU command kinds; backends switch on these during rendering.
 enum RenderCommandKind {
     DrawPart,
     DrawMask,
@@ -189,7 +189,6 @@ CompositeDrawPacket makeCompositeDrawPacket(Composite composite) {
     }
     return packet;
 }
-
 
 
 

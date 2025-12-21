@@ -14,7 +14,7 @@ import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array, Vec4A
 import nijilive.math.camera : Camera;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 
-/// GPU周りの共有状態を Backend がキャッシュするための構造体
+/// Struct for backend-cached shared GPU state
 alias RenderResourceHandle = size_t;
 
 struct RenderGpuState {

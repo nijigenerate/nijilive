@@ -891,7 +891,7 @@ public:
         } else {
 
             if (vertices.length >= 2) {
-                // driver なしの場合は純粋に現在の変形を適用する。
+                // If there is no driver, apply the current deformation as-is.
                 auto candidate = vertices.dup;
                 candidate += deformation;
                 sanitizeOffsets(candidate);

@@ -6,18 +6,18 @@ version (InDoesRender) {
 
 import nijilive.math : mat4, vec4;
 
-/// VS 用定数バッファ
+/// Constant buffer for VS
 struct PartVertexConstants {
     mat4 modelMatrix;
     mat4 puppetMatrix;
-    vec4 origin; // xy に origin を格納
+    vec4 origin; // store origin in xy
 }
 
-/// PS 用定数バッファ
+/// Constant buffer for PS
 struct PartPixelConstants {
     vec4 tint;
     vec4 screen;
-    vec4 extra; // mask threshold や emission strength 等
+    vec4 extra; // mask threshold, emission strength, etc.
 }
 
 }

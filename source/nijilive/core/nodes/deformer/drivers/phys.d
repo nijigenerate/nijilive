@@ -360,14 +360,14 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
     PathDeformer deformer;
     Vec2Array positions;
     Vec2Array velocities;
-    Vec2Array initialPositions;  // 初期形状を保存
+    Vec2Array initialPositions;  // store initial shape
     float[] lengths;
     Vec2Array physDeformation;
     float damping = 0.3;
     float springConstant = 10;
-    float restorationConstant = 0.; // 初期形状への復元力
+    float restorationConstant = 0.; // restoring force to initial shape
     float timeStep = 0.1;
-    vec2 gravity = vec2(0, 9.8); // 重力
+    vec2 gravity = vec2(0, 9.8); // gravity
 
     this(PathDeformer deformer) {
         this.deformer = deformer;
@@ -429,7 +429,7 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
             }
             initialPositions[i] = pt;
         }
-        // 初期形状を保存済み
+        // Initial shape saved
     }
 
     override
@@ -506,7 +506,7 @@ private:
     void updateSpringPendulum(
         ref Vec2Array positions,
         ref Vec2Array velocities,
-        Vec2Array initialPositions, // 初期形状を参照
+        Vec2Array initialPositions, // reference initial shape
         float[] lengths,
         float damping,
         float springConstant,
@@ -557,11 +557,11 @@ private:
                 springForce += -springConstant * (diff * (diffLen - lengths[i]) / diffLen);
             }
 
-            // 初期位置への復元力
+            // restoring force to initial position
             vec2 restorationForce = -restorationConstant * (positions[i] - initialPositions[i]);
 
             vec2 dampingForce = -damping * velocities[i];
-            vec2 acceleration = (springForce + dampingForce + restorationForce + gravity) / 1.0; // 質量1と仮定
+            vec2 acceleration = (springForce + dampingForce + restorationForce + gravity) / 1.0; // assume unit mass
             if (!guardFinite(deformer, "springPendulum:acceleration", acceleration, i)) {
                 return;
             }

@@ -463,7 +463,7 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         if (apply.kind == MaskDrawableKind.Mask) {
             apply.maskPacket = serializeMaskPacket(backend, renderer, cmd.payload.maskApplyPacket.maskPacket);
         }
-        // 無意味な空ジオメトリのApplyMaskはコマンド自体を潰す
+        // Skip no-op ApplyMask for empty geometry
         if ((apply.kind == MaskDrawableKind.Part &&
              (apply.partPacket.vertexCount == 0 || apply.partPacket.indexCount == 0)) ||
             (apply.kind == MaskDrawableKind.Mask &&

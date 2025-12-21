@@ -224,13 +224,13 @@ public:
         ibo = nextIndexHandle++;
     }
     void uploadDrawableIndices(RenderResourceHandle ibo, ushort[] indices) {
-        // 位置が動かない領域に確保してからコピーする
+        // Allocate in a non-movable region, then copy
         auto bytes = cast(size_t)indices.length * ushort.sizeof;
         auto ptr = cast(ushort*)GC.malloc(bytes, GC.BlkAttr.NO_SCAN | GC.BlkAttr.NO_MOVE);
         if (indices.length && ptr !is null) {
             ptr[0 .. indices.length] = indices[];
         }
-        // 既存バッファがあれば解放
+        // Free existing buffer if present
         if (auto existing = ibo in indexBuffers) {
             if (existing.data !is null) GC.free(existing.data);
         }

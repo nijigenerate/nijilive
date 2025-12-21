@@ -14,7 +14,7 @@ import aurora.directx.d3d12;
 import nijilive.core.render.backends.directx12.device : DirectX12Device;
 import nijilive.core.render.backends.directx12.dxhelpers;
 
-/// 1フレーム内で使い回すアップロード型のCBVリングバッファ
+/// Upload-type CBV ring buffer reused within a frame
 struct ConstantBufferRing {
 private:
     DirectX12Device* device;

@@ -448,7 +448,7 @@ public:
         }
         selfSort();
         if (subParts.length == 0) {
-            // 万が一スキャンが漏れていた場合に備え、その場で更新して描画を継続できるようにする
+            // If a scan was missed, update in place so rendering can continue
             scanParts();
             if (subParts.length == 0) return;
         }
@@ -474,7 +474,7 @@ public:
                 break;
             }
         }
-        // ログ: マスク個数と useStencil 判定
+        // Log: mask count and useStencil decision
         import std.stdio : writefln;
         debug (UnityDLLLog) writefln("[nijilive] pushComposite name=%s maskCount=%s bindings=%s useStencil=%s",
             name, masks.length, maskBindings.length, useStencil);

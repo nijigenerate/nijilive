@@ -59,7 +59,7 @@ private:
         if (a.zSort == b.zSort) {
             return a.sequence < b.sequence;
         }
-        return a.zSort > b.zSort; // 降順 (zSort が大きいものを先に処理)
+        return a.zSort > b.zSort; // descending (higher zSort first)
     }
 
     RenderItem[] collectPassItems(ref RenderPass pass) {

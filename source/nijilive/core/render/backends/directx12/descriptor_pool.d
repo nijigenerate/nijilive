@@ -13,7 +13,7 @@ import aurora.directx.d3d12;
 import nijilive.core.render.backends.directx12.device : DirectX12Device;
 import nijilive.core.render.backends.directx12.dxhelpers;
 
-/// CBV/SRV/UAV ディスクリプタをまとめて管理する簡易プール
+/// Simple pool for managing CBV/SRV/UAV descriptors
 struct DescriptorPool {
 private:
     struct FreeRange {
@@ -57,7 +57,7 @@ public:
         freeList.length = 0;
     }
 
-    /// 連続する descriptorCount 分を割り当て、CPU/GPUハンドルを返す
+    /// Allocate a contiguous block of descriptorCount and return CPU/GPU handles
     DescriptorAllocation allocate(uint descriptorCount) {
         assert(heap !is null, "Descriptor heap not initialized");
         DescriptorAllocation alloc;
