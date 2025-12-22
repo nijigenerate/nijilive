@@ -173,6 +173,10 @@ protected:
     vec3 prevRotation;
     vec2 prevScale;
     bool deferredChanged = false;
+    vec4 maxChildrenBounds;
+    bool useMaxChildrenBounds = false;
+    size_t maxBoundsStartFrame = 0;
+    enum size_t MaxBoundsResetInterval = 120;
     Part[] queuedOffscreenParts;
     bool hasDynamicCompositeAncestor() {
         for (Node node = parent; node !is null; node = node.parent) {
@@ -354,10 +358,46 @@ protected:
     }
 
     vec4 getChildrenBounds(bool forceUpdate = true) {
+        auto frameId = currentDynamicCompositeFrame();
+        if (useMaxChildrenBounds) {
+            if (frameId - maxBoundsStartFrame >= MaxBoundsResetInterval) {
+                useMaxChildrenBounds = false;
+            } else {
+                return maxChildrenBounds;
+            }
+        }
         if (forceUpdate) {
             foreach (p; subParts) p.updateBounds();
         }
-        return mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
+        auto bounds = mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
+        if (!useMaxChildrenBounds) {
+            maxChildrenBounds = bounds;
+        }
+        return bounds;
+    }
+
+    void enableMaxChildrenBounds(Node target = null) {
+        Drawable targetDrawable = cast(Drawable)target;
+        if (targetDrawable !is null) {
+            targetDrawable.updateBounds();
+        }
+        auto frameId = currentDynamicCompositeFrame();
+        if (!useMaxChildrenBounds) {
+            useMaxChildrenBounds = true;
+            maxBoundsStartFrame = frameId;
+            maxChildrenBounds = getChildrenBounds(true);
+        }
+        if (targetDrawable !is null) {
+            auto b = targetDrawable.bounds;
+            maxChildrenBounds.x = min(maxChildrenBounds.x, b.x);
+            maxChildrenBounds.y = min(maxChildrenBounds.y, b.y);
+            maxChildrenBounds.z = max(maxChildrenBounds.z, b.z);
+            maxChildrenBounds.w = max(maxChildrenBounds.w, b.w);
+        }
+    }
+
+    void invalidateChildrenBounds() {
+        useMaxChildrenBounds = false;
     }
 
     bool createSimpleMesh() {
@@ -803,6 +843,7 @@ public:
         foreach (child; children) {
             scanPartsRecurse(child);
         }
+        invalidateChildrenBounds();
     }
 
     void scanSubParts(Node[] childNodes) { 
@@ -810,6 +851,7 @@ public:
         foreach (child; childNodes) {
             scanPartsRecurse(child);
         }
+        invalidateChildrenBounds();
     }
 
     override
@@ -819,6 +861,7 @@ public:
             puppet.rescanNodes();
 
         forceResize = true;
+        invalidateChildrenBounds();
 
         return false;
     }
@@ -828,6 +871,7 @@ public:
         setIgnorePuppetRecurse(node, false);
         scanSubParts(children);
         forceResize = true;
+        invalidateChildrenBounds();
 
         return false;
     }
@@ -888,6 +932,7 @@ public:
                     prevTranslation = transform.translation;
                     prevRotation    = transform.rotation;
                     prevScale       = transform.scale;
+                    invalidateChildrenBounds();
                 }
             }
         }
@@ -940,6 +985,11 @@ public:
                 textureInvalidated = true;
                 hasValidOffscreenContent = false;
                 loggedFirstRenderAttempt = false;
+            }
+            if (reason == NotifyReason.Transformed) {
+                enableMaxChildrenBounds(target);
+            } else {
+                invalidateChildrenBounds();
             }
         }
         if (autoResizedMesh) {
