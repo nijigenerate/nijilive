@@ -1012,6 +1012,7 @@ public:
                 if (dyn.reuseCachedTextureThisFrame) {
                     return RenderScopeHint.skipHint();
                 }
+                return RenderScopeHint.skipHint();
             }
             if (auto comp = cast(Composite)current) {
                 if (comp.isCompositeScopeActive()) {
