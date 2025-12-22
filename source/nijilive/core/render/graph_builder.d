@@ -8,7 +8,7 @@ import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.commands : DynamicCompositePass;
 import nijilive.core.render.passes : RenderPassKind, RenderScopeHint;
 import nijilive.core.nodes.composite : Composite;
-import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
+import nijilive.core.nodes.composite.dcomposite : DynamicComposite, advanceDynamicCompositeFrame;
 import nijilive.core.nodes.common : MaskBinding, MaskingMode;
 
 alias RenderCommandBuilder = void delegate(RenderCommandEmitter emitter);
@@ -256,6 +256,7 @@ public:
     }
 
     void beginFrame() {
+        advanceDynamicCompositeFrame();
         clear();
     }
 

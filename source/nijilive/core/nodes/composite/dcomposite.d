@@ -22,7 +22,7 @@ import std.array;
 import std.format;
 import std.range;
 import std.algorithm.comparison : min, max;
-import std.math : isFinite, ceil;
+import std.math : isFinite, ceil, abs;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
@@ -30,6 +30,14 @@ import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder,
 package(nijilive) {
     void inInitDComposite() {
         inRegisterNodeType!DynamicComposite;
+    }
+
+    __gshared size_t dynamicCompositeFrameCounter;
+    void advanceDynamicCompositeFrame() {
+        dynamicCompositeFrameCounter++;
+    }
+    size_t currentDynamicCompositeFrame() {
+        return dynamicCompositeFrameCounter;
     }
 }
 
@@ -208,31 +216,41 @@ protected:
         auto prevTexture = textures[0];
         auto prevStencil = stencil;
 
-        vec4 targetBounds;
-        if (autoResizedMesh) {
-            targetBounds = getChildrenBounds(true);
-            if (!boundsFinite(targetBounds)) {
-                targetBounds = getMeshBounds();
-            }
-        } else {
-            targetBounds = getMeshBounds();
-            if (!boundsFinite(targetBounds)) {
-                targetBounds = getChildrenBounds(true);
-            }
-        }
-
-        if (!boundsFinite(targetBounds)) {
+        updateBounds();
+        vec4 worldBounds = bounds;
+        if (!boundsFinite(worldBounds)) {
             return false;
         }
 
-        vec2 size = targetBounds.zw - targetBounds.xy;
+        vec2 minPos;
+        vec2 maxPos;
+        bool first = true;
+        size_t count = vertices.length;
+        for (size_t i = 0; i < count; ++i) {
+            vec2 pos = vertices[i];
+            if (i < deformation.length) {
+                pos += deformation[i];
+            }
+            if (first) {
+                minPos = pos;
+                maxPos = pos;
+                first = false;
+            } else {
+                minPos.x = min(minPos.x, pos.x);
+                minPos.y = min(minPos.y, pos.y);
+                maxPos.x = max(maxPos.x, pos.x);
+                maxPos.y = max(maxPos.y, pos.y);
+            }
+        }
+
+        vec2 size = maxPos - minPos;
         if (!sizeFinite(size) || size.x <= 0 || size.y <= 0) {
             return false;
         }
 
         texWidth = cast(uint)(ceil(size.x)) + 1;
         texHeight = cast(uint)(ceil(size.y)) + 1;
-        textureOffset = (targetBounds.xy + targetBounds.zw) / 2;
+        textureOffset = (worldBounds.xy + worldBounds.zw) / 2 - transform.translation.xy;
         setIgnorePuppet(true);
 
         textures = [new Texture(texWidth, texHeight), null, null];
@@ -259,14 +277,26 @@ protected:
     }
 
     bool updateDynamicRenderStateFlags() {
+        bool resized = false;
         if (deferredChanged) {
             if (autoResizedMesh) {
-                if (createSimpleMesh()) initialized = false;
+                bool ran = false;
+                resized = updateAutoResizedMeshOnce(ran);
+                if (ran && resized) {
+                    initialized = false;
+                }
+                if (ran) {
+                    deferredChanged = false;
+                    textureInvalidated = true;
+                    hasValidOffscreenContent = false;
+                    loggedFirstRenderAttempt = false;
+                }
+            } else {
+                deferredChanged = false;
+                textureInvalidated = true;
+                hasValidOffscreenContent = false;
+                loggedFirstRenderAttempt = false;
             }
-            deferredChanged = false;
-            textureInvalidated = true;
-            hasValidOffscreenContent = false;
-            loggedFirstRenderAttempt = false;
         }
         if (!initialized) {
             if (!initTarget()) {
@@ -327,42 +357,7 @@ protected:
         if (forceUpdate) {
             foreach (p; subParts) p.updateBounds();
         }
-        if (subParts.length == 0) {
-            return vec4(0, 0, 0, 0);
-        }
-
-        auto inv = transform.matrix.inverse;
-        bool first = true;
-        vec4 bounds;
-
-        foreach (child; subParts) {
-            auto childMatrix = inv * child.transform.matrix();
-            auto verts = child.vertices;
-            auto deform = child.deformation;
-            auto origin = child.data.origin;
-            size_t count = verts.length;
-            for (size_t i = 0; i < count; ++i) {
-                vec2 pos = verts[i] - origin;
-                if (i < deform.length) {
-                    pos += deform[i];
-                }
-                auto local = childMatrix * vec4(pos, 0, 1);
-                if (first) {
-                    bounds = vec4(local.x, local.y, local.x, local.y);
-                    first = false;
-                } else {
-                    bounds.x = min(bounds.x, local.x);
-                    bounds.y = min(bounds.y, local.y);
-                    bounds.z = max(bounds.z, local.x);
-                    bounds.w = max(bounds.w, local.y);
-                }
-            }
-        }
-
-        if (first) {
-            return vec4(0, 0, 0, 0);
-        }
-        return bounds;
+        return mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
     }
 
     bool createSimpleMesh() {
@@ -372,17 +367,39 @@ protected:
             return false;
         }
 
-        auto newTextureOffset = (bounds.xy + bounds.zw) / 2;
-        uint desiredWidth = cast(uint)ceil(size.x) + 1;
-        uint desiredHeight = cast(uint)ceil(size.y) + 1;
-        bool resizing = forceResize || textures[0] is null || textures[0].width != desiredWidth || textures[0].height != desiredHeight;
-        forceResize = false;
+        vec2 origSize = shouldUpdateVertices
+            ? autoResizedSize
+            : (textures.length > 0 && textures[0] !is null)
+                ? vec2(textures[0].width, textures[0].height)
+                : vec2(0, 0);
+        bool resizing = false;
+        if (forceResize) {
+            resizing = true;
+            forceResize = false;
+        } else {
+            if (cast(int)origSize.x > cast(int)size.x) {
+                float diff = (origSize.x - size.x) / 2;
+                bounds.z += diff;
+                bounds.x -= diff;
+            } else if (cast(int)size.x > cast(int)origSize.x) {
+                resizing = true;
+            }
+            if (cast(int)origSize.y > cast(int)size.y) {
+                float diff = (origSize.y - size.y) / 2;
+                bounds.w += diff;
+                bounds.y -= diff;
+            } else if (cast(int)size.y > cast(int)origSize.y) {
+                resizing = true;
+            }
+        }
 
+
+        auto originOffset = transform.translation.xy;
         Vec2Array vertexArray = Vec2Array([
-            vec2(bounds.x, bounds.y),
-            vec2(bounds.x, bounds.w),
-            vec2(bounds.z, bounds.y),
-            vec2(bounds.z, bounds.w)
+            vec2(bounds.x, bounds.y) - originOffset,
+            vec2(bounds.x, bounds.w) - originOffset,
+            vec2(bounds.z, bounds.y) - originOffset,
+            vec2(bounds.z, bounds.w) - originOffset
         ]);
 
         if (resizing) {
@@ -402,15 +419,36 @@ protected:
             newData.gridAxes = [];
             super.rebuffer(newData);
             shouldUpdateVertices = true;
+            autoResizedSize = bounds.zw - bounds.xy;
+            textureOffset = (bounds.xy + bounds.zw) / 2 - originOffset;
         } else {
-            data.vertices = vertexArray;
-            shouldUpdateVertices = true;
-            updateVertices();
+            auto newTextureOffset = (bounds.xy + bounds.zw) / 2 - originOffset;
+            enum float TextureOffsetEpsilon = 0.001f;
+            bool offsetChanged = abs(newTextureOffset.x - textureOffset.x) > TextureOffsetEpsilon ||
+                abs(newTextureOffset.y - textureOffset.y) > TextureOffsetEpsilon;
+            if (offsetChanged) {
+                textureInvalidated = true;
+                data.vertices = vertexArray;
+                data.indices = [
+                    0, 1, 2,
+                    2, 1, 3
+                ];
+                shouldUpdateVertices = true;
+                autoResizedSize = bounds.zw - bounds.xy;
+                updateVertices();
+                textureOffset = newTextureOffset;
+            }
         }
-
-        autoResizedSize = size;
-        textureOffset = newTextureOffset;
         return resizing;
+    }
+
+    private bool updateAutoResizedMeshOnce(out bool ran) {
+        ran = false;
+        if (!autoResizedMesh) {
+            return false;
+        }
+        ran = true;
+        return createSimpleMesh();
     }
 
 public:
@@ -465,7 +503,10 @@ public:
             if (shouldUpdateVertices) {
                 shouldUpdateVertices = false;
             }
-            if (createSimpleMesh()) initialized = false;
+            bool ran = false;
+            if (updateAutoResizedMeshOnce(ran) && ran) {
+                initialized = false;
+            }
         } else {
             super.runDynamicTask(ctx);
         }
@@ -895,12 +936,15 @@ public:
             if (reason == NotifyReason.AttributeChanged) {
                 scanSubParts(children);
             }
-            textureInvalidated = true;
-            hasValidOffscreenContent = false;
-            loggedFirstRenderAttempt = false;
+            if (reason != NotifyReason.Initialized) {
+                textureInvalidated = true;
+                hasValidOffscreenContent = false;
+                loggedFirstRenderAttempt = false;
+            }
         }
         if (autoResizedMesh) {
-            if (createSimpleMesh()) {
+            bool ran = false;
+            if (updateAutoResizedMeshOnce(ran) && ran) {
                 initialized = false;
             }
         }
