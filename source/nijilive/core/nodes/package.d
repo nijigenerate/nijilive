@@ -27,9 +27,33 @@ public import nijilive.core.nodes.deformer.path;
 public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
 import nijilive.core.nodes.utils;
+import nijilive.core.render.graph_builder;
+import nijilive.core.render.passes : RenderScopeHint;
 import std.typecons: tuple, Tuple;
 import std.algorithm.searching;
+import nijilive.core.render.scheduler;
 import std.string;
+import std.math : isFinite;
+
+private enum NodeTaskFlag : uint {
+    None        = 0,
+    PreProcess  = 1 << 0,
+    Dynamic     = 1 << 1,
+    Post0       = 1 << 2,
+    Post1       = 1 << 3,
+    Post2       = 1 << 4,
+    RenderBegin = 1 << 5,
+    Render      = 1 << 6,
+    RenderEnd   = 1 << 7,
+}
+
+private NodeTaskFlag opBinary(string op)(NodeTaskFlag lhs, NodeTaskFlag rhs)
+if (op == "|" || op == "&") {
+    static if (op == "|")
+        return cast(NodeTaskFlag)(cast(uint)lhs | cast(uint)rhs);
+    else
+        return cast(NodeTaskFlag)(cast(uint)lhs & cast(uint)rhs);
+}
 
 // Flags to control which Node properties get serialized
 enum SerializeNodeFlags : uint {
@@ -223,9 +247,39 @@ protected:
     }
     MatrixHolder overrideTransformMatrix = null;
 
-    alias Filter = Tuple!(int, Tuple!(vec2[], mat4*, bool) delegate(Node, vec2[], vec2[], mat4*));
+    alias Filter = Tuple!(int, Tuple!(Vec2Array, mat4*, bool) delegate(Node, Vec2Array, Vec2Array, mat4*));
     Filter[] preProcessFilters;
     Filter[] postProcessFilters;
+    NodeTaskFlag taskFlags = NodeTaskFlag.None;
+
+    protected void requirePreProcessTask() {
+        taskFlags |= NodeTaskFlag.PreProcess;
+    }
+
+    protected void requireDynamicTask() {
+        taskFlags |= NodeTaskFlag.Dynamic;
+    }
+
+    protected void requirePostTask(size_t stage) {
+        switch (stage) {
+            case 0: taskFlags |= NodeTaskFlag.Post0; break;
+            case 1: taskFlags |= NodeTaskFlag.Post1; break;
+            case 2: taskFlags |= NodeTaskFlag.Post2; break;
+            default: break;
+        }
+    }
+
+    protected void requireRenderBeginTask() {
+        taskFlags |= NodeTaskFlag.RenderBegin;
+    }
+
+    protected void requireRenderTask() {
+        taskFlags |= NodeTaskFlag.Render;
+    }
+
+    protected void requireRenderEndTask() {
+        taskFlags |= NodeTaskFlag.RenderEnd;
+    }
 
 //    import std.stdio;
     void preProcess() {
@@ -234,8 +288,10 @@ protected:
         preProcessed = true;
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
-            auto filterResult = preProcessFilter[1](this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
-            if (filterResult[0] !is null && filterResult[0].length > 0) {
+            Vec2Array localTrans = Vec2Array([localTransform.translation.xy]);
+            Vec2Array offsetTrans = Vec2Array([offsetTransform.translation.xy]);
+            auto filterResult = preProcessFilter[1](this, localTrans, offsetTrans, &matrix);
+            if (!filterResult[0].empty) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
             }
@@ -255,8 +311,10 @@ protected:
         foreach (postProcessFilter; postProcessFilters) {
             if (postProcessFilter[0] != id) continue;
             mat4 matrix = this.parent? overrideTransformMatrix? overrideTransformMatrix.matrix: this.parent.transform.matrix: mat4.identity;
-            auto filterResult = postProcessFilter[1](this, [localTransform.translation.xy], [offsetTransform.translation.xy], &matrix);
-            if (filterResult[0] !is null && filterResult[0].length > 0) {
+            Vec2Array localTrans = Vec2Array([localTransform.translation.xy]);
+            Vec2Array offsetTrans = Vec2Array([offsetTransform.translation.xy]);
+            auto filterResult = postProcessFilter[1](this, localTrans, offsetTrans, &matrix);
+            if (!filterResult[0].empty) {
                 offsetTransform.translation = vec3(filterResult[0][0], offsetTransform.translation.z);
                 transformChanged();
                 overrideTransformMatrix = new MatrixHolder(transform.matrix);
@@ -561,6 +619,7 @@ public:
         return parent_ !is null ? parent_.puppet : puppet_;
     }
 
+
     /**
         Removes all children from this node
     */
@@ -696,39 +755,69 @@ public:
         Sets offset value
     */
     bool setValue(string key, float value) {
+        if (!value.isFinite) {
+            return false;
+        }
         switch(key) {
             case "zSort":
+                if (!offsetSort.isFinite) {
+                    offsetSort = 0;
+                }
                 offsetSort += value;
                 return true;
             case "transform.t.x":
+                if (!offsetTransform.translation.x.isFinite) {
+                    offsetTransform.translation.x = 0;
+                }
                 offsetTransform.translation.x += value;
                 transformChanged();
                 return true;
             case "transform.t.y":
+                if (!offsetTransform.translation.y.isFinite) {
+                    offsetTransform.translation.y = 0;
+                }
                 offsetTransform.translation.y += value;
                 transformChanged();
                 return true;
             case "transform.t.z":
+                if (!offsetTransform.translation.z.isFinite) {
+                    offsetTransform.translation.z = 0;
+                }
                 offsetTransform.translation.z += value;
                 transformChanged();
                 return true;
             case "transform.r.x":
+                if (!offsetTransform.rotation.x.isFinite) {
+                    offsetTransform.rotation.x = 0;
+                }
                 offsetTransform.rotation.x += value;
                 transformChanged();
                 return true;
             case "transform.r.y":
+                if (!offsetTransform.rotation.y.isFinite) {
+                    offsetTransform.rotation.y = 0;
+                }
                 offsetTransform.rotation.y += value;
                 transformChanged();
                 return true;
             case "transform.r.z":
+                if (!offsetTransform.rotation.z.isFinite) {
+                    offsetTransform.rotation.z = 0;
+                }
                 offsetTransform.rotation.z += value;
                 transformChanged();
                 return true;
             case "transform.s.x":
+                if (!offsetTransform.scale.x.isFinite || offsetTransform.scale.x == 0) {
+                    offsetTransform.scale.x = 1;
+                }
                 offsetTransform.scale.x *= value;
                 transformChanged();
                 return true;
             case "transform.s.y":
+                if (!offsetTransform.scale.y.isFinite || offsetTransform.scale.y == 0) {
+                    offsetTransform.scale.y = 1;
+                }
                 offsetTransform.scale.y *= value;
                 transformChanged();
                 return true;
@@ -816,7 +905,7 @@ public:
         }
     }
 
-    void beginUpdate() {
+    protected void runBeginTask(ref RenderContext ctx) {
         preProcessed  = false;
         postProcessed = -1;
         changed = false;
@@ -826,33 +915,113 @@ public:
         offsetSort = 0;
         offsetTransform.clear();
         overrideTransformMatrix = null;
-
-        // Iterate through children
-        foreach(child; children_) {
-            child.beginUpdate();
-        }
     }
 
     /**
         Updates the node
     */
-    void update() {
+    protected void runPreProcessTask(ref RenderContext ctx) {
         preProcess();
-
-        if (!enabled) return;
-
-        foreach(child; children) {
-            child.update();
-        }
     }
 
-    void endUpdate(int id = 0) {
-        postProcess(id);
-        foreach (child; children) {
-            child.endUpdate(id);
+    protected void runDynamicTask(ref RenderContext ctx) {
+    }
+
+    protected void runPostTaskImpl(size_t priority, ref RenderContext ctx) {
+        postProcess(cast(int)priority);
+    }
+
+    void runPostTask0(ref RenderContext ctx) { runPostTaskImpl(0, ctx); }
+    void runPostTask1(ref RenderContext ctx) { runPostTaskImpl(1, ctx); }
+    void runPostTask2(ref RenderContext ctx) { runPostTaskImpl(2, ctx); }
+
+    protected void runFinalTask(ref RenderContext ctx) {
+        postProcess(-1);
+        flushNotifyChange();
+    }
+
+    protected void runRenderTask(ref RenderContext ctx) {
+        // Base nodes do not render directly. Nodes that need rendering
+        // should override and push commands into the RenderQueue.
+    }
+
+    protected void runRenderBeginTask(ref RenderContext ctx) {
+    }
+
+    protected void runRenderEndTask(ref RenderContext ctx) {
+    }
+
+    void registerRenderTasks(TaskScheduler scheduler) {
+        if (scheduler is null) return;
+        scheduler.addTask(TaskOrder.Init, TaskKind.Init, &runBeginTask);
+
+        auto hasFlag = (NodeTaskFlag flag) => (cast(bool)(taskFlags & flag));
+        bool needPreProcess = (preProcessFilters.length > 0) || hasFlag(NodeTaskFlag.PreProcess);
+        bool needDynamic = hasFlag(NodeTaskFlag.Dynamic);
+        bool[3] needPost;
+        foreach (filter; postProcessFilters) {
+            auto stage = filter[0];
+            if (stage >= 0 && stage < 3) {
+                needPost[stage] = true;
+            }
         }
-        if (id == -1)
-            flushNotifyChange();
+        if (hasFlag(NodeTaskFlag.Post0)) needPost[0] = true;
+        if (hasFlag(NodeTaskFlag.Post1)) needPost[1] = true;
+        if (hasFlag(NodeTaskFlag.Post2)) needPost[2] = true;
+        bool needRenderBegin = hasFlag(NodeTaskFlag.RenderBegin);
+        bool needRender = hasFlag(NodeTaskFlag.Render);
+        bool needRenderEnd = hasFlag(NodeTaskFlag.RenderEnd);
+
+        if (needPreProcess)
+            scheduler.addTask(TaskOrder.PreProcess, TaskKind.PreProcess, &runPreProcessTask);
+        if (needDynamic)
+            scheduler.addTask(TaskOrder.Dynamic, TaskKind.Dynamic, &runDynamicTask);
+        if (needPost[0])
+            scheduler.addTask(TaskOrder.Post0, TaskKind.PostProcess, &runPostTask0);
+        if (needPost[1])
+            scheduler.addTask(TaskOrder.Post1, TaskKind.PostProcess, &runPostTask1);
+        if (needPost[2])
+            scheduler.addTask(TaskOrder.Post2, TaskKind.PostProcess, &runPostTask2);
+        if (needRenderBegin)
+            scheduler.addTask(TaskOrder.RenderBegin, TaskKind.Render, &runRenderBeginTask);
+        if (needRender)
+            scheduler.addTask(TaskOrder.Render, TaskKind.Render, &runRenderTask);
+        scheduler.addTask(TaskOrder.Final, TaskKind.Finalize, &runFinalTask);
+
+        auto orderedChildren = children.dup;
+        if (orderedChildren.length > 1) {
+            import std.algorithm.sorting : sort;
+            orderedChildren.sort!((a, b) => a.zSort > b.zSort);
+        }
+
+        foreach(child; orderedChildren) {
+            child.registerRenderTasks(scheduler);
+        }
+
+        if (needRenderEnd)
+            scheduler.addTask(TaskOrder.RenderEnd, TaskKind.Render, &runRenderEndTask);
+    }
+
+    protected RenderScopeHint determineRenderScopeHint() {
+        Node current = parent;
+        while (current !is null) {
+            if (auto dyn = cast(DynamicComposite)current) {
+                if (dyn.dynamicScopeActive) {
+                    return RenderScopeHint.forDynamic(dyn.dynamicScopeTokenValue());
+                }
+                if (dyn.reuseCachedTextureThisFrame) {
+                    return RenderScopeHint.skipHint();
+                }
+                return RenderScopeHint.skipHint();
+            }
+            if (auto comp = cast(Composite)current) {
+                if (comp.isCompositeScopeActive()) {
+                    return RenderScopeHint.forComposite(comp.compositeScopeTokenValue());
+                }
+            }
+            current = current.parent;
+        }
+        return RenderScopeHint.root();
     }
 
     /**
@@ -1011,15 +1180,15 @@ public:
         inDbgLineWidth(4);
 
         // X
-        inDbgSetBuffer([vec3(0, 0, 0), vec3(32, 0, 0)], [0, 1]);
+        inDbgSetBuffer(Vec3Array([vec3(0, 0, 0), vec3(32, 0, 0)]), [0, 1]);
         inDbgDrawLines(vec4(1, 0, 0, 0.7), trans);
 
         // Y
-        inDbgSetBuffer([vec3(0, 0, 0), vec3(0, -32, 0)], [0, 1]);
+        inDbgSetBuffer(Vec3Array([vec3(0, 0, 0), vec3(0, -32, 0)]), [0, 1]);
         inDbgDrawLines(vec4(0, 1, 0, 0.7), trans);
         
         // Z
-        inDbgSetBuffer([vec3(0, 0, 0), vec3(0, 0, -32)], [0, 1]);
+        inDbgSetBuffer(Vec3Array([vec3(0, 0, 0), vec3(0, 0, -32)]), [0, 1]);
         inDbgDrawLines(vec4(0, 0, 1, 0.7), trans);
 
         inDbgLineWidth(1);
@@ -1033,7 +1202,7 @@ public:
 
         float width = bounds.z-bounds.x;
         float height = bounds.w-bounds.y;
-        inDbgSetBuffer([
+        Vec3Array boundsPoints = Vec3Array([
             vec3(bounds.x, bounds.y, 0),
             vec3(bounds.x + width, bounds.y, 0),
             
@@ -1046,6 +1215,7 @@ public:
             vec3(bounds.x, bounds.y+height, 0),
             vec3(bounds.x, bounds.y, 0),
         ]);
+        inDbgSetBuffer(boundsPoints);
         inDbgLineWidth(3);
         if (oneTimeTransform !is null)
             inDbgDrawLines(vec4(.5, .5, .5, 1), (*oneTimeTransform));
@@ -1088,10 +1258,16 @@ public:
         setupSelf();
     }
 
-    bool setupChild(Node child) { return false; }
-    bool releaseChild(Node child) { return false; }
-    void setupSelf() { }
-    void releaseSelf() { }
+    bool setupChild(Node child) {
+        return false;
+    }
+    bool releaseChild(Node child) {
+        return false;
+    }
+    void setupSelf() {
+    }
+    void releaseSelf() {
+    }
 
     mat4 getDynamicMatrix() {
         if (overrideTransformMatrix !is null) {
@@ -1114,6 +1290,9 @@ public:
 
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
         if (target == this) changed = true;
+        if (auto pup = puppet()) {
+            pup.recordNodeChange(reason);
+        }
         if (changeDeferred) {
             changePooled ~= ChangeRecord(target, reason);
         } else {
@@ -1148,7 +1327,7 @@ public:
         }
 
         vec4 bounds;
-        vec4[] childTranslations;
+        Vec4Array childTranslations;
         if (children.length > 0) {
             bounds = children[0].getCombinedBounds();
             foreach (child; children) {

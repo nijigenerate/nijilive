@@ -7,81 +7,55 @@
 */
 module nijilive.core.shader;
 import nijilive.math;
-import std.string;
-import bindbc.opengl;
+import nijilive.core.render.backends : RenderShaderHandle, BackendEnum, SelectedBackend;
+version (InDoesRender) {
+    import nijilive.core.runtime_state : currentRenderBackend, tryRenderBackend;
+}
+
+struct ShaderStageSource {
+    string vertex;
+    string fragment;
+}
+
+struct ShaderAsset {
+    ShaderStageSource opengl;
+    ShaderStageSource directx;
+    ShaderStageSource vulkan;
+
+    ShaderStageSource sourceForCurrentBackend() const {
+        static if (SelectedBackend == BackendEnum.OpenGL) {
+            assert(opengl.vertex.length && opengl.fragment.length,
+                "OpenGL shader source is not provided.");
+            return opengl;
+        } else {
+            static assert(SelectedBackend == BackendEnum.OpenGL,
+                "Selected backend is not supported yet.");
+        }
+    }
+
+    static ShaderAsset fromOpenGLSource(string vertexSource, string fragmentSource) {
+        ShaderAsset asset;
+        asset.opengl = ShaderStageSource(vertexSource, fragmentSource);
+        return asset;
+    }
+}
+
+auto shaderAsset(string vertexPath, string fragmentPath)()
+{
+    enum ShaderAsset asset = ShaderAsset(
+        ShaderStageSource(import(vertexPath), import(fragmentPath)),
+        ShaderStageSource.init,
+        ShaderStageSource.init,
+    );
+    return asset;
+}
 
 /**
     A shader
 */
 class Shader {
 private:
-    GLuint shaderProgram;
-    GLuint fragShader;
-    GLuint vertShader;
-
-    void compileShaders(string vertex, string fragment) {
-
-        // Compile vertex shader
-        vertShader = glCreateShader(GL_VERTEX_SHADER);
-        auto c_vert = vertex.toStringz;
-        glShaderSource(vertShader, 1, &c_vert, null);
-        glCompileShader(vertShader);
-        verifyShader(vertShader);
-
-        // Compile fragment shader
-        fragShader = glCreateShader(GL_FRAGMENT_SHADER);
-        auto c_frag = fragment.toStringz;
-        glShaderSource(fragShader, 1, &c_frag, null);
-        glCompileShader(fragShader);
-        verifyShader(fragShader);
-
-        // Attach and link them
-        shaderProgram = glCreateProgram();
-        glAttachShader(shaderProgram, vertShader);
-        glAttachShader(shaderProgram, fragShader);
-        glLinkProgram(shaderProgram);
-        verifyProgram();
-    }
-
-    void verifyShader(GLuint shader) {
-
-        int compileStatus;
-        glGetShaderiv(shader, GL_COMPILE_STATUS, &compileStatus);
-        if (compileStatus == GL_FALSE) {
-
-            // Get the length of the error log
-            GLint logLength;
-            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
-            if (logLength > 0) {
-
-                // Fetch the error log
-                char[] log = new char[logLength];
-                glGetShaderInfoLog(shader, logLength, null, log.ptr);
-
-                throw new Exception(cast(string)log);
-            }
-        }
-    }
-
-    void verifyProgram() {
-
-        int linkStatus;
-        glGetProgramiv(shaderProgram, GL_LINK_STATUS, &linkStatus);
-        if (linkStatus == GL_FALSE) {
-
-            // Get the length of the error log
-            GLint logLength;
-            glGetProgramiv(shaderProgram, GL_INFO_LOG_LENGTH, &logLength);
-            if (logLength > 0) {
-
-                // Fetch the error log
-                char[] log = new char[logLength];
-                glGetProgramInfoLog(shaderProgram, logLength, null, log.ptr);
-
-                throw new Exception(cast(string)log);
-            }
-        }
-    }
+    RenderShaderHandle handle;
 
 public:
 
@@ -89,57 +63,97 @@ public:
         Destructor
     */
     ~this() {
-        glDetachShader(shaderProgram, vertShader);
-        glDetachShader(shaderProgram, fragShader);
-        glDeleteProgram(shaderProgram);
-        
-        glDeleteShader(fragShader);
-        glDeleteShader(vertShader);
+        version (InDoesRender) {
+            if (handle is null) return;
+            auto backend = tryRenderBackend();
+            if (backend !is null) {
+                backend.destroyShader(handle);
+            }
+            handle = null;
+        }
     }
 
     /**
-        Creates a new shader object from source
+        Creates a new shader object from source definitions
+    */
+    this(ShaderAsset sources) {
+        version (InDoesRender) {
+            auto variant = sources.sourceForCurrentBackend();
+            handle = currentRenderBackend().createShader(variant.vertex, variant.fragment);
+        }
+    }
+
+    /**
+        Creates a new shader object from literal source strings (OpenGL fallback)
     */
     this(string vertex, string fragment) {
-        compileShaders(vertex, fragment);
+        this(ShaderAsset.fromOpenGLSource(vertex, fragment));
     }
 
     /**
         Use the shader
     */
     void use() {
-        glUseProgram(shaderProgram);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().useShader(handle);
+        }
     }
 
-    GLint getUniformLocation(string name) {
-        return glGetUniformLocation(shaderProgram, name.ptr);
+    int getUniformLocation(string name) {
+        version (InDoesRender) {
+            if (handle is null) return -1;
+            return currentRenderBackend().getShaderUniformLocation(handle, name);
+        }
+        return -1;
     }
 
-    void setUniform(GLint uniform, bool value) {
-        glUniform1i(uniform, cast(int)value);
+    void setUniform(int uniform, bool value) {
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
-    void setUniform(GLint uniform, int value) {
-        glUniform1i(uniform, value);
+    void setUniform(int uniform, int value) {
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
-    void setUniform(GLint uniform, float value) {
-        glUniform1f(uniform, value);
+    void setUniform(int uniform, float value) {
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
-    void setUniform(GLint uniform, vec2 value) {
-        glUniform2f(uniform, value.x, value.y);
+    void setUniform(int uniform, vec2 value) {
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
-    void setUniform(GLint uniform, vec3 value) {
-        glUniform3f(uniform, value.x, value.y, value.z);
+    void setUniform(int uniform, vec3 value) {
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
-    void setUniform(GLint uniform, vec4 value) {
-        glUniform4f(uniform, value.x, value.y, value.z, value.w);
+    void setUniform(int uniform, vec4 value) {
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 
-    void setUniform(GLint uniform, mat4 value) {
-        glUniformMatrix4fv(uniform, 1, GL_TRUE, value.ptr);
+    void setUniform(int uniform, mat4 value) {
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().setShaderUniform(handle, uniform, value);
+        }
     }
 }

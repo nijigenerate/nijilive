@@ -1,4 +1,4 @@
-name "nijilive"
+﻿name "nijilive"
 description "A bring-your-own-renderer realtime 2D puppet library"
 authors "Luna Nielsen"
 copyright "Copyright © 2024, nijigenerate project"
@@ -17,6 +17,33 @@ configuration "full" {
     versions "InDoesRender"
 }
 
+configuration "win32-directx" {
+    platforms "windows"
+    dependency "silly" version="~>1.1.1"
+    dependency "aurora-directx" version="~>12.1.2+10.0.17763.0"
+    versions "InDoesRender"
+    versions "UseDirectX"
+}
+
 configuration "renderless" {
     versions "InRenderless"
+}
+
+// Sample stanza to enable the queue command backend for inspection:
+configuration "queue-backend" {
+    versions "InDoesRender"
+    versions "UseQueueBackend"
+}
+
+configuration "unity-dll" {
+    targetType "dynamicLibrary"
+    platforms "windows"
+    versions "InDoesRender"
+    versions "UseQueueBackend"
+    versions "UnityDLL"
+    // Use a recognizable name for Unity DLL
+    targetName "nijilive-unity"
+    // Statically link D runtime for Unity DLL and disable dllimport
+    dflags "-link-defaultlib-shared=false" "--dllimport=none"
+    excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
 }

@@ -12,8 +12,8 @@ module nijilive.core.nodes.drawable;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
+import nijilive.math.veca_ops : transformAssign, transformAdd;
 import nijilive.math.triangle;
-import bindbc.opengl;
 import std.exception;
 import nijilive.core.dbg;
 import nijilive.core;
@@ -22,14 +22,15 @@ import std.typecons;
 import std.algorithm.searching;
 import std.algorithm.mutation: remove;
 import nijilive.core.nodes.utils;
-//import std.stdio;
-
-private GLuint drawableVAO;
+version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
+import nijilive.core.render.shared_deform_buffer;
+import nijilive.core.render.backends : RenderResourceHandle;
+import nijilive.core.render.scheduler : RenderContext;
 private const ptrdiff_t NOINDEX = cast(ptrdiff_t)-1;
 
 package(nijilive) {
     void inInitDrawable() {
-        version(InDoesRender) glGenVertexArrays(1, &drawableVAO);
+        version(InDoesRender) currentRenderBackend().initializeDrawableResources();
     }
 
 
@@ -37,9 +38,7 @@ package(nijilive) {
         Binds the internal vertex array for rendering
     */
     void incDrawableBindVAO() {
-
-        // Bind our vertex array
-        glBindVertexArray(drawableVAO);
+        version(InDoesRender) currentRenderBackend().bindDrawableVao();
     }
 
     bool doGenerateBounds = false;
@@ -69,29 +68,20 @@ protected:
 
     void updateIndices() {
         version (InDoesRender) {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.indices.length*ushort.sizeof, data.indices.ptr, GL_STATIC_DRAW);
+            currentRenderBackend().uploadDrawableIndices(ibo, data.indices);
         }
     }
 
     override
     void updateVertices() {
-        version (InDoesRender) {
-
-            // Important check since the user can change this every frame
-            glBindBuffer(GL_ARRAY_BUFFER, vbo);
-            glBufferData(GL_ARRAY_BUFFER, data.vertices.length*vec2.sizeof, data.vertices.ptr, GL_DYNAMIC_DRAW);
-        }
-
-        // Zero-fill the deformation delta
-        this.deformation.length = vertices.length;
-        foreach(i; 0..deformation.length) {
-            this.deformation[i] = vec2(0, 0);
-        }
+        sharedVertexResize(data.vertices, data.vertices.length);
+        sharedVertexMarkDirty();
+        sharedDeformResize(deformation, vertices.length);
+        this.deformation[] = vec2(0, 0);
         this.updateDeform();
     }
 
-    Tuple!(vec2[], mat4*, bool) nodeAttachProcessor(Node node, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) nodeAttachProcessor(Node node, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         bool changed = false;
         vec2 nodeOrigin = (this.transform.matrix.inverse * vec4(node.transform.translation, 1));
 //        writefln("%s-->%s: nodeOrigin=%s", name, node.name, nodeOrigin);
@@ -113,59 +103,99 @@ protected:
 //            writefln("%s, %s, %s, %s", name, this.deformation[triangle[0]], this.deformation[triangle[1]], this.deformation[triangle[2]]);
 //            writefln("  ->%s: %s, %.2f, %.2f", node.name, transformedOrigin + nodeOrigin, rotateVert, rotateHorz);
 //            *newMat = newMat.translate(transformedOrigin.x, transformedOrigin.y, 0.0).rotateZ((rotateVert + rotateHorz) / 2.0);
-            return tuple(cast(vec2[])null, cast(mat4*)null, changed);
+            return tuple(Vec2Array.init, cast(mat4*)null, changed);
         } else {
-            return tuple(cast(vec2[])null, cast(mat4*)null, false);
+            return tuple(Vec2Array.init, cast(mat4*)null, false);
         }
     }
 
-    Tuple!(vec2[], mat4*, bool) weldingProcessor(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) weldingProcessor(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         auto linkIndex = welded.countUntil!((a)=>a.target == target)();
         bool changed = false;
         WeldingLink link = welded[linkIndex];
         if (postProcessed < 2)
-            return Tuple!(vec2[], mat4*, bool)(null, null, changed);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, changed);
         if (link.target in weldingApplied && weldingApplied[link.target] || 
             this in link.target.weldingApplied && link.target.weldingApplied[this])
-            return Tuple!(vec2[], mat4*, bool)(null, null, changed);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, changed);
 //        import std.stdio;
 //        writefln("welding: %s(%b) --> %s(%b)", name, postProcessed, target.name, target.postProcessed);
         weldingApplied[link.target] = true;
         link.target.weldingApplied[this] = true;
         float weldingWeight = min(1, max(0, link.weight));
-        foreach(i, vertex; vertices) {
-            if (i >= link.indices.length)
-                break;
-            auto index = link.indices[i];
-            if (index == NOINDEX)
+        auto pairCount = link.indices.length < vertices.length ? link.indices.length : vertices.length;
+        if (pairCount == 0) {
+            return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, changed);
+        }
+
+        size_t[] selfIndices;
+        size_t[] targetIndices;
+        selfIndices.reserve(pairCount);
+        targetIndices.reserve(pairCount);
+        for (size_t i = 0; i < pairCount; ++i) {
+            ptrdiff_t mapped = link.indices[i];
+            if (mapped == NOINDEX || mapped < 0) {
                 continue;
-            vec2 selfVertex = vertex + deformation[i];
-            mat4 selfMatrix = overrideTransformMatrix? overrideTransformMatrix.matrix: transform.matrix;
-            selfVertex = (selfMatrix * vec4(selfVertex, 0, 1)).xy;
-
-            vec2 targetVertex = origVertices[index] + origDeformation[index];
-            targetVertex = ((*origTransform) * vec4(targetVertex, 0, 1)).xy;
-
-            vec2 newPos = targetVertex * (1 - weldingWeight) + selfVertex * (weldingWeight);
-
-            changed = newPos != selfVertex;
-
-            auto selfMatrixInv = selfMatrix.inverse;
-            selfMatrixInv[0][3] = 0;
-            selfMatrixInv[1][3] = 0;
-            selfMatrixInv[2][3] = 0;
-            deformation[i] += (selfMatrixInv * vec4(newPos - selfVertex, 0, 1)).xy;
-
-            auto targetMatrixInv = (*origTransform).inverse;
-            targetMatrixInv[0][3] = 0;
-            targetMatrixInv[1][3] = 0;
-            targetMatrixInv[2][3] = 0;
-            origDeformation[index] += (targetMatrixInv * vec4(newPos - targetVertex, 0, 1)).xy;
+            }
+            auto targetIdx = cast(size_t)mapped;
+            if (targetIdx >= origVertices.length) {
+                continue;
+            }
+            selfIndices ~= i;
+            targetIndices ~= targetIdx;
         }
-        version (InDoesRender) {
-            glBindBuffer(GL_ARRAY_BUFFER, dbo);
-            glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
+
+        auto validCount = selfIndices.length;
+        if (validCount == 0) {
+            return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, false);
         }
+
+        Vec2Array selfLocal = gatherVec2(vertices, selfIndices);
+        Vec2Array selfDelta = gatherVec2(deformation, selfIndices);
+        selfLocal += selfDelta;
+
+        Vec2Array targetLocal = gatherVec2(origVertices, targetIndices);
+        Vec2Array targetDelta = gatherVec2(origDeformation, targetIndices);
+        targetLocal += targetDelta;
+
+        mat4 selfMatrix = overrideTransformMatrix ? overrideTransformMatrix.matrix : transform.matrix;
+        mat4 targetMatrix = *origTransform;
+
+        Vec2Array selfWorld;
+        transformAssign(selfWorld, selfLocal, selfMatrix);
+
+        Vec2Array targetWorld;
+        transformAssign(targetWorld, targetLocal, targetMatrix);
+
+        Vec2Array blended = targetWorld.dup;
+        blended *= (1 - weldingWeight);
+        Vec2Array weightedSelf = selfWorld.dup;
+        weightedSelf *= weldingWeight;
+        blended += weightedSelf;
+
+        Vec2Array deltaSelf = blended.dup;
+        deltaSelf -= selfWorld;
+        Vec2Array deltaTarget = blended.dup;
+        deltaTarget -= targetWorld;
+
+        mat4 selfMatrixInv = selfMatrix.inverse;
+        selfMatrixInv[0][3] = 0;
+        selfMatrixInv[1][3] = 0;
+        selfMatrixInv[2][3] = 0;
+
+        mat4 targetMatrixInv = targetMatrix.inverse;
+        targetMatrixInv[0][3] = 0;
+        targetMatrixInv[1][3] = 0;
+        targetMatrixInv[2][3] = 0;
+
+        Vec2Array localSelf = makeZeroVecArray(validCount);
+        transformAdd(localSelf, deltaSelf, selfMatrixInv);
+        Vec2Array localTarget = makeZeroVecArray(validCount);
+        transformAdd(localTarget, deltaTarget, targetMatrixInv);
+
+        scatterAddVec2(localSelf, selfIndices, deformation, changed);
+        scatterAddVec2(localTarget, targetIndices, origDeformation, changed);
+        sharedDeformMarkDirty();
 
         return tuple(origDeformation, cast(mat4*)null, changed);
     }
@@ -173,28 +203,29 @@ protected:
     override
     void updateDeform() {
         super.updateDeform();
-        version (InDoesRender) {
-            glBindBuffer(GL_ARRAY_BUFFER, dbo);
-            glBufferData(GL_ARRAY_BUFFER, deformation.length*vec2.sizeof, deformation.ptr, GL_DYNAMIC_DRAW);
-        }
-
+        sharedDeformMarkDirty();
         this.updateBounds();
     }
 
     /**
-        OpenGL Index Buffer Object
+        Backend Index Buffer Object handle
     */
-    GLuint ibo;
+    RenderResourceHandle ibo;
 
     /**
-        OpenGL Vertex Buffer Object
+        Offset within the shared deformation buffer
     */
-    GLuint vbo;
+    package(nijilive) size_t deformSliceOffset;
 
     /**
-        OpenGL Vertex Buffer Object for deformation
+        Offset within the shared vertex buffer
     */
-    GLuint dbo;
+    package(nijilive) size_t vertexSliceOffset;
+
+    /**
+        Offset within the shared UV buffer
+    */
+    package(nijilive) size_t uvSliceOffset;
 
     /**
         The mesh data of this part
@@ -209,15 +240,13 @@ protected:
     */
     final void bindIndex() {
         version (InDoesRender) {
-            // Bind element array and draw our mesh
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-            glDrawElements(GL_TRIANGLES, cast(int)data.indices.length, GL_UNSIGNED_SHORT, null);
+            currentRenderBackend().drawDrawableElements(ibo, data.indices.length);
         }
     }
 
-    /**
-        Allows serializing self data (with pretty serializer)
-    */
+        /**
+            Allows serializing self data (with pretty serializer)
+        */
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive=true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
         super.serializeSelfImpl(serializer, recursive, flags);
@@ -280,13 +309,54 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        sharedDeformRegister(deformation, &deformSliceOffset);
+        sharedVertexRegister(data.vertices, &vertexSliceOffset);
+        sharedUvRegister(data.uvs, &uvSliceOffset);
 
         version(InDoesRender) {
+            currentRenderBackend().createDrawableBuffers(ibo);
+        }
+    }
 
-            // Generate the buffers
-            glGenBuffers(1, &vbo);
-            glGenBuffers(1, &ibo);
-            glGenBuffers(1, &dbo);
+    private Vec2Array gatherVec2(const Vec2Array source, const size_t[] indices) {
+        Vec2Array result;
+        result.length = indices.length;
+        auto resX = result.lane(0);
+        auto resY = result.lane(1);
+        auto srcX = source.lane(0);
+        auto srcY = source.lane(1);
+        for (size_t i = 0; i < indices.length; ++i) {
+            auto idx = indices[i];
+            resX[i] = srcX[idx];
+            resY[i] = srcY[idx];
+        }
+        return result;
+    }
+
+    private Vec2Array makeZeroVecArray(size_t count) {
+        Vec2Array result;
+        result.length = count;
+        auto rx = result.lane(0);
+        auto ry = result.lane(1);
+        rx[] = 0;
+        ry[] = 0;
+        return result;
+    }
+
+    private void scatterAddVec2(const Vec2Array delta, const size_t[] indices, ref Vec2Array target, ref bool changed) {
+        auto deltaX = delta.lane(0);
+        auto deltaY = delta.lane(1);
+        auto targetX = target.lane(0);
+        auto targetY = target.lane(1);
+        for (size_t i = 0; i < indices.length; ++i) {
+            auto idx = indices[i];
+            auto dx = deltaX[i];
+            auto dy = deltaY[i];
+            if (dx != 0 || dy != 0) {
+                changed = true;
+            }
+            targetX[idx] += dx;
+            targetY[idx] += dy;
         }
     }
 
@@ -303,16 +373,15 @@ public:
     this(MeshData data, uint uuid, Node parent = null) {
         super(uuid, parent);
         this.data = data;
+        sharedDeformRegister(deformation, &deformSliceOffset);
+        sharedVertexRegister(this.data.vertices, &vertexSliceOffset);
+        sharedUvRegister(this.data.uvs, &uvSliceOffset);
 
         // Set the deformable points to their initial position
         this.vertices = data.vertices.dup;
 
         version(InDoesRender) {
-            
-            // Generate the buffers
-            glGenBuffers(1, &vbo);
-            glGenBuffers(1, &ibo);
-            glGenBuffers(1, &dbo);
+            currentRenderBackend().createDrawableBuffers(ibo);
         }
 
         // Update indices and vertices
@@ -320,8 +389,14 @@ public:
         this.updateVertices();
     }
 
+    ~this() {
+        sharedDeformUnregister(deformation);
+        sharedVertexUnregister(data.vertices);
+        sharedUvUnregister(data.uvs);
+    }
+
     override
-    ref vec2[] vertices() {
+    ref Vec2Array vertices() {
         return data.vertices;
     }
 
@@ -331,11 +406,11 @@ public:
     vec4 bounds;
 
     override
-    void beginUpdate() {
+    protected void runBeginTask(ref RenderContext ctx) {
         weldingApplied.clear();
         foreach (link; welded)
             weldingApplied[link.target] = false;
-        super.beginUpdate();
+        super.runBeginTask(ctx);
     }
 
     /**
@@ -384,7 +459,7 @@ public:
         
         float width = bounds.z-bounds.x;
         float height = bounds.w-bounds.y;
-        inDbgSetBuffer([
+        Vec3Array boundsPoints = Vec3Array([
             vec3(bounds.x, bounds.y, 0),
             vec3(bounds.x + width, bounds.y, 0),
             
@@ -397,6 +472,7 @@ public:
             vec3(bounds.x, bounds.y+height, 0),
             vec3(bounds.x, bounds.y, 0),
         ]);
+        inDbgSetBuffer(boundsPoints);
         inDbgLineWidth(3);
         if (oneTimeTransform !is null)
             inDbgDrawLines(vec4(.5, .5, .5, 1), (*oneTimeTransform));
@@ -418,7 +494,8 @@ public:
 
             ushort[] indices = data.indices;
 
-            vec3[] points = new vec3[indices.length*2];
+            Vec3Array points;
+            points.length = indices.length * 2;
             foreach(i; 0..indices.length/3) {
                 size_t ix = i*3;
                 size_t iy = ix*2;
@@ -447,7 +524,8 @@ public:
             auto trans = getDynamicMatrix();
             if (oneTimeTransform !is null)
                 trans = (*oneTimeTransform) * trans;
-            vec3[] points = new vec3[vertices.length];
+            Vec3Array points;
+            points.length = vertices.length;
             foreach(i, point; vertices) {
                 points[i] = vec3(point-data.origin+deformation[i], 0);
             }
@@ -562,13 +640,19 @@ public:
 
     override
     void normalizeUV(MeshData* data) {
-        import std.algorithm: map;
-        import std.algorithm: minElement, maxElement;
+        import std.algorithm.comparison : min, max;
         if (data.uvs.length != 0) {
-            float minX = data.uvs.map!(a => a.x).minElement;
-            float maxX = data.uvs.map!(a => a.x).maxElement;
-            float minY = data.uvs.map!(a => a.y).minElement;
-            float maxY = data.uvs.map!(a => a.y).maxElement;
+            float minX = data.uvs[0].x;
+            float maxX = minX;
+            float minY = data.uvs[0].y;
+            float maxY = minY;
+            foreach (i; 1 .. data.uvs.length) {
+                auto uv = data.uvs[i];
+                minX = min(minX, uv.x);
+                maxX = max(maxX, uv.x);
+                minY = min(minY, uv.y);
+                maxY = max(maxY, uv.y);
+            }
             float width = maxX - minX;
             float height = maxY - minY;
             float centerX = (minX + maxX) / 2 / width;
@@ -653,46 +737,4 @@ public:
     override
     bool mustPropagate() { return true; }
 
-}
-
-version (InDoesRender) {
-    /**
-        Begins a mask
-
-        This causes the next draw calls until inBeginMaskContent/inBeginDodgeContent or inEndMask 
-        to be written to the current mask.
-
-        This also clears whatever old mask there was.
-    */
-    void inBeginMask(bool hasMasks) {
-
-        // Enable and clear the stencil buffer so we can write our mask to it
-        glEnable(GL_STENCIL_TEST);
-        glClearStencil(hasMasks ? 0 : 1);
-        glClear(GL_STENCIL_BUFFER_BIT);
-    }
-
-    /**
-        End masking
-
-        Once masking is ended content will no longer be masked by the defined mask.
-    */
-    void inEndMask() {
-
-        // We're done stencil testing, disable it again so that we don't accidentally mask more stuff out
-        glStencilMask(0xFF);
-        glStencilFunc(GL_ALWAYS, 1, 0xFF);   
-        glDisable(GL_STENCIL_TEST);
-    }
-
-    /**
-        Starts masking content
-
-        NOTE: This have to be run within a inBeginMask and inEndMask block!
-    */
-    void inBeginMaskContent() {
-
-        glStencilFunc(GL_EQUAL, 1, 0xFF);
-        glStencilMask(0x00);
-    }
 }

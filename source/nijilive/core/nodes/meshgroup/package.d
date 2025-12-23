@@ -17,12 +17,15 @@ import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
 import nijilive.math.triangle;
+import nijilive.math.veca_ops : transformAssign, transformAdd;
 import std.exception;
 import nijilive.core.dbg;
 import nijilive.core;
+import nijilive.core.render.scheduler : RenderContext;
 import std.typecons: tuple, Tuple;
 //import std.stdio;
 import nijilive.core.nodes.utils;
+import nijilive.core.render.scheduler : RenderContext;
 import std.algorithm.searching;
 import std.algorithm;
 import std.algorithm.iteration : uniq;
@@ -56,7 +59,7 @@ protected:
     ushort[] bitMask;
     vec4 bounds;
     Triangle[] triangles;
-    vec2[] transformedVertices = [];
+    Vec2Array transformedVertices;
     mat4 forwardMatrix;
     mat4 inverseMatrix;
     bool translateChildren = true;
@@ -84,82 +87,132 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        requirePreProcessTask();
     }
 
-    Tuple!(vec2[], mat4*, bool) filterChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) filterChildren(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         if (!precalculated)
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
 
         if (auto deformer = cast(Deformer)target) {
             if (auto pathDeformer = cast(PathDeformer)deformer) {
                 if (!pathDeformer.physicsEnabled) {
-                    return Tuple!(vec2[], mat4*, bool)(null, null, false);
+                    return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
                 }
             } else if (cast(GridDeformer)deformer is null) {
-                return Tuple!(vec2[], mat4*, bool)(null, null, false);
+                return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
             }
         }
 
         mat4 centerMatrix = inverseMatrix * (*origTransform);
 
-        // Transform children vertices in MeshGroup coordinates.
-        auto r = rect(bounds.x, bounds.y, (ceil(bounds.z) - floor(bounds.x) + 1), (ceil(bounds.w) - floor(bounds.y) + 1));
-        foreach(i, vertex; origVertices) {
-            vec2 cVertex;
-            if (dynamic)
-                cVertex = vec2(centerMatrix * vec4(vertex+origDeformation[i], 0, 1));
-            else
-                cVertex = vec2(centerMatrix * vec4(vertex, 0, 1));
-            int index = -1;
-            if (bounds.x <= cVertex.x && cVertex.x < bounds.z && bounds.y <= cVertex.y && cVertex.y < bounds.w) {
-                ushort bit = bitMask[cast(int)(cVertex.y - bounds.y) * cast(int)r.width + cast(int)(cVertex.x - bounds.x)];
-                index = bit - 1;
-            }
-            vec2 newPos = (index < 0)? cVertex: (triangles[index].transformMatrix * vec3(cVertex, 1)).xy;
-            mat4 inv = centerMatrix.inverse;
-            inv[0][3] = 0;
-            inv[1][3] = 0;
-            inv[2][3] = 0;
-            origDeformation[i] += (inv * vec4(newPos - cVertex, 0, 1)).xy;
+        Vec2Array centered;
+        transformAssign(centered, origVertices, centerMatrix);
+        if (dynamic && origDeformation.length) {
+            transformAdd(centered, origDeformation, centerMatrix, centered.length);
         }
 
-        return tuple(origDeformation, cast(mat4*)null, changed);
+        Vec2Array mapped = centered.dup;
+        auto centeredX = centered.lane(0);
+        auto centeredY = centered.lane(1);
+        auto mappedX = mapped.lane(0);
+        auto mappedY = mapped.lane(1);
+
+        const float minX = bounds.x;
+        const float maxX = bounds.z;
+        const float minY = bounds.y;
+        const float maxY = bounds.w;
+        size_t maskWidth = cast(size_t)(ceil(bounds.z) - floor(bounds.x) + 1);
+        size_t maskHeight = cast(size_t)(ceil(bounds.w) - floor(bounds.y) + 1);
+
+        bool anyChanged = false;
+        foreach (i; 0 .. centered.length) {
+            float cx = centeredX[i];
+            float cy = centeredY[i];
+            float outX = cx;
+            float outY = cy;
+            if (cx >= minX && cx < maxX && cy >= minY && cy < maxY &&
+                maskWidth && maskHeight && bitMask.length) {
+                ptrdiff_t localX = cast(ptrdiff_t)floor(cx - minX);
+                ptrdiff_t localY = cast(ptrdiff_t)floor(cy - minY);
+                if (localX >= 0 && localY >= 0) {
+                    size_t maskX = cast(size_t)localX;
+                    size_t maskY = cast(size_t)localY;
+                    if (maskX < maskWidth && maskY < maskHeight) {
+                        size_t maskIndex = maskY * maskWidth + maskX;
+                        if (maskIndex < bitMask.length) {
+                            ushort bit = bitMask[maskIndex];
+                            int triIndex = bit ? (bit - 1) : -1;
+                            if (triIndex >= 0 && triIndex < cast(int)triangles.length) {
+                                auto mat = triangles[triIndex].transformMatrix.matrix;
+                                float nx = mat[0][0] * cx + mat[0][1] * cy + mat[0][2];
+                                float ny = mat[1][0] * cx + mat[1][1] * cy + mat[1][2];
+                                outX = nx;
+                                outY = ny;
+                            }
+                        }
+                    }
+                }
+            }
+            mappedX[i] = outX;
+            mappedY[i] = outY;
+            if (outX != cx || outY != cy) {
+                anyChanged = true;
+            }
+        }
+
+        if (!anyChanged) {
+            return tuple(origDeformation, cast(mat4*)null, false);
+        }
+
+        Vec2Array offsetLocal = mapped.dup;
+        offsetLocal -= centered;
+
+        mat4 inv = centerMatrix.inverse;
+        inv[0][3] = 0;
+        inv[1][3] = 0;
+        inv[2][3] = 0;
+        transformAdd(origDeformation, offsetLocal, inv, offsetLocal.length);
+
+        return tuple(origDeformation, cast(mat4*)null, true);
     }
 
     /**
         A list of the shape offsets to apply per part
     */
     override
-    void update() {
-        preProcess();
-        deformStack.update();
-        
-        if (data.indices.length > 0) {
-            if (!precalculated) {
-                precalculate();
-            }
-            transformedVertices.length = vertices.length;
-            foreach(i, vertex; vertices) {
-                transformedVertices[i] = vertex+this.deformation[i];
-            }
-            foreach (index; 0..triangles.length) {
-                auto p1 = transformedVertices[data.indices[index * 3]];
-                auto p2 = transformedVertices[data.indices[index * 3 + 1]];
-                auto p3 = transformedVertices[data.indices[index * 3 + 2]];
-                triangles[index].transformMatrix = mat3([p2.x - p1.x, p3.x - p1.x, p1.x,
-                                                        p2.y - p1.y, p3.y - p1.y, p1.y,
-                                                        0, 0, 1]) * triangles[index].offsetMatrices;
-            }
-            forwardMatrix = transform.matrix;
-            inverseMatrix = globalTransform.matrix.inverse;
+    protected void runPreProcessTask(ref RenderContext ctx) {
+        super.runPreProcessTask(ctx);
+        if (data.indices.length == 0) {
+            return;
         }
 
-        Node.update();
-   }
+        if (!precalculated) {
+            precalculate();
+        }
+        transformedVertices.ensureLength(vertices.length);
+        transformedVertices[] = vertices;
+        transformedVertices += this.deformation;
+        foreach (index; 0..triangles.length) {
+            auto p1 = transformedVertices[data.indices[index * 3]];
+            auto p2 = transformedVertices[data.indices[index * 3 + 1]];
+            auto p3 = transformedVertices[data.indices[index * 3 + 2]];
+            triangles[index].transformMatrix = mat3([p2.x - p1.x, p3.x - p1.x, p1.x,
+                                                    p2.y - p1.y, p3.y - p1.y, p1.y,
+                                                    0, 0, 1]) * triangles[index].offsetMatrices;
+        }
+        forwardMatrix = transform.matrix;
+        inverseMatrix = globalTransform.matrix.inverse;
+    }
 
     override
     void draw() {
         super.draw();
+    }
+
+    override
+    protected void runRenderTask(ref RenderContext ctx) {
+        // MeshGroup does not issue GPU commands; downstream Parts handle drawing.
     }
 
 
@@ -187,20 +240,20 @@ public:
         triangles.length = 0;
         foreach (i; 0..data.indices.length / 3) {
             Triangle t;
-            vec2[3] tvertices = [
+            Vec2Array tvertices = Vec2Array([
                 data.vertices[data.indices[3*i]],
                 data.vertices[data.indices[3*i+1]],
                 data.vertices[data.indices[3*i+2]]
-            ];
-            
-            vec2* p1 = &tvertices[0];
-            vec2* p2 = &tvertices[1];
-            vec2* p3 = &tvertices[2];
+            ]);
 
-            vec2 axis0 = *p2 - *p1;
+            vec2 p1 = tvertices[0];
+            vec2 p2 = tvertices[1];
+            vec2 p3 = tvertices[2];
+
+            vec2 axis0 = p2 - p1;
             float axis0len = axis0.length;
             axis0 /= axis0len;
-            vec2 axis1 = *p3 - *p1;
+            vec2 axis1 = p3 - p1;
             float axis1len = axis1.length;
             axis1 /= axis1len;
 
@@ -229,11 +282,11 @@ public:
         bitMask.length = width * height;
         bitMask[] = 0;
         foreach (size_t i, t; triangles) {
-            vec2[3] tvertices = [
+            Vec2Array tvertices = Vec2Array([
                 data.vertices[data.indices[3*i]],
                 data.vertices[data.indices[3*i+1]],
                 data.vertices[data.indices[3*i+2]]
-            ];
+            ]);
 
             vec4 tbounds = getBounds(tvertices);
             int bwidth  = cast(int)(ceil(tbounds.z) - floor(tbounds.x) + 1);
@@ -383,11 +436,10 @@ public:
         forwardMatrix = transform.matrix;
         inverseMatrix = globalTransform.matrix.inverse;
 
-        void update(vec2[] deformation) {
-            transformedVertices.length = vertices.length;
-            foreach(i, vertex; vertices) {
-                transformedVertices[i] = vertex + deformation[i];
-            }
+        void update(Vec2Array deformation) {
+            transformedVertices.ensureLength(vertices.length);
+            transformedVertices[] = vertices;
+            transformedVertices += deformation;
             foreach (index; 0..triangles.length) {
                 auto p1 = transformedVertices[data.indices[index * 3]];
                 auto p2 = transformedVertices[data.indices[index * 3 + 1]];
@@ -438,7 +490,7 @@ public:
     void centralize() {
         super.centralize();
         vec4 bounds;
-        vec4[] childTranslations;
+        Vec4Array childTranslations;
         if (children.length > 0) {
             bounds = children[0].getCombinedBounds();
             foreach (child; children) {
@@ -459,7 +511,7 @@ public:
         auto diff = center - localTransform.translation.xy;
         localTransform.translation.x = center.x;
         localTransform.translation.y = center.y;
-        foreach (ref v; vertices) {
+        foreach (v; vertices) {
             v -= diff;
         }
         transformChanged();
@@ -487,16 +539,27 @@ public:
             MeshData data;
             auto baseVerts = gdef.vertices;
             if (baseVerts.length >= 4) {
-                auto xs = baseVerts.map!(v => v.x).array.sort().uniq.array;
-                auto ys = baseVerts.map!(v => v.y).array.sort().uniq.array;
-                if (xs.length >= 2 && ys.length >= 2 && xs.length * ys.length == baseVerts.length) {
+                float[] xs;
+                float[] ys;
+                xs.reserve(baseVerts.length);
+                ys.reserve(baseVerts.length);
+                foreach (i; 0 .. baseVerts.length) {
+                    auto vert = baseVerts[i];
+                    xs ~= vert.x;
+                    ys ~= vert.y;
+                }
+                auto xsSorted = xs.sort();
+                auto ysSorted = ys.sort();
+                auto xsUnique = xsSorted.uniq.array;
+                auto ysUnique = ysSorted.uniq.array;
+                if (xsUnique.length >= 2 && ysUnique.length >= 2 && xsUnique.length * ysUnique.length == baseVerts.length) {
                     data.vertices = baseVerts.dup;
                     float[][] axes;
-                    axes ~= ys.dup;
-                    axes ~= xs.dup;
+                    axes ~= ysUnique.dup;
+                    axes ~= xsUnique.dup;
                     data.gridAxes = axes;
-                    size_t rows = ys.length;
-                    size_t cols = xs.length;
+                    size_t rows = ysUnique.length;
+                    size_t cols = xsUnique.length;
                     auto reserveCount = (cols - 1) * (rows - 1) * 6;
                     data.indices.reserve(reserveCount);
                     foreach (x; 0 .. cols - 1) {
@@ -514,9 +577,7 @@ public:
             }
             rebuffer(data);
             deformation.length = gdef.deformation.length;
-            foreach (i; 0 .. deformation.length) {
-                deformation[i] = gdef.deformation[i];
-            }
+            deformation = gdef.deformation.dup;
             dynamic = gdef.dynamic;
             translateChildren = true;
             clearCache();

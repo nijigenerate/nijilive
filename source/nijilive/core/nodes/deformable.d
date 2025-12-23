@@ -12,6 +12,7 @@ import nijilive.core.nodes.utils;
 import nijilive.core.param;
 import std.exception;
 import std.string: format;
+import nijilive.core.render.scheduler : RenderContext;
 //import std.stdio;
 
 /**
@@ -23,15 +24,23 @@ import std.string: format;
 */
 
 private {
-    vec2[] dummy = new vec2[1]; 
+    Vec2Array dummy;
 }
 @TypeId("Deformable")
 abstract class Deformable : Node {
+private:
+    void initDeformableTasks() {
+        requirePreProcessTask();
+        requirePostTask(0);
+    }
+
+protected:
     /**
         Constructs a new drawable surface
     */
     this(Node parent = null) {
         super(parent);
+        initDeformableTasks();
         // Create deformation stack
         this.deformStack = DeformationStack(this);
         this.deformation.length = 0;
@@ -39,6 +48,7 @@ abstract class Deformable : Node {
 
     this(uint uuid, Node parent = null) {
         super(uuid, parent);
+        initDeformableTasks();
         // Create deformation stack
         this.deformStack = DeformationStack(this);
         this.deformation.length = 0;
@@ -52,13 +62,13 @@ abstract class Deformable : Node {
     }
 
 public:
-    ref vec2[] vertices() {  return dummy; }
+    ref Vec2Array vertices() {  return dummy; }
     void updateVertices() { };
 
     /**
         Deformation offset to apply
     */
-    vec2[] deformation;
+    Vec2Array deformation;
 
     /**
         Deformation stack
@@ -79,46 +89,47 @@ public:
         this.updateDeform();
     }
 
-    void rebuffer(vec2[] vertices) {
+    void rebuffer(Vec2Array vertices) {
         this.vertices = vertices;
         this.deformation.length = vertices.length;
     }
 
     override
-    void beginUpdate() {
+    protected void runBeginTask(ref RenderContext ctx) {
         deformStack.preUpdate();
         overrideTransformMatrix = null;
-        super.beginUpdate();
+        super.runBeginTask(ctx);
     }
 
     /**
         Updates the drawable
     */
     override
-    void update() {
-        preProcess();
+    protected void runPreProcessTask(ref RenderContext ctx) {
+        super.runPreProcessTask(ctx);
         deformStack.update();
-        super.update();
     }
 
     override
-    void endUpdate(int id = 0) {
-        postProcess(id);
+    protected void runDynamicTask(ref RenderContext ctx) {
+        super.runDynamicTask(ctx);
+    }
+
+    override
+    protected void runPostTaskImpl(size_t priority, ref RenderContext ctx) {
+        super.runPostTaskImpl(priority, ctx);
         updateDeform();
-        super.endUpdate(id);
     }
 
     void updateDeform() {
         if (deformation.length != vertices.length) {
             deformation.length = vertices.length;
-            foreach (i; 0..deformation.length) {
-                deformation[i] = vec2(0, 0);
-            }
+            deformation[] = vec2(0, 0);
         }
     }
 
 protected:
-    void remapDeformationBindings(const size_t[] remap, const(vec2)[] replacement, size_t newLength) {
+    void remapDeformationBindings(const size_t[] remap, const Vec2Array replacement, size_t newLength) {
         import std.stdio : writefln;
         import std.algorithm: map;
         import std.array;
@@ -136,7 +147,7 @@ protected:
                     foreach (y; 0 .. deformBinding.values[x].length) {
                         auto offsets = deformBinding.values[x][y].vertexOffsets;
                         if (remap.length == offsets.length && remap.length > 0) {
-                            vec2[] reordered;
+                            Vec2Array reordered;
                             reordered.length = remap.length;
                             foreach (oldIdx, newIdx; remap) {
                                 reordered[newIdx] = offsets[oldIdx];
@@ -149,9 +160,7 @@ protected:
                             writefln("      Replaced keypoint (%s, %s) with new deformation.", x, y);
                         } else {
                             offsets.length = newLength;
-                            foreach (ref v; offsets) {
-                                v = vec2(0, 0);
-                            }
+                            offsets[] = vec2(0, 0);
                             deformBinding.values[x][y].vertexOffsets = offsets;
                             deformBinding.isSet_[x][y] = false;
                             writefln("      Reset keypoint (%s, %s) due to mismatch (%s -> %s)", x, y, offsets.length, newLength);
@@ -170,7 +179,7 @@ protected:
         foreach (preProcessFilter; preProcessFilters) {
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = preProcessFilter[1](this, vertices, deformation, &matrix);
-            if (filterResult[0] !is null) {
+            if (!filterResult[0].empty) {
                 deformation = filterResult[0];
             } 
             if (filterResult[1] !is null) {
@@ -192,7 +201,7 @@ protected:
             if (postProcessFilter[0] != id) continue;
             mat4 matrix = (overrideTransformMatrix !is null)? overrideTransformMatrix.matrix: this.transform.matrix;
             auto filterResult = postProcessFilter[1](this, vertices, deformation, &matrix);
-            if (filterResult[0] !is null) {
+            if (!filterResult[0].empty) {
                 deformation = filterResult[0];
             } 
             if (filterResult[1] !is null) {

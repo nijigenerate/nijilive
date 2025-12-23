@@ -11,6 +11,6 @@ import std.typecons : Tuple;
     behaviour without introducing additional drawable features.
 */
 interface Deformer : NodeFilter {
-    Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform);
+    Tuple!(Vec2Array, mat4*, bool) deformChildren(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform);
     void clearCache();
 }

@@ -9,8 +9,9 @@ import std.array : array;
 import std.conv : to;
 
 
-bool isPointInTriangle(vec2 pt, vec2[3] triangle) {
-    float sign (ref vec2 p1, ref vec2 p2, ref vec2 p3) {
+bool isPointInTriangle(vec2 pt, const Vec2Array triangle) {
+    assert(triangle.length >= 3, "Triangle needs at least 3 vertices");
+    float sign (vec2 p1, vec2 p2, vec2 p3) {
         return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
     }
     vec2 p1 = triangle[0];
@@ -103,7 +104,7 @@ vec2 calcOffsetInTriangleCoords(vec2 pt, ref MeshData bindingMesh, ref int[] tri
 }
 
 private {
-mat3 calculateAffineTransform(vec2[] vertices, int[] triangle, vec2[] deform) {
+mat3 calculateAffineTransform(Vec2Array vertices, int[] triangle, Vec2Array deform) {
     auto p0 = vertices[triangle[0]];
     auto p1 = vertices[triangle[1]];
     auto p2 = vertices[triangle[2]];
@@ -136,7 +137,7 @@ float calculateAngle(vec2 A, vec2 B) {
 }
 }
 
-bool nlCalculateTransformInTriangle(vec2[] vertices, int[] triangle, vec2[] deform, vec2 target, 
+bool nlCalculateTransformInTriangle(Vec2Array vertices, int[] triangle, Vec2Array deform, vec2 target, 
         out vec2 target_prime, out float rotationAngle_vert, out float rotationAngle_horz) {
     mat3 affineTransform = calculateAffineTransform(vertices, triangle, deform);
     target_prime = applyAffineTransform(affineTransform, target);

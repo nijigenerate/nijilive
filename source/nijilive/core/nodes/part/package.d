@@ -9,114 +9,31 @@
     Authors: Luna Nielsen
 */
 module nijilive.core.nodes.part;
+
+import nijilive.core.render.scheduler;
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
+import nijilive.core.render.commands : PartDrawPacket, makePartDrawPacket,
+    tryMakeMaskApplyPacket, MaskApplyPacket, MaskDrawableKind;
 import nijilive.integration;
 import nijilive.fmt;
 import nijilive.core.nodes.drawable;
 import nijilive.core;
 import nijilive.math;
-import bindbc.opengl;
+import nijilive.core.render.shared_deform_buffer;
+version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
 import std.exception;
 import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
 import std.math : isNaN;
+import std.algorithm.comparison : min, max;
 
 public import nijilive.core.meshdata;
-
+public import nijilive.core.render.immediate : inDrawTextureAtPart, inDrawTextureAtPosition,
+    inDrawTextureAtRect;
 
 package(nijilive) {
-    private {
-        Texture boundAlbedo;
-
-        Shader partShader;
-        Shader partShaderStage1;
-        Shader partShaderStage2;
-        Shader partMaskShader;
-
-        /* GLSL Uniforms (Normal) */
-        GLint mvp;
-        GLint offset;
-        GLint gopacity;
-        GLint gMultColor;
-        GLint gScreenColor;
-        GLint gEmissionStrength;
-
-        
-        /* GLSL Uniforms (Stage 1) */
-        GLint gs1mvp;
-        GLint gs1offset;
-        GLint gs1opacity;
-        GLint gs1MultColor;
-        GLint gs1ScreenColor;
-
-        
-        /* GLSL Uniforms (Stage 2) */
-        GLint gs2mvp;
-        GLint gs2offset;
-        GLint gs2opacity;
-        GLint gs2EmissionStrength;
-        GLint gs2MultColor;
-        GLint gs2ScreenColor;
-
-        /* GLSL Uniforms (Masks) */
-        GLint mmvp;
-        GLint mthreshold;
-
-        GLuint sVertexBuffer;
-        GLuint sUVBuffer;
-        GLuint sElementBuffer;
-    }
-
     void inInitPart() {
         inRegisterNodeType!Part;
-
-        version(InDoesRender) {
-            partShader = new Shader(import("basic/basic.vert"), import("basic/basic.frag"));
-            partShaderStage1 = new Shader(import("basic/basic.vert"), import("basic/basic-stage1.frag"));
-            partShaderStage2 = new Shader(import("basic/basic.vert"), import("basic/basic-stage2.frag"));
-            partMaskShader = new Shader(import("basic/basic.vert"), import("basic/basic-mask.frag"));
-
-            incDrawableBindVAO();
-
-            partShader.use();
-            partShader.setUniform(partShader.getUniformLocation("albedo"), 0);
-            partShader.setUniform(partShader.getUniformLocation("emissive"), 1);
-            partShader.setUniform(partShader.getUniformLocation("bumpmap"), 2);
-            mvp = partShader.getUniformLocation("mvp");
-            offset = partShader.getUniformLocation("offset");
-            gopacity = partShader.getUniformLocation("opacity");
-            gMultColor = partShader.getUniformLocation("multColor");
-            gScreenColor = partShader.getUniformLocation("screenColor");
-            gEmissionStrength = partShader.getUniformLocation("emissionStrength");
-            
-            partShaderStage1.use();
-            partShaderStage1.setUniform(partShader.getUniformLocation("albedo"), 0);
-            gs1mvp = partShaderStage1.getUniformLocation("mvp");
-            gs1offset = partShaderStage1.getUniformLocation("offset");
-            gs1opacity = partShaderStage1.getUniformLocation("opacity");
-            gs1MultColor = partShaderStage1.getUniformLocation("multColor");
-            gs1ScreenColor = partShaderStage1.getUniformLocation("screenColor");
-
-            partShaderStage2.use();
-            partShaderStage2.setUniform(partShaderStage2.getUniformLocation("emissive"), 1);
-            partShaderStage2.setUniform(partShaderStage2.getUniformLocation("bumpmap"), 2);
-            gs2mvp = partShaderStage2.getUniformLocation("mvp");
-            gs2offset = partShaderStage2.getUniformLocation("offset");
-            gs2opacity = partShaderStage2.getUniformLocation("opacity");
-            gs2MultColor = partShaderStage2.getUniformLocation("multColor");
-            gs2ScreenColor = partShaderStage2.getUniformLocation("screenColor");
-            gs2EmissionStrength = partShaderStage2.getUniformLocation("emissionStrength");
-
-            partMaskShader.use();
-            partMaskShader.setUniform(partMaskShader.getUniformLocation("albedo"), 0);
-            partMaskShader.setUniform(partMaskShader.getUniformLocation("emissive"), 1);
-            partMaskShader.setUniform(partMaskShader.getUniformLocation("bumpmap"), 2);
-            mmvp = partMaskShader.getUniformLocation("mvp");
-            mthreshold = partMaskShader.getUniformLocation("threshold");
-            
-            glGenBuffers(1, &sVertexBuffer);
-            glGenBuffers(1, &sUVBuffer);
-            glGenBuffers(1, &sElementBuffer);
-        }
     }
 }
 
@@ -150,22 +67,23 @@ Part inCreateSimplePart(ShallowTexture texture, Node parent = null, string name 
     for real-time use when you want to add/remove parts on the fly
 */
 Part inCreateSimplePart(Texture tex, Node parent = null, string name = "New Part") {
-	MeshData data = MeshData([
-		vec2(-(tex.width/2), -(tex.height/2)),
-		vec2(-(tex.width/2), tex.height/2),
-		vec2(tex.width/2, -(tex.height/2)),
-		vec2(tex.width/2, tex.height/2),
-	], 
-	[
-		vec2(0, 0),
-		vec2(0, 1),
-		vec2(1, 0),
-		vec2(1, 1),
-	],
-	[
-		0, 1, 2,
-		2, 1, 3
-	]);
+	MeshData data;
+    data.vertices = Vec2Array([
+        vec2(-(tex.width/2), -(tex.height/2)),
+        vec2(-(tex.width/2), tex.height/2),
+        vec2(tex.width/2, -(tex.height/2)),
+        vec2(tex.width/2, tex.height/2),
+    ]);
+    data.uvs = Vec2Array([
+        vec2(0, 0),
+        vec2(0, 1),
+        vec2(1, 0),
+        vec2(1, 1),
+    ]);
+    data.indices = [
+        0, 1, 2,
+        2, 1, 3
+    ];
 	Part p = new Part(data, [tex], parent);
 	p.name = name;
     return p;
@@ -186,125 +104,13 @@ enum TextureUsage : size_t {
 @TypeId("Part")
 class Part : Drawable {
 private:    
-    GLuint uvbo;
+    void initPartTasks() {
+        requireRenderTask();
+    }
 
     void updateUVs() {
-        version(InDoesRender) {
-            glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-            glBufferData(GL_ARRAY_BUFFER, data.uvs.length*vec2.sizeof, data.uvs.ptr, GL_STATIC_DRAW);
-        }
-    }
-
-    void setupShaderStage(int stage, mat4 matrix) {
-                
-        vec3 clampedTint = tint;
-        if (!offsetTint.x.isNaN) clampedTint.x = clamp(tint.x*offsetTint.x, 0, 1);
-        if (!offsetTint.y.isNaN) clampedTint.y = clamp(tint.y*offsetTint.y, 0, 1);
-        if (!offsetTint.z.isNaN) clampedTint.z = clamp(tint.z*offsetTint.z, 0, 1);
-
-        vec3 clampedScreen = screenTint;
-        if (!offsetScreenTint.x.isNaN) clampedScreen.x = clamp(screenTint.x+offsetScreenTint.x, 0, 1);
-        if (!offsetScreenTint.y.isNaN) clampedScreen.y = clamp(screenTint.y+offsetScreenTint.y, 0, 1);
-        if (!offsetScreenTint.z.isNaN) clampedScreen.z = clamp(screenTint.z+offsetScreenTint.z, 0, 1);
-
-        
-        switch(stage) {
-            case 0:
-                // STAGE 1 - Advanced blending
-
-                glDrawBuffers(1, [GL_COLOR_ATTACHMENT0].ptr);
-
-                partShaderStage1.use();
-                partShaderStage1.setUniform(gs1offset, data.origin);
-                partShaderStage1.setUniform(gs1mvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
-                partShaderStage1.setUniform(gs1opacity, clamp(offsetOpacity * opacity, 0, 1));
-
-                partShaderStage1.setUniform(partShaderStage1.getUniformLocation("albedo"), 0);
-                partShaderStage1.setUniform(gs1MultColor, clampedTint);
-                partShaderStage1.setUniform(gs1ScreenColor, clampedScreen);
-                inSetBlendMode(blendingMode, false);
-                break;
-            case 1:
-
-                // STAGE 2 - Basic blending (albedo, bump)
-                glDrawBuffers(2, [GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-
-                partShaderStage2.use();
-                partShaderStage2.setUniform(gs2offset, data.origin);
-                partShaderStage2.setUniform(gs2mvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
-                partShaderStage2.setUniform(gs2opacity, clamp(offsetOpacity * opacity, 0, 1));
-                partShaderStage2.setUniform(gs2EmissionStrength, emissionStrength*offsetEmissionStrength);
-
-                partShaderStage2.setUniform(partShaderStage2.getUniformLocation("emission"), 0);
-                partShaderStage2.setUniform(partShaderStage2.getUniformLocation("bump"), 1);
-
-                // These can be reused from stage 2
-                partShaderStage1.setUniform(gs2MultColor, clampedTint);
-                partShaderStage1.setUniform(gs2ScreenColor, clampedScreen);
-                inSetBlendMode(blendingMode, true);
-                break;
-            case 2:
-
-                // Basic blending
-                glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-
-                partShader.use();
-                partShader.setUniform(offset, data.origin);
-                partShader.setUniform(mvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
-                partShader.setUniform(gopacity, clamp(offsetOpacity * opacity, 0, 1));
-                partShader.setUniform(gEmissionStrength, emissionStrength*offsetEmissionStrength);
-
-                partShader.setUniform(partShader.getUniformLocation("albedo"), 0);
-                partShader.setUniform(partShader.getUniformLocation("emissive"), 1);
-                partShader.setUniform(partShader.getUniformLocation("bumpmap"), 2);
-                
-                vec3 clampedColor = tint;
-                if (!offsetTint.x.isNaN) clampedColor.x = clamp(tint.x*offsetTint.x, 0, 1);
-                if (!offsetTint.y.isNaN) clampedColor.y = clamp(tint.y*offsetTint.y, 0, 1);
-                if (!offsetTint.z.isNaN) clampedColor.z = clamp(tint.z*offsetTint.z, 0, 1);
-                partShader.setUniform(gMultColor, clampedColor);
-
-                clampedColor = screenTint;
-                if (!offsetScreenTint.x.isNaN) clampedColor.x = clamp(screenTint.x+offsetScreenTint.x, 0, 1);
-                if (!offsetScreenTint.y.isNaN) clampedColor.y = clamp(screenTint.y+offsetScreenTint.y, 0, 1);
-                if (!offsetScreenTint.z.isNaN) clampedColor.z = clamp(screenTint.z+offsetScreenTint.z, 0, 1);
-                partShader.setUniform(gScreenColor, clampedColor);
-                inSetBlendMode(blendingMode, true);
-                break;
-            default: return;
-        }
-
-    }
-
-    void renderStage(bool advanced=true)(BlendMode mode) {
-
-        // Enable points array
-        glEnableVertexAttribArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-        // Enable UVs array
-        glEnableVertexAttribArray(1); // uvs
-        glBindBuffer(GL_ARRAY_BUFFER, uvbo);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-        // Enable deform array
-        glEnableVertexAttribArray(2); // deforms
-        glBindBuffer(GL_ARRAY_BUFFER, dbo);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-        // Bind index buffer
-        this.bindIndex();
-
-        // Disable the vertex attribs after use
-        glDisableVertexAttribArray(0);
-        glDisableVertexAttribArray(1);
-        glDisableVertexAttribArray(2);
-
-        static if (advanced) {
-            // Blending barrier
-            inBlendModeBarrier(mode);
-        }
+        sharedUvResize(data.uvs, data.uvs.length);
+        sharedUvMarkDirty();
     }
 
 protected:
@@ -312,139 +118,12 @@ protected:
         RENDERING
     */
     void drawSelf(bool isMask = false)() {
-
-        // In some cases this may happen
-        if (textures.length == 0) return;
-
-        // Bind the vertex array
-        incDrawableBindVAO();
-
-        // Calculate matrix
-        mat4 matrix = transform.matrix();
-        if (overrideTransformMatrix !is null)
-            matrix = overrideTransformMatrix.matrix;
-        if (oneTimeTransform !is null)
-            matrix = (*oneTimeTransform) * matrix;
-
-        // Make sure we check whether we're already bound
-        // Otherwise we're wasting GPU resources
-        if (boundAlbedo != textures[0]) {
-
-            // Bind the textures
-            foreach(i, ref texture; textures) {
-                if (texture) texture.bind(cast(uint)i);
-                else {
-
-                    // Disable texture when none is there.
-                    glActiveTexture(GL_TEXTURE0+cast(uint)i);
-                    glBindTexture(GL_TEXTURE_2D, 0);
-                }
-            }
+        version (InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
+            auto packet = makePartDrawPacket(this, isMask);
+            backend.drawPartPacket(packet);
         }
-
-        static if (isMask) {
-            partMaskShader.use();
-            partMaskShader.setUniform(offset, data.origin);
-            partMaskShader.setUniform(mmvp, inGetCamera().matrix * (ignorePuppet? mat4.identity: puppet.transform.matrix) * matrix);
-            partMaskShader.setUniform(mthreshold, clamp(offsetMaskThreshold + maskAlphaThreshold, 0, 1));
-
-            // Make sure the equation is correct
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
-            renderStage!false(blendingMode);
-        } else {
-
-            bool hasEmissionOrBumpmap = (textures[1] || textures[2]);
-
-            if (inUseMultistageBlending(blendingMode)) {
-
-                // TODO: Detect if this Part is NOT in a composite,
-                // If so, we can relatively safely assume that we may skip stage 1.
-                setupShaderStage(0, matrix);
-                renderStage(blendingMode);
-                
-                // Only do stage 2 if we have emission or bumpmap textures.
-                if (hasEmissionOrBumpmap) {
-                    setupShaderStage(1, matrix);
-                    renderStage!false(blendingMode);
-                }
-            } else {
-                 if (nlIsTripleBufferFallbackEnabled()) {
-                     auto blendShader = inGetBlendShader(blendingMode);
-                     if (blendShader) {
-                         GLint previous_draw_fbo;
-                         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
-                         GLint previous_read_fbo;
-                         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read_fbo);
-                         GLfloat[4] previous_clear_color;
-                         glGetFloatv(GL_COLOR_CLEAR_VALUE, previous_clear_color.ptr);
-
-                         bool drawingMainBuffer = previous_draw_fbo == inGetFramebuffer();
-                         bool drawingCompositeBuffer = previous_draw_fbo == inGetCompositeFramebuffer();
-
-                         if (!drawingMainBuffer && !drawingCompositeBuffer) {
-                             setupShaderStage(2, matrix);
-                             renderStage!false(blendingMode);
-                             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
-                             glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
-                             glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
-                             return;
-                         }
-
-                         int viewportWidth, viewportHeight;
-                         inGetViewport(viewportWidth, viewportHeight);
-                         GLint[4] previousViewport;
-                         glGetIntegerv(GL_VIEWPORT, previousViewport.ptr);
-
-                         // 1. Draw foreground into the blend framebuffer
-                         GLuint blendFramebuffer = inGetBlendFramebuffer();
-                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
-                         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-                         glViewport(0, 0, viewportWidth, viewportHeight);
-                         glClearColor(0f, 0f, 0f, 0f);
-                         glClear(GL_COLOR_BUFFER_BIT);
-                         setupShaderStage(2, matrix);
-                         renderStage!false(blendingMode);
-
-                         // 2. Run difference blend into the opposite buffer to avoid read/write hazards
-                         GLuint bgAlbedo = drawingMainBuffer ? inGetMainAlbedo() : inGetCompositeImage();
-                         GLuint bgEmissive = drawingMainBuffer ? inGetMainEmissive() : inGetCompositeEmissive();
-                         GLuint bgBump = drawingMainBuffer ? inGetMainBump() : inGetCompositeBump();
-
-                         GLuint fgAlbedo = inGetBlendAlbedo();
-                         GLuint fgEmissive = inGetBlendEmissive();
-                         GLuint fgBump = inGetBlendBump();
-
-                         GLuint destinationFBO = drawingMainBuffer ? inGetCompositeFramebuffer() : inGetFramebuffer();
-                         inBlendToBuffer(
-                             blendShader,
-                             blendingMode,
-                             destinationFBO,
-                             bgAlbedo, bgEmissive, bgBump,
-                             fgAlbedo, fgEmissive, fgBump
-                         );
-
-                         // 3. Swap the main/composite attachments so the caller sees the blended result
-                         inSwapMainCompositeBuffers();
-
-                         // 4. Restore framebuffer bindings and state
-                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawingMainBuffer ? inGetFramebuffer() : inGetCompositeFramebuffer());
-                         glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-                         glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
-                         glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
-                         glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
-                         return;
-                     }
-                 }
-                 setupShaderStage(2, matrix);
-                 renderStage!false(blendingMode);
-            }
-        }
-
-        // Reset draw buffers
-        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-        glBlendEquation(GL_FUNC_ADD);
     }
 
     /**
@@ -452,16 +131,7 @@ protected:
     */
     this(MeshData data, uint uuid, Node parent = null) {
         super(data, uuid, parent);
-
-        version(InDoesRender) {
-            glGenBuffers(1, &uvbo);
-
-            mvp = partShader.getUniformLocation("mvp");
-            gopacity = partShader.getUniformLocation("opacity");
-            
-            mmvp = partMaskShader.getUniformLocation("mvp");
-            mthreshold = partMaskShader.getUniformLocation("threshold");
-        }
+        initPartTasks();
 
         this.updateUVs();
     }
@@ -635,7 +305,10 @@ protected:
     // TODO: Cache this
     size_t maskCount() {
         size_t c;
-        foreach(m; masks) if (m.mode == MaskingMode.Mask) c++;
+        foreach(m; masks) {
+            if (m.maskSrc is null) continue;
+            if (m.mode == MaskingMode.Mask || m.mode == MaskingMode.DodgeMask) c++;
+        }
         return c;
     }
 
@@ -705,6 +378,12 @@ public:
      */
     bool ignorePuppet = false;
 
+private:
+    bool hasOffscreenModelMatrix = false;
+    mat4 offscreenModelMatrix;
+
+public:
+
 
     /**
         Constructs a new part
@@ -718,8 +397,9 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        initPartTasks();
         
-        version(InDoesRender) glGenBuffers(1, &uvbo);
+        this.updateUVs();
     }
 
     /**
@@ -727,19 +407,10 @@ public:
     */
     this(MeshData data, Texture[] textures, uint uuid, Node parent = null) {
         super(data, uuid, parent);
+        initPartTasks();
         foreach(i; 0..TextureUsage.COUNT) {
             if (i >= textures.length) break;
             this.textures[i] = textures[i];
-        }
-
-        version(InDoesRender) {
-            glGenBuffers(1, &uvbo);
-
-            mvp = partShader.getUniformLocation("mvp");
-            gopacity = partShader.getUniformLocation("opacity");
-            
-            mmvp = partMaskShader.getUniformLocation("mvp");
-            mthreshold = partMaskShader.getUniformLocation("threshold");
         }
 
         this.updateUVs();
@@ -747,18 +418,15 @@ public:
     
     override
     void renderMask(bool dodge = false) {
-        
-        // Enable writing to stencil buffer and disable writing to color buffer
-        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glStencilFunc(GL_ALWAYS, dodge ? 0 : 1, 0xFF);
-        glStencilMask(0xFF);
-
-        // Draw ourselves to the stencil buffer
-        drawSelf!true();
-
-        // Disable writing to stencil buffer and enable writing to color buffer
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        version(InDoesRender) {
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
+            MaskApplyPacket packet;
+            packet.kind = MaskDrawableKind.Part;
+            packet.isDodge = dodge;
+            packet.partPacket = makePartDrawPacket(this, true);
+            backend.applyMask(packet);
+        }
     }
 
     override
@@ -882,13 +550,13 @@ public:
     }
 
     override
-    void beginUpdate() {
+    protected void runBeginTask(ref RenderContext ctx) {
         offsetMaskThreshold = 0;
         offsetOpacity = 1;
         offsetTint = vec3(1, 1, 1);
         offsetScreenTint = vec3(0, 0, 0);
         offsetEmissionStrength = 1;
-        super.beginUpdate();
+        super.runBeginTask(ctx);
     }
     
     override
@@ -898,44 +566,194 @@ public:
     }
 
     override
-    void draw() {
-        if (!enabled) return;
-        this.drawOne();
+    void draw() { }
 
-        foreach(child; children) {
-            child.draw();
+    package(nijilive)
+    void enqueueRenderCommands(RenderContext ctx, void delegate(RenderCommandEmitter) postCommands = null) {
+        if (!renderEnabled() || ctx.renderGraph is null) return;
+
+        MaskBinding[] dedupMaskBindings() {
+            MaskBinding[] result;
+            bool[ulong] seen;
+            foreach (m; masks) {
+                if (m.maskSrc is null) continue;
+                auto key = (cast(ulong)m.maskSrc.uuid << 32) | cast(uint)m.mode;
+                if (key in seen) continue;
+                seen[key] = true;
+                result ~= m;
+            }
+            return result;
         }
+
+        auto maskBindings = dedupMaskBindings();
+        bool hasMasks = maskBindings.length > 0;
+        bool useStencil = false;
+        foreach (m; maskBindings) {
+            if (m.mode == MaskingMode.Mask) {
+                useStencil = true;
+                break;
+            }
+        }
+        auto scopeHint = determineRenderScopeHint();
+        if (scopeHint.skip) return;
+        auto partNode = this;
+        auto cleanup = postCommands;
+        ctx.renderGraph.enqueueItem(zSort(), scopeHint, (RenderCommandEmitter emitter) {
+            if (hasMasks) {
+                emitter.beginMask(useStencil);
+                foreach (binding; maskBindings) {
+                    if (binding.maskSrc is null) continue;
+                    bool isDodge = binding.mode == MaskingMode.DodgeMask;
+                    import std.stdio : writefln;
+                    debug (UnityDLLLog) writefln("[nijilive] applyMask part=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
+                        partNode.name, partNode.uuid,
+                        binding.maskSrc.name, binding.maskSrc.uuid,
+                        binding.mode, isDodge);
+                    emitter.applyMask(binding.maskSrc, isDodge);
+                }
+                emitter.beginMaskContent();
+            }
+
+            emitter.drawPart(partNode, false);
+
+            if (hasMasks) {
+                emitter.endMask();
+            }
+
+            if (cleanup !is null) {
+                cleanup(emitter);
+            }
+        });
+    }
+
+    override
+    protected void runRenderTask(ref RenderContext ctx) {
+        enqueueRenderCommands(ctx);
     }
 
     override
     void drawOne() {
+        drawOneImmediate();
+    }
+
+    void drawOneImmediate() {
         version (InDoesRender) {
             if (!enabled) return;
             if (!data.isReady) return; // Yeah, don't even try
+
+            auto backend = puppet ? puppet.renderBackend : null;
+            if (backend is null) return;
             
-            size_t cMasks = maskCount;
+            MaskBinding[] dedupMaskBindings() {
+                MaskBinding[] result;
+                bool[ulong] seen;
+                foreach (m; masks) {
+                    if (m.maskSrc is null) continue;
+                    auto key = (cast(ulong)m.maskSrc.uuid << 32) | cast(uint)m.mode;
+                    if (key in seen) continue;
+                    seen[key] = true;
+                    result ~= m;
+                }
+                return result;
+            }
 
-            if (masks.length > 0) {
-//                import std.stdio : writeln;
-                inBeginMask(cMasks > 0);
+            auto maskBindings = dedupMaskBindings();
+            bool hasNormalMask = false;
+            foreach (m; maskBindings) {
+                if (m.mode == MaskingMode.Mask) {
+                    hasNormalMask = true;
+                    break;
+                }
+            }
 
-                foreach(ref mask; masks) {
+            if (maskBindings.length > 0) {
+                // useStencil == true when there is at least one normal mask.
+                backend.beginMask(hasNormalMask);
+
+                foreach(ref mask; maskBindings) {
                     mask.maskSrc.renderMask(mask.mode == MaskingMode.DodgeMask);
                 }
 
-                inBeginMaskContent();
+                backend.beginMaskContent();
 
-                // We are the content
                 this.drawSelf();
 
-                inEndMask();
+                backend.endMask();
                 return;
             }
 
-            // No masks, draw normally
             this.drawSelf();
         }
-        super.drawOne();
+    }
+
+    package(nijilive) void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
+        packet.isMask = isMask;
+        packet.renderable = backendRenderable();
+
+        mat4 modelMatrix = immediateModelMatrix();
+        packet.modelMatrix = modelMatrix;
+        mat4 puppetMatrix = (!ignorePuppet && puppet !is null) ? puppet.transform.matrix : mat4.identity;
+        packet.puppetMatrix = puppetMatrix;
+
+        packet.opacity = clamp(offsetOpacity * opacity, 0, 1);
+        packet.emissionStrength = emissionStrength * offsetEmissionStrength;
+        packet.blendingMode = blendingMode;
+        packet.useMultistageBlend = inUseMultistageBlending(blendingMode);
+        packet.hasEmissionOrBumpmap = textures.length > 2 && (textures[1] !is null || textures[2] !is null);
+        packet.maskThreshold = clamp(offsetMaskThreshold + maskAlphaThreshold, 0, 1);
+
+        vec3 clampedTint = tint;
+        if (!offsetTint.x.isNaN) clampedTint.x = clamp(tint.x * offsetTint.x, 0, 1);
+        if (!offsetTint.y.isNaN) clampedTint.y = clamp(tint.y * offsetTint.y, 0, 1);
+        if (!offsetTint.z.isNaN) clampedTint.z = clamp(tint.z * offsetTint.z, 0, 1);
+        packet.clampedTint = clampedTint;
+
+        vec3 clampedScreen = screenTint;
+        if (!offsetScreenTint.x.isNaN) clampedScreen.x = clamp(screenTint.x + offsetScreenTint.x, 0, 1);
+        if (!offsetScreenTint.y.isNaN) clampedScreen.y = clamp(screenTint.y + offsetScreenTint.y, 0, 1);
+        if (!offsetScreenTint.z.isNaN) clampedScreen.z = clamp(screenTint.z + offsetScreenTint.z, 0, 1);
+        packet.clampedScreen = clampedScreen;
+        packet.textures = textures.dup;
+        packet.origin = data.origin;
+        packet.vertexOffset = vertexSliceOffset;
+        packet.vertexAtlasStride = sharedVertexAtlasStride();
+        packet.uvOffset = uvSliceOffset;
+        packet.uvAtlasStride = sharedUvAtlasStride();
+        packet.deformOffset = deformSliceOffset;
+        packet.deformAtlasStride = sharedDeformAtlasStride();
+        packet.indexBuffer = ibo;
+        packet.indexCount = cast(uint)data.indices.length;
+        packet.vertexCount = cast(uint)data.vertices.length;
+    }
+
+    package(nijilive) mat4 immediateModelMatrix() {
+        mat4 modelMatrix = hasOffscreenModelMatrix ? offscreenModelMatrix : transform.matrix();
+        if (overrideTransformMatrix !is null)
+            modelMatrix = overrideTransformMatrix.matrix;
+        if (oneTimeTransform !is null)
+            modelMatrix = (*oneTimeTransform) * modelMatrix;
+        return modelMatrix;
+    }
+
+package(nijilive) void setOffscreenModelMatrix(const mat4 matrix) {
+    offscreenModelMatrix = matrix;
+    hasOffscreenModelMatrix = true;
+}
+
+package(nijilive) void clearOffscreenModelMatrix() {
+    hasOffscreenModelMatrix = false;
+}
+
+package(nijilive) bool backendRenderable() {
+    return enabled && data.isReady();
+}
+
+    package(nijilive) size_t backendMaskCount() {
+        return maskCount();
+    }
+
+    package(nijilive) MaskBinding[] backendMasks() {
+        return masks;
     }
 
     override
@@ -971,7 +789,6 @@ public:
 
     override
     void normalizeUV(MeshData* data) {
-        // Texture 0 is always albedo texture
         auto tex = textures[0];
         foreach (i; 0..data.uvs.length) {
             data.uvs[i].x /= cast(float)tex.width;
@@ -1006,178 +823,4 @@ public:
             screenTint = part.screenTint;
         }
     }
-}
-
-/**
-    Draws a texture at the transform of the specified part
-*/
-void inDrawTextureAtPart(Texture texture, Part part) {
-    const float texWidthP = texture.width()/2;
-    const float texHeightP = texture.height()/2;
-
-    // Bind the vertex array
-    incDrawableBindVAO();
-
-    partShader.use();
-    partShader.setUniform(mvp, 
-        inGetCamera().matrix * 
-        mat4.translation(vec3(part.transform.matrix() * vec4(1, 1, 1, 1)))
-    );
-    partShader.setUniform(gopacity, part.opacity);
-    partShader.setUniform(gMultColor, part.tint);
-    partShader.setUniform(gScreenColor, part.screenTint);
-    
-    // Bind the texture
-    texture.bind();
-
-    // Enable points array
-    glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        -texWidthP, -texHeightP,
-        texWidthP, -texHeightP,
-        -texWidthP, texHeightP,
-        texWidthP, texHeightP,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-    // Enable UVs array
-    glEnableVertexAttribArray(1); // uvs
-    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        0, 0,
-        1, 0,
-        0, 1,
-        1, 1,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-    // Bind element array and draw our mesh
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
-        0u, 1u, 2u,
-        2u, 1u, 3u
-    ]).ptr, GL_STATIC_DRAW);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, null);
-
-    // Disable the vertex attribs after use
-    glDisableVertexAttribArray(0);
-    glDisableVertexAttribArray(1);
-}
-
-/**
-    Draws a texture at the transform of the specified part
-*/
-void inDrawTextureAtPosition(Texture texture, vec2 position, float opacity = 1, vec3 color = vec3(1, 1, 1), vec3 screenColor = vec3(0, 0, 0)) {
-    if (texture is null) return;
-    
-    const float texWidthP = texture.width()/2;
-    const float texHeightP = texture.height()/2;
-
-    // Bind the vertex array
-    incDrawableBindVAO();
-
-    partShader.use();
-    partShader.setUniform(mvp, 
-        inGetCamera().matrix * 
-        mat4.scaling(1, 1, 1) * 
-        mat4.translation(vec3(position, 0))
-    );
-    partShader.setUniform(gopacity, opacity);
-    partShader.setUniform(gMultColor, color);
-    partShader.setUniform(gScreenColor, screenColor);
-    
-    // Bind the texture
-    texture.bind();
-
-    // Enable points array
-    glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        -texWidthP, -texHeightP,
-        texWidthP, -texHeightP,
-        -texWidthP, texHeightP,
-        texWidthP, texHeightP,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-    // Enable UVs array
-    glEnableVertexAttribArray(1); // uvs
-    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, (cast(float[])[
-        0, 0,
-        1, 0,
-        0, 1,
-        1, 1,
-    ]).ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-    // Bind element array and draw our mesh
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
-        0u, 1u, 2u,
-        2u, 1u, 3u
-    ]).ptr, GL_STATIC_DRAW);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, null);
-
-    // Disable the vertex attribs after use
-    glDisableVertexAttribArray(0);
-    glDisableVertexAttribArray(1);
-}
-
-/**
-    Draws a texture at the transform of the specified part
-*/
-void inDrawTextureAtRect(Texture texture, rect area, rect uvs = rect(0, 0, 1, 1), float opacity = 1, vec3 color = vec3(1, 1, 1), vec3 screenColor = vec3(0, 0, 0), Shader s = null, Camera cam = null) {
-
-    // Bind the vertex array
-    incDrawableBindVAO();
-
-    if (!s) s = partShader;
-    if (!cam) cam = inGetCamera();
-    s.use();
-    s.setUniform(s.getUniformLocation("mvp"), 
-        cam.matrix * 
-        mat4.scaling(1, 1, 1)
-    );
-    s.setUniform(s.getUniformLocation("opacity"), opacity);
-    s.setUniform(s.getUniformLocation("multColor"), color);
-    s.setUniform(s.getUniformLocation("screenColor"), screenColor);
-    
-    // Bind the texture
-    texture.bind();
-
-    // Enable points array
-    glEnableVertexAttribArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, sVertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, [
-        area.left, area.top,
-        area.right, area.top,
-        area.left, area.bottom,
-        area.right, area.bottom,
-    ].ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-    // Enable UVs array
-    glEnableVertexAttribArray(1); // uvs
-    glBindBuffer(GL_ARRAY_BUFFER, sUVBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 4*vec2.sizeof, (cast(float[])[
-        uvs.x, uvs.y,
-        uvs.width, uvs.y,
-        uvs.x, uvs.height,
-        uvs.width, uvs.height,
-    ]).ptr, GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, null);
-
-    // Bind element array and draw our mesh
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sElementBuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6*ushort.sizeof, (cast(ushort[])[
-        0u, 1u, 2u,
-        2u, 1u, 3u
-    ]).ptr, GL_STATIC_DRAW);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, null);
-
-    // Disable the vertex attribs after use
-    glDisableVertexAttribArray(0);
-    glDisableVertexAttribArray(1);
 }

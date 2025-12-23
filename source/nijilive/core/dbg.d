@@ -1,145 +1,89 @@
 module nijilive.core.dbg;
-import nijilive;
-import bindbc.opengl;
 
-package(nijilive) {
-    int indiceCount;
+import nijilive.math : vec3, vec4, mat4, Vec3Array;
+import nijilive.core.render.backends : RenderBackend, RenderResourceHandle;
+import nijilive.core.runtime_state : inGetCamera, tryRenderBackend;
 
-    Shader dbgShaderLine;
-    Shader dbgShaderPoint;
-    GLuint dbgVAO;
-    GLuint dbgVBO;
-    GLuint dbgIBO;
+private bool debugInitialized;
+private bool hasDebugBuffer;
 
-    GLuint cVBO;
-
-    GLint mvpId;
-    GLint colorId;
-    void inInitDebug() {
-        dbgShaderLine = new Shader(import("dbg.vert"), import("dbgline.frag"));
-        dbgShaderPoint = new Shader(import("dbg.vert"), import("dbgpoint.frag"));
-        glGenVertexArrays(1, &dbgVAO);
-        glGenBuffers(1, &dbgVBO);
-        glGenBuffers(1, &dbgIBO);
-
-        mvpId = dbgShaderLine.getUniformLocation("mvp");
-        colorId = dbgShaderLine.getUniformLocation("color");
-    }
+private RenderBackend backendOrNull() {
+    return tryRenderBackend();
 }
 
-private {
-    void inUpdateDbgVerts(vec3[] points) {
-
-        // Generate bad line drawing indices
-        ushort[] vts = new ushort[points.length+1];
-        foreach(i; 0..points.length) {
-            vts[i] = cast(ushort)i;
-        }
-        vts[$-1] = 0;
-
-        inUpdateDbgVerts(points, vts);
+private RenderBackend backendForDebug() {
+    auto backend = backendOrNull();
+    if (backend is null) return null;
+    if (!debugInitialized) {
+        backend.initDebugRenderer();
+        debugInitialized = true;
     }
+    return backend;
+}
 
-    void inUpdateDbgVerts(vec3[] points, ushort[] indices) {
-        glBindVertexArray(dbgVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, dbgVBO);
-        glBufferData(GL_ARRAY_BUFFER, points.length*vec3.sizeof, points.ptr, GL_DYNAMIC_DRAW);
-        cVBO = dbgVBO;
-
-    
-        indiceCount = cast(int)indices.length;
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dbgIBO);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.length*ushort.sizeof, indices.ptr, GL_DYNAMIC_DRAW);
-    }
+package(nijilive) void inInitDebug() {
+    backendForDebug();
 }
 
 bool inDbgDrawMeshOutlines = false;
 bool inDbgDrawMeshVertexPoints = false;
 bool inDbgDrawMeshOrientation = false;
 
-/**
-    Size of debug points
-*/
 void inDbgPointsSize(float size) {
-    glPointSize(size);
+    auto backend = backendForDebug();
+    if (backend !is null) {
+        backend.setDebugPointSize(size);
+    }
 }
 
-/**
-    Size of debug points
-*/
 void inDbgLineWidth(float size) {
-    glLineWidth(size);
+    auto backend = backendForDebug();
+    if (backend !is null) {
+        backend.setDebugLineWidth(size);
+    }
 }
 
-/**
-    Draws points with specified color
-*/
-void inDbgSetBuffer(vec3[] points) {
-    inUpdateDbgVerts(points);
+void inDbgSetBuffer(Vec3Array points) {
+    size_t vertexCount = points.length;
+    size_t indexCount = vertexCount == 0 ? 0 : vertexCount + 1;
+    ushort[] indices = new ushort[indexCount];
+    foreach (i; 0 .. vertexCount) {
+        indices[i] = cast(ushort)i;
+    }
+    if (indices.length) {
+        indices[$ - 1] = 0;
+    }
+    inDbgSetBuffer(points, indices);
 }
 
-/**
-    Sets buffer to buffer owned by an other OpenGL object
-*/
-void inDbgSetBuffer(GLuint vbo, GLuint ibo, int count) {
-    glBindVertexArray(dbgVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    cVBO = vbo;
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    indiceCount = count;
+void inDbgSetBuffer(RenderResourceHandle vbo, RenderResourceHandle ibo, int count) {
+    auto backend = backendForDebug();
+    if (backend is null) return;
+    backend.setDebugExternalBuffer(vbo, ibo, count);
+    hasDebugBuffer = count > 0;
 }
 
-/**
-    Draws points with specified color
-*/
-void inDbgSetBuffer(vec3[] points, ushort[] indices) {
-    inUpdateDbgVerts(points, indices);
+void inDbgSetBuffer(Vec3Array points, ushort[] indices) {
+    if (points.length == 0 || indices.length == 0) {
+        hasDebugBuffer = false;
+        return;
+    }
+    auto backend = backendForDebug();
+    if (backend is null) return;
+    backend.uploadDebugBuffer(points, indices);
+    hasDebugBuffer = true;
 }
 
-/**
-    Draws current stored vertices as points with specified color
-*/
 void inDbgDrawPoints(vec4 color, mat4 transform = mat4.identity) {
-    glBlendEquation(GL_FUNC_ADD);
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-
-        glBindVertexArray(dbgVAO);
-
-        dbgShaderPoint.use();
-        dbgShaderPoint.setUniform(mvpId, inGetCamera().matrix * transform);
-        dbgShaderPoint.setUniform(colorId, color);
-
-        glEnableVertexAttribArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, cVBO);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, null);
-        
-        glDrawElements(GL_POINTS, indiceCount, GL_UNSIGNED_SHORT, null);
-        glDisableVertexAttribArray(0);
-
-    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+    if (!hasDebugBuffer) return;
+    auto backend = backendForDebug();
+    if (backend is null) return;
+    backend.drawDebugPoints(color, inGetCamera().matrix * transform);
 }
 
-/**
-    Draws current stored vertices as lines with specified color
-*/
 void inDbgDrawLines(vec4 color, mat4 transform = mat4.identity) {
-    glEnable(GL_LINE_SMOOTH);
-    glBlendEquation(GL_FUNC_ADD);
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-    
-        glBindVertexArray(dbgVAO);
-
-        dbgShaderLine.use();
-        dbgShaderLine.setUniform(mvpId, inGetCamera().matrix * transform);
-        dbgShaderLine.setUniform(colorId, color);
-
-        glEnableVertexAttribArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, cVBO);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, null);
-        
-        glDrawElements(GL_LINES, indiceCount, GL_UNSIGNED_SHORT, null);
-        glDisableVertexAttribArray(0);
-
-    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
-    glDisable(GL_LINE_SMOOTH);
+    if (!hasDebugBuffer) return;
+    auto backend = backendForDebug();
+    if (backend is null) return;
+    backend.drawDebugLines(color, inGetCamera().matrix * transform);
 }

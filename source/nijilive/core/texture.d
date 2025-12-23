@@ -6,47 +6,20 @@
     Authors: Luna Nielsen
 */
 module nijilive.core.texture;
+
+version (UseQueueBackend) {
+    extern(C) __gshared void function(size_t handle) ngReleaseExternalHandle; // module-level hook for Unity external texture release
+}
 import nijilive.math;
 import std.exception;
 import std.format;
-import bindbc.opengl;
 import imagefmt;
+import std.algorithm : clamp;
 import nijilive.core.nodes : inCreateUUID;
-
-/**
-    Filtering mode for texture
-*/
-enum Filtering {
-    /**
-        Linear filtering will try to smooth out textures
-    */
-    Linear,
-
-    /**
-        Point filtering will try to preserve pixel edges.
-        Due to texture sampling being float based this is imprecise.
-    */
-    Point
-}
-
-/**
-    Texture wrapping modes
-*/
-enum Wrapping {
-    /**
-        Clamp texture sampling to be within the texture
-    */
-    Clamp = GL_CLAMP_TO_BORDER,
-
-    /**
-        Wrap the texture in every direction idefinitely
-    */
-    Repeat = GL_REPEAT,
-
-    /**
-        Wrap the texture mirrored in every direction indefinitely
-    */
-    Mirror = GL_MIRRORED_REPEAT
+import nijilive.core.texture_types : Filtering, Wrapping;
+import nijilive.core.render.backends : RenderTextureHandle;
+version (InDoesRender) {
+    import nijilive.core.runtime_state : currentRenderBackend, tryRenderBackend;
 }
 
 /**
@@ -186,13 +159,12 @@ public:
 */
 class Texture {
 private:
-    GLuint id;
+    RenderTextureHandle handle;
     int width_;
     int height_;
-
-    GLuint inColorMode_;
-    GLuint outColorMode_;
     int channels_;
+    bool stencil_;
+    size_t externalHandle = 0;
 
     uint uuid;
 
@@ -252,33 +224,17 @@ public:
         this.width_ = width;
         this.height_ = height;
         this.channels_ = outChannels;
+        this.stencil_ = stencil;
 
-        this.inColorMode_ = GL_RGBA;
-        this.outColorMode_ = GL_RGBA;
-        if (inChannels == 1) this.inColorMode_ = GL_RED;
-        else if (inChannels == 2) this.inColorMode_ = GL_RG;
-        else if (inChannels == 3) this.inColorMode_ = GL_RGB;
-        if (outChannels == 1) this.outColorMode_ = GL_RED;
-        else if (outChannels == 2) this.outColorMode_ = GL_RG;
-        else if (outChannels == 3) this.outColorMode_ = GL_RGB;
-        if (stencil) {
-            this.outColorMode_ = GL_DEPTH24_STENCIL8;
-            this.inColorMode_  = GL_DEPTH_STENCIL;
+        version (InDoesRender) {
+            auto backend = currentRenderBackend();
+            handle = backend.createTextureHandle();
+            this.setData(data, inChannels);
+
+            this.setFiltering(Filtering.Linear);
+            this.setWrapping(Wrapping.Clamp);
+            this.setAnisotropy(incGetMaxAnisotropy()/2.0f);
         }
-
-        // Generate OpenGL texture
-        glGenTextures(1, &id);
-        if (stencil) {
-            this.bind();
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width_, height_, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, null);
-        } else {
-            this.setData(data);
-        }
-
-        // Set default filtering and wrapping
-        this.setFiltering(Filtering.Linear);
-        this.setWrapping(Wrapping.Clamp);
-        this.setAnisotropy(incGetMaxAnisotropy()/2.0f);
         uuid = inCreateUUID();
     }
 
@@ -301,17 +257,17 @@ public:
     }
 
     /**
-        Gets the OpenGL color mode
-    */
-    GLuint colorMode() {
-        return outColorMode_;
-    }
-
-    /**
         Gets the channel count
     */
     int channels() {
         return channels_;
+    }
+
+    /**
+        Returns a legacy color mode value matching the previous OpenGL enums.
+    */
+    @property int colorMode() const {
+        return legacyColorModeFromChannels(channels_);
     }
 
     /**
@@ -339,53 +295,43 @@ public:
         Set the filtering mode used for the texture
     */
     void setFiltering(Filtering filtering) {
-        this.bind();
-        glTexParameteri(
-            GL_TEXTURE_2D, 
-            GL_TEXTURE_MIN_FILTER, 
-            filtering == Filtering.Linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST
-        );
-
-        glTexParameteri(
-            GL_TEXTURE_2D, 
-            GL_TEXTURE_MAG_FILTER, 
-            filtering == Filtering.Linear ? GL_LINEAR : GL_NEAREST
-        );
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().applyTextureFiltering(handle, filtering);
+        }
     }
 
     void setAnisotropy(float value) {
-        this.bind();
-        glTexParameterf(
-            GL_TEXTURE_2D,
-            GL_TEXTURE_MAX_ANISOTROPY,
-            clamp(value, 1, incGetMaxAnisotropy())
-        );
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().applyTextureAnisotropy(handle, clamp(value, 1, incGetMaxAnisotropy()));
+        }
     }
 
     /**
         Set the wrapping mode used for the texture
     */
     void setWrapping(Wrapping wrapping) {
-        this.bind();
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapping);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapping);
-        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, [0f, 0f, 0f, 0f].ptr);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().applyTextureWrapping(handle, wrapping);
+        }
     }
 
     /**
         Sets the data of the texture
     */
-    void setData(ubyte[] data) {
+    void setData(ubyte[] data, int inChannels = -1) {
+        int actualChannels = inChannels == -1 ? channels_ : inChannels;
         if (locked) {
             lockedData = data;
             modified = true;
         } else {
-            this.bind();
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            glTexImage2D(GL_TEXTURE_2D, 0, outColorMode_, width_, height_, 0, inColorMode_, GL_UNSIGNED_BYTE, data.ptr);
-            
-            this.genMipmap();
+            version (InDoesRender) {
+                if (handle is null) return;
+                currentRenderBackend().uploadTextureData(handle, width_, height_, actualChannels, channels_, stencil_, data);
+                this.genMipmap();
+            }
         }
     }
 
@@ -393,27 +339,27 @@ public:
         Generate mipmaps
     */
     void genMipmap() {
-        this.bind();
-        glGenerateMipmap(GL_TEXTURE_2D);
+        version (InDoesRender) {
+            if (!stencil_ && handle !is null) {
+                currentRenderBackend().generateTextureMipmap(handle);
+            }
+        }
     }
 
     /**
         Sets a region of a texture to new data
     */
-    void setDataRegion(ubyte[] data, int x, int y, int width, int height, int channels = 4) {
-        this.bind();
+    void setDataRegion(ubyte[] data, int x, int y, int width, int height, int channels = -1) {
+        auto actualChannels = channels == -1 ? this.channels_ : channels;
 
         // Make sure we don't try to change the texture in an out of bounds area.
         enforce( x >= 0 && x+width <= this.width_, "x offset is out of bounds (xoffset=%s, xbound=%s)".format(x+width, this.width_));
         enforce( y >= 0 && y+height <= this.height_, "y offset is out of bounds (yoffset=%s, ybound=%s)".format(y+height, this.height_));
 
-        GLuint inChannelMode = GL_RGBA;
-        if (channels == 1) inChannelMode = GL_RED;
-        else if (channels == 2) inChannelMode = GL_RG;
-        else if (channels == 3) inChannelMode = GL_RGB;
-
-        // Update the texture
-        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, inChannelMode, GL_UNSIGNED_BYTE, data.ptr);
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().updateTextureRegion(handle, x, y, width, height, actualChannels, data);
+        }
 
         this.genMipmap();
     }
@@ -426,9 +372,24 @@ public:
         - In debug mode unit values over 31 will assert.
     */
     void bind(uint unit = 0) {
-        assert(unit <= 31u, "Outside maximum OpenGL texture unit value");
-        glActiveTexture(GL_TEXTURE0+(unit <= 31u ? unit : 31u));
-        glBindTexture(GL_TEXTURE_2D, id);
+        assert(unit <= 31u, "Outside maximum texture unit value");
+        version (InDoesRender) {
+            if (handle is null) return;
+            currentRenderBackend().bindTextureHandle(handle, unit);
+        }
+    }
+
+    /**
+        Gets this texture's native GPU handle (legacy compatibility with OpenGL ID users)
+    */
+    uint getTextureId() {
+        version (InDoesRender) {
+            if (handle is null) return 0;
+            auto backend = tryRenderBackend();
+            if (backend is null) return 0;
+            return cast(uint)backend.textureNativeHandle(handle);
+        }
+        return 0;
     }
 
     /**
@@ -446,8 +407,10 @@ public:
             return lockedData;
         } else {
             ubyte[] buf = new ubyte[width*height*channels_];
-            bind();
-            glGetTexImage(GL_TEXTURE_2D, 0, outColorMode_, GL_UNSIGNED_BYTE, buf.ptr);
+            version (InDoesRender) {
+                if (handle is null) return buf;
+                currentRenderBackend().readTextureData(handle, channels_, stencil_, buf);
+            }
             if (unmultiply && channels == 4) {
                 inTexUnPremuliply(buf);
             }
@@ -456,25 +419,41 @@ public:
     }
 
     /**
-        Gets this texture's texture id
-    */
-    GLuint getTextureId() {
-        return id;
-    }
-
-    /**
         Disposes texture from GL
     */
     void dispose() {
-        glDeleteTextures(1, &id);
-        id = 0;
+        version (InDoesRender) {
+            if (handle is null) return;
+            auto backend = tryRenderBackend();
+            if (backend !is null) backend.destroyTextureHandle(handle);
+            handle = null;
+        }
+        version (UseQueueBackend) {
+            if (externalHandle && ngReleaseExternalHandle !is null) {
+                ngReleaseExternalHandle(externalHandle);
+            }
+            externalHandle = 0;
+        }
+    }
+
+    RenderTextureHandle backendHandle() {
+        return handle;
+    }
+
+    /// Unity/queue backend: allow external handle injection.
+    version (UseQueueBackend) {
+        void setExternalHandle(size_t h) {
+            externalHandle = h;
+        }
+
+        size_t getExternalHandle() const {
+            return externalHandle;
+        }
     }
 
     Texture dup() {
-        bool stencil = outColorMode_ == GL_DEPTH24_STENCIL8;
-        auto result = new Texture(width_, height_, channels_, stencil);
-        // FIXME: copy must be done in OpenGL Framebuffer, but currently uses offline copy instead.
-        result.setData(getTextureData());
+        auto result = new Texture(width_, height_, channels_, stencil_);
+        result.setData(getTextureData(), channels_);
         return result;
     }
 
@@ -490,10 +469,23 @@ public:
         if (locked) {
             locked = false;
             if (modified)
-                setData(lockedData);
+                setData(lockedData, channels_);
             modified = false;
             lockedData = null;
         }
+    }
+}
+private enum int LegacyGLRed = 0x1903;
+private enum int LegacyGLRg = 0x8227;
+private enum int LegacyGLRgb = 0x1907;
+private enum int LegacyGLRgba = 0x1908;
+
+private int legacyColorModeFromChannels(int channels) {
+    switch (channels) {
+        case 1: return LegacyGLRed;
+        case 2: return LegacyGLRg;
+        case 3: return LegacyGLRgb;
+        default: return LegacyGLRgba;
     }
 }
 
@@ -506,9 +498,13 @@ private {
     Gets the maximum level of anisotropy
 */
 float incGetMaxAnisotropy() {
-    float max;
-    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max);
-    return max;
+    version (InDoesRender) {
+        auto backend = tryRenderBackend();
+        if (backend !is null) {
+            return backend.maxTextureAnisotropy();
+        }
+    }
+    return 1;
 }
 
 /**

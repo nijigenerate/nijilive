@@ -13,6 +13,7 @@ import nijilive.core.nodes.part;
 import nijilive.core.nodes;
 import nijilive.core;
 import nijilive.math;
+import nijilive.core.render.scheduler : RenderContext;
 
 /**
     A Shape Node
@@ -26,7 +27,7 @@ struct ShapeNode {
     /**
         The shape data
     */
-    vec2[] shapeData;
+    Vec2Array shapeData;
 }
 
 /**
@@ -51,6 +52,7 @@ public:
     */
     this(Node parent = null) {
         super(parent);
+        requireDynamicTask();
     }
 
     /**
@@ -63,8 +65,7 @@ public:
     */
     vec2 selector;
 
-    override
-    void update() {
+    void processShapes() {
         foreach(Drawable part, nodes; shapes) {
             
             size_t nodeLen = nodes.length;
@@ -87,7 +88,7 @@ public:
             }
 
             // Make sure our vertices buffer is ready
-            vec2[] vertices = new vec2[part.vertices.length];
+            Vec2Array vertices = Vec2Array(part.vertices.length);
             foreach(i; 0..vertices.length) {
                 vertices[i] = vec2(0);
             }
@@ -100,5 +101,11 @@ public:
             }
             
         }
+    }
+
+    override
+    protected void runDynamicTask(ref RenderContext ctx) {
+        processShapes();
+        super.runDynamicTask(ctx);
     }
 }

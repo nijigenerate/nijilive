@@ -10,14 +10,19 @@ public import nijilive.core.nodes.deformer.curve;
 import nijilive.core.nodes.deformer.base;
 import nijilive.core.nodes.deformer.grid;
 import inmath.linalg;
+import nijilive.math.veca_ops : transformAssign, transformAdd, projectVec2OntoAxes,
+    composeVec2FromAxes, rotateVec2TangentsToNormals;
 
 //import std.stdio;
-import std.math;
+import std.math : sqrt, isNaN, isFinite, fabs;
 import std.algorithm;
 import std.array;
 import std.range;
+import nijilive.core.render.scheduler : RenderContext;
 import std.typecons;
+import std.format : formattedWrite;
 import nijilive.core;
+import nijilive.core.render.scheduler : RenderContext;
 import nijilive.core.dbg;
 import core.exception;
 
@@ -45,15 +50,55 @@ class PathDeformer : Deformable, NodeFilter, Deformer {
 protected:
     mat4 inverseMatrix;
     PhysicsDriver _driver;
+    enum float curveReferenceEpsilon = 1e-6f;
+    enum float curveCollapseRatio = 1e-3f;
+    enum float tangentEpsilon = 1e-8f;
+    enum float segmentDegeneracyEpsilon = 1e-6f;
+    enum size_t invalidDisableThreshold = 10;
+    enum size_t invalidLogInterval = 10;
+    enum size_t invalidLogFrameInterval = 30;
+    enum size_t curveDiagRepeatInterval = 15;
+    enum size_t invalidInitialLogAllowance = 3;
 
-    vec2[] getVertices(Node node) {
-        vec2[] vertices;
+    bool hasDegenerateBaseline = false;
+    size_t[] degenerateSegmentIndices;
+    size_t frameCounter = 0;
+    size_t invalidFrameCount = 0;
+    size_t consecutiveInvalidFrames = 0;
+    size_t totalMatrixInvalidCount = 0;
+    bool invalidThisFrame = false;
+    bool matrixInvalidThisFrame = false;
+    bool diagnosticsFrameActive = false;
+    bool loggedTransformInvalid = false;
+    size_t[] invalidTotalPerIndex;
+    size_t[] invalidConsecutivePerIndex;
+    bool[] invalidIndexThisFrame;
+    size_t[] invalidStreakStartFrame;
+    size_t[] invalidLastLoggedFrame;
+    size_t[] invalidLastLoggedCount;
+    bool[] invalidLastLoggedValueWasNaN;
+    Vec2Array invalidLastLoggedValue;
+    string[] invalidLastLoggedContext;
+
+    struct CurveDiagLogState {
+        bool hasNaN;
+        bool collapsed;
+        float targetScale;
+        float referenceScale;
+        size_t lastFrame;
+        size_t firstInvalidFrame;
+    }
+
+    CurveDiagLogState[string] curveDiagLogStates;
+
+    private void pathLog(T...)(T args) { }
+
+    Vec2Array getVertices(Node node) {
         if (auto drawable = cast(Deformable)node) {
-            vertices = drawable.vertices;
+            return drawable.vertices;
         } else {
-            vertices = [node.transform.translation.xy];
+            return Vec2Array([node.transform.translation.xy]);
         }
-        return vertices;
     }
 
     void cacheClosestPoints(Node node, int nSamples = 100) {
@@ -71,8 +116,479 @@ protected:
         }
     }
 
-    void deform(vec2[] deformedControlPoints) {
+    void deform(Vec2Array deformedControlPoints) {
         deformedCurve = createCurve(deformedControlPoints);
+    }
+
+    private
+    float computeCurveScale(Points)(auto ref Points points) {
+        float scale = 0;
+        auto len = points.length;
+        foreach (i; 0 .. len) {
+            auto pt = points[i];
+            if (isNaN(pt.x) || isNaN(pt.y)) continue;
+            float magnitude = sqrt(pt.x * pt.x + pt.y * pt.y);
+            if (magnitude > scale) {
+                scale = magnitude;
+            }
+        }
+        return scale;
+    }
+
+    private
+    string summarizePoints(Points)(auto ref Points points, size_t maxCount = 4) {
+        auto buffer = appender!string();
+        formattedWrite(buffer, "len=%s [", points.length);
+        size_t limit = points.length < maxCount ? points.length : maxCount;
+        foreach (i; 0 .. limit) {
+            auto pt = points[i];
+            formattedWrite(buffer, "(%.4f, %.4f)", pt.x, pt.y);
+            if (i + 1 < limit) buffer.put(", ");
+        }
+        if (points.length > maxCount) {
+            buffer.put(", ...");
+        }
+        buffer.put("]");
+        return buffer.data;
+    }
+
+    private
+    string formatVec2(const(vec2) value) {
+        auto buffer = appender!string();
+        formattedWrite(buffer, "(%.4f, %.4f)", value.x, value.y);
+        return buffer.data;
+    }
+
+    private
+    bool approxEqual(float a, float b, float epsilon = 1e-3f) {
+        if (isNaN(a) && isNaN(b)) return true;
+        return fabs(a - b) <= epsilon;
+    }
+
+    private
+    bool guardFinite(vec2 value) {
+        return value.x.isFinite && value.y.isFinite;
+    }
+
+    private
+    void sanitizeOffsets(ref Vec2Array values) {
+        foreach (value; values) {
+            if (!guardFinite(value)) {
+                value = vec2(0, 0);
+            }
+        }
+    }
+
+    private
+    vec2 sanitizeVec2(vec2 value) {
+        return guardFinite(value) ? value : vec2(0, 0);
+    }
+
+    private
+    void handleInvalidDeformation(string context, const Vec2Array fallback) {
+        pathLog("[PathDeformer][InvalidDeformation] node=", name,
+                " context=", context,
+                " driverActive=", _driver !is null,
+                " frame=", frameCounter,
+                " consecutiveInvalidFrames=", consecutiveInvalidFrames + 1);
+        invalidThisFrame = true;
+        if (fallback.length != 0 && fallback.length == deformation.length) {
+            deformation = fallback.dup;
+        }
+    }
+
+    private
+    bool matrixIsFinite(const mat4 matrix) {
+        foreach (i; 0 .. 4) {
+            foreach (j; 0 .. 4) {
+                if (!isFinite(matrix[i][j])) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private
+    string matrixSummary(const mat4 matrix) {
+        auto buffer = appender!string();
+        buffer.put("[");
+        foreach (i; 0 .. 4) {
+            buffer.put("[");
+            foreach (j; 0 .. 4) {
+                formattedWrite(buffer, "%.3f", matrix[i][j]);
+                if (j < 3) buffer.put(", ");
+            }
+            buffer.put("]");
+            if (i < 3) buffer.put(", ");
+        }
+        buffer.put("]");
+        return buffer.data;
+    }
+
+    private
+    mat4 safeInverse(mat4 matrix, string context) {
+        auto inv = matrix.inverse;
+        if (!matrixIsFinite(inv)) {
+            pathLog("[PathDeformer][MatrixDiag] node=", name,
+                    " context=", context,
+                    " matrixInvalid=", !matrixIsFinite(matrix),
+                    " matrix=", matrixSummary(matrix));
+            if (!matrixInvalidThisFrame) {
+                totalMatrixInvalidCount++;
+            }
+            matrixInvalidThisFrame = true;
+            invalidThisFrame = true;
+            return mat4.identity;
+        }
+        return inv;
+    }
+
+    private
+    mat4 requireFiniteMatrix(mat4 matrix, string context) {
+        if (!matrixIsFinite(matrix)) {
+            pathLog("[PathDeformer][MatrixDiag] node=", name,
+                    " context=", context,
+                    " matrix=", matrixSummary(matrix));
+            if (!matrixInvalidThisFrame) {
+                totalMatrixInvalidCount++;
+            }
+            matrixInvalidThisFrame = true;
+            invalidThisFrame = true;
+            return mat4.identity;
+        }
+        return matrix;
+    }
+
+    private
+    void refreshInverseMatrix(string context) {
+        auto globalMatrix = requireFiniteMatrix(globalTransform.matrix, context ~ ":global");
+        inverseMatrix = safeInverse(globalMatrix, context ~ ":inverse");
+    }
+
+    private
+    void logTransformFailure(string context, ref Transform transformInfo) {
+        if (loggedTransformInvalid) {
+            return;
+        }
+        loggedTransformInvalid = true;
+        string translationXY = formatVec2(transformInfo.translation.xy);
+        string scaleXY = formatVec2(transformInfo.scale.xy);
+        pathLog("[PathDeformer][TransformDiag] node=", name,
+                " context=", context,
+                " frame=", frameCounter,
+                " translation=", translationXY,
+                " scale=", scaleXY,
+                " rotationZ=", transformInfo.rotation.z,
+                " matrix=", matrixSummary(transformInfo.matrix));
+    }
+
+    private
+    bool logCurveHealth(Points)(string context, Curve reference, Curve target, auto ref Points deformationSnapshot) {
+        if (target is null) return false;
+
+        auto targetPoints = target.controlPoints;
+        bool hasNaN = false;
+        foreach (i; 0 .. targetPoints.length) {
+            auto pt = targetPoints[i];
+            if (isNaN(pt.x) || isNaN(pt.y)) {
+                hasNaN = true;
+                break;
+            }
+        }
+
+        float targetScale = computeCurveScale(targetPoints);
+        float referenceScale = 0;
+        auto referencePoints = Vec2Array.init;
+        if (reference !is null) {
+            referencePoints = reference.controlPoints;
+            referenceScale = computeCurveScale(referencePoints);
+        }
+
+        bool collapsed = false;
+        if (reference !is null && referenceScale > curveReferenceEpsilon) {
+            collapsed = targetScale < referenceScale * curveCollapseRatio;
+        }
+
+        bool emittedLog = false;
+        bool isInvalid = hasNaN || collapsed;
+        auto statePtr = context in curveDiagLogStates;
+        CurveDiagLogState prevState;
+        bool hadPrevState = false;
+        if (statePtr !is null) {
+            prevState = *statePtr;
+            hadPrevState = true;
+            bool wasInvalid = prevState.hasNaN || prevState.collapsed;
+            if (wasInvalid && !isInvalid) {
+                size_t startFrame = prevState.firstInvalidFrame != 0 ? prevState.firstInvalidFrame : prevState.lastFrame;
+                size_t framesInvalid = prevState.lastFrame >= startFrame ? (prevState.lastFrame - startFrame + 1) : 1;
+                pathLog("[PathDeformer][CurveDiagRecovered] node=", name,
+                        " context=", context,
+                        " frame=", frameCounter,
+                        " framesInvalid=", framesInvalid,
+                        " prevHasNaN=", prevState.hasNaN,
+                        " prevCollapsed=", prevState.collapsed);
+                emittedLog = true;
+            }
+        }
+
+        if (isInvalid) {
+            bool logNow = true;
+            if (hadPrevState) {
+                bool sameState = prevState.hasNaN == hasNaN &&
+                                 prevState.collapsed == collapsed &&
+                                 approxEqual(prevState.targetScale, targetScale) &&
+                                 approxEqual(prevState.referenceScale, referenceScale);
+                if (sameState && frameCounter < prevState.lastFrame + curveDiagRepeatInterval) {
+                    logNow = false;
+                }
+            }
+            if (logNow) {
+                size_t startFrame = frameCounter;
+                if (hadPrevState) {
+                    bool prevInvalid = prevState.hasNaN || prevState.collapsed;
+                    if (prevInvalid && prevState.firstInvalidFrame != 0) {
+                        startFrame = prevState.firstInvalidFrame;
+                    } else if (prevInvalid && prevState.firstInvalidFrame == 0) {
+                        startFrame = prevState.lastFrame;
+                    }
+                }
+                size_t framesInvalid = frameCounter >= startFrame ? (frameCounter - startFrame + 1) : 1;
+                pathLog("[PathDeformer][CurveDiag] node=", name,
+                        " context=", context,
+                        " collapsed=", collapsed,
+                        " hasNaN=", hasNaN,
+                        " refScale=", referenceScale,
+                        " targetScale=", targetScale,
+                        " refPoints=", summarizePoints(referencePoints),
+                        " targetPoints=", summarizePoints(targetPoints),
+                        " deformation=", summarizePoints(deformationSnapshot),
+                        " firstFrame=", startFrame,
+                        " framesInvalid=", framesInvalid);
+                emittedLog = true;
+            }
+        }
+
+        size_t nextFirstInvalidFrame = 0;
+        if (isInvalid) {
+            if (hadPrevState && (prevState.hasNaN || prevState.collapsed)) {
+                nextFirstInvalidFrame = prevState.firstInvalidFrame != 0 ? prevState.firstInvalidFrame : prevState.lastFrame;
+            } else {
+                nextFirstInvalidFrame = frameCounter;
+            }
+        }
+
+        curveDiagLogStates[context] = CurveDiagLogState(hasNaN, collapsed, targetScale, referenceScale, frameCounter, nextFirstInvalidFrame);
+        return emittedLog;
+    }
+
+    private
+    void logCurveState(string context) {
+        auto deformationSnapshot = deformation;
+        bool logged = false;
+        if (originalCurve !is null && prevCurve !is null) {
+            logged = logCurveHealth(context ~ ":prev", originalCurve, prevCurve, deformationSnapshot) || logged;
+        } else if (prevCurve !is null) {
+            logged = logCurveHealth(context ~ ":prev", null, prevCurve, deformationSnapshot) || logged;
+        }
+        if (originalCurve !is null && deformedCurve !is null) {
+            logged = logCurveHealth(context ~ ":deformed", originalCurve, deformedCurve, deformationSnapshot) || logged;
+        } else if (deformedCurve !is null) {
+            logged = logCurveHealth(context ~ ":deformed", null, deformedCurve, deformationSnapshot) || logged;
+        }
+        if (!logged && prevCurve !is null && deformedCurve !is null) {
+            logCurveHealth(context ~ ":diff", prevCurve, deformedCurve, deformationSnapshot);
+        }
+    }
+
+    private
+    void ensureDiagnosticCapacity(size_t length) {
+        if (invalidIndexThisFrame.length != length) {
+            invalidIndexThisFrame.length = length;
+            invalidConsecutivePerIndex.length = length;
+            invalidTotalPerIndex.length = length;
+            invalidStreakStartFrame.length = length;
+            invalidLastLoggedFrame.length = length;
+            invalidLastLoggedCount.length = length;
+            invalidLastLoggedValueWasNaN.length = length;
+            invalidLastLoggedValue.length = length;
+            invalidLastLoggedContext.length = length;
+            foreach (ref flag; invalidIndexThisFrame) flag = false;
+            foreach (ref val; invalidConsecutivePerIndex) val = 0;
+            foreach (ref val; invalidTotalPerIndex) val = 0;
+            foreach (ref val; invalidStreakStartFrame) val = 0;
+            foreach (ref val; invalidLastLoggedFrame) val = 0;
+            foreach (ref val; invalidLastLoggedCount) val = 0;
+            foreach (ref val; invalidLastLoggedValueWasNaN) val = false;
+            invalidLastLoggedValue[] = vec2(0, 0);
+            foreach (ref ctx; invalidLastLoggedContext) ctx = "";
+        }
+    }
+
+    private
+    bool beginDiagnosticFrame() {
+        if (diagnosticsFrameActive) {
+            return false;
+        }
+        diagnosticsFrameActive = true;
+        frameCounter++;
+        ensureDiagnosticCapacity(deformation.length);
+        foreach (ref flag; invalidIndexThisFrame) flag = false;
+        invalidThisFrame = false;
+        matrixInvalidThisFrame = false;
+        return true;
+    }
+
+    private
+    void markInvalidOffset(string context, size_t index, vec2 value) {
+        if (!diagnosticsFrameActive) {
+            beginDiagnosticFrame();
+        }
+        ensureDiagnosticCapacity(deformation.length);
+        invalidThisFrame = true;
+        if (index < invalidIndexThisFrame.length) {
+            if (!invalidIndexThisFrame[index]) {
+                invalidIndexThisFrame[index] = true;
+                if (invalidStreakStartFrame[index] == 0) {
+                    invalidStreakStartFrame[index] = frameCounter;
+                }
+            }
+            invalidTotalPerIndex[index]++;
+            invalidConsecutivePerIndex[index]++;
+            auto consecutive = invalidConsecutivePerIndex[index];
+            if (invalidStreakStartFrame[index] == 0) {
+                invalidStreakStartFrame[index] = frameCounter;
+            }
+            if (shouldEmitInvalidIndexLog(index, context, value, consecutive)) {
+                logInvalidIndex(context, index, value, consecutive);
+            }
+            if (_driver !is null && consecutive >= invalidDisableThreshold) {
+                disablePhysicsDriver(context ~ ":threshold");
+            }
+        } else {
+            pathLog("[PathDeformer][InvalidDeformation] node=", name,
+                    " context=", context,
+                    " index=", index,
+                    " value=", formatVec2(value),
+                    " frame=", frameCounter,
+                    " driverActive=", _driver !is null);
+        }
+    }
+
+    private
+    bool shouldEmitInvalidIndexLog(size_t index, string context, vec2 value, size_t consecutive) {
+        bool hasPrevLog = invalidLastLoggedFrame[index] != 0;
+        bool valueIsNaN = !guardFinite(value);
+        bool valueChanged = !hasPrevLog;
+        if (hasPrevLog) {
+            if (invalidLastLoggedValueWasNaN[index] != valueIsNaN) {
+                valueChanged = true;
+            } else if (!valueIsNaN) {
+                vec2 prevValue = invalidLastLoggedValue[index];
+                valueChanged = (value.x != prevValue.x) || (value.y != prevValue.y);
+            }
+        }
+        bool contextChanged = !hasPrevLog || invalidLastLoggedContext[index] != context;
+        bool consecutiveTrigger = ( !hasPrevLog && consecutive >= 1 && invalidTotalPerIndex[index] <= invalidInitialLogAllowance )
+            || (consecutive == invalidDisableThreshold && invalidLastLoggedCount[index] != consecutive)
+            || (consecutive % invalidLogInterval == 0 && invalidLastLoggedCount[index] != consecutive);
+        bool timeTrigger = hasPrevLog && (frameCounter - invalidLastLoggedFrame[index]) >= invalidLogFrameInterval;
+        bool totalTrigger = (invalidTotalPerIndex[index] % invalidLogInterval == 0) && invalidLastLoggedFrame[index] != frameCounter;
+        return valueChanged || contextChanged || consecutiveTrigger || timeTrigger || totalTrigger;
+    }
+
+    private
+    void logInvalidIndex(string context, size_t index, vec2 value, size_t consecutive) {
+        size_t startFrame = invalidStreakStartFrame[index] != 0 ? invalidStreakStartFrame[index] : frameCounter;
+        pathLog("[PathDeformer][InvalidDeformation] node=", name,
+                " context=", context,
+                " index=", index,
+                " value=", formatVec2(value),
+                " frame=", frameCounter,
+                " indexConsecutive=", consecutive,
+                " indexTotal=", invalidTotalPerIndex[index],
+                " firstFrame=", startFrame,
+                " driverActive=", _driver !is null);
+        invalidLastLoggedFrame[index] = frameCounter;
+        invalidLastLoggedCount[index] = consecutive;
+        invalidLastLoggedContext[index] = context;
+        invalidLastLoggedValue[index] = value;
+        invalidLastLoggedValueWasNaN[index] = !guardFinite(value);
+    }
+
+    private
+    void endDiagnosticFrame() {
+        if (!diagnosticsFrameActive) {
+            return;
+        }
+        if (invalidThisFrame || matrixInvalidThisFrame) {
+            invalidFrameCount++;
+            consecutiveInvalidFrames++;
+        } else if (consecutiveInvalidFrames > 0) {
+            pathLog("[PathDeformer][InvalidDeformationRecovered] node=", name,
+                    " frame=", frameCounter,
+                    " lastedFrames=", consecutiveInvalidFrames);
+            consecutiveInvalidFrames = 0;
+        }
+
+        if (matrixInvalidThisFrame) {
+            pathLog("[PathDeformer][MatrixInvalidFrame] node=", name,
+                    " frame=", frameCounter,
+                    " totalMatrixInvalidFrames=", totalMatrixInvalidCount);
+        }
+
+        foreach (i; 0 .. invalidConsecutivePerIndex.length) {
+            if (!invalidIndexThisFrame[i] && invalidConsecutivePerIndex[i] > 0) {
+                size_t startFrame = invalidStreakStartFrame[i];
+                pathLog("[PathDeformer][InvalidDeformationRecovered] node=", name,
+                        " index=", i,
+                        " frame=", frameCounter,
+                        " lastedFrames=", invalidConsecutivePerIndex[i],
+                        " totalInvalid=", invalidTotalPerIndex[i],
+                        " firstFrame=", startFrame);
+                invalidConsecutivePerIndex[i] = 0;
+                invalidStreakStartFrame[i] = 0;
+                invalidLastLoggedFrame[i] = 0;
+                invalidLastLoggedCount[i] = 0;
+                invalidLastLoggedContext[i] = "";
+                invalidLastLoggedValueWasNaN[i] = false;
+                invalidLastLoggedValue[i] = vec2(0, 0);
+            }
+        }
+        invalidThisFrame = false;
+        matrixInvalidThisFrame = false;
+        diagnosticsFrameActive = false;
+        if (!invalidThisFrame && !matrixInvalidThisFrame) {
+            loggedTransformInvalid = false;
+        }
+    }
+
+    private
+    void checkBaselineDegeneracy(Points)(auto ref Points points) {
+        hasDegenerateBaseline = false;
+        degenerateSegmentIndices.length = 0;
+        if (points.length < 2) return;
+
+        auto buffer = appender!string();
+        foreach (i; 1 .. points.length) {
+            auto delta = points[i] - points[i - 1];
+            float segLen = sqrt(delta.x * delta.x + delta.y * delta.y);
+            if (!isFinite(segLen) || segLen <= segmentDegeneracyEpsilon) {
+                if (!hasDegenerateBaseline) buffer.put("[");
+                else buffer.put(", ");
+                formattedWrite(buffer, "%s->%s", i - 1, i);
+                degenerateSegmentIndices ~= i - 1;
+                hasDegenerateBaseline = true;
+            }
+        }
+        if (hasDegenerateBaseline) {
+            buffer.put("]");
+            pathLog("[PathDeformer][DegenerateBaseline] node=", name,
+                    " segments=", buffer.data,
+                    " epsilon=", segmentDegeneracyEpsilon,
+                    " points=", summarizePoints(points));
+            disablePhysicsDriver("degenerateBaseline");
+        }
     }
 
     override
@@ -121,7 +637,7 @@ protected:
             if (auto exc = data["dynamic_deformation"].deserializeValue(dynamic)) return exc;
 
         auto elements = data["vertices"].byElement;
-        vec2[] controlPoints;
+        Vec2Array controlPoints;
         while(!elements.empty) {
             float x;
             float y;
@@ -140,9 +656,12 @@ protected:
             case "Pendulum":
                 auto phys = new ConnectedPendulumDriver(this);
                 data["physics"].deserializeValue(phys);
-                _driver = phys;
+                driver = phys;
                 break;
             case "SpringPendulum":
+                auto spring = new ConnectedSpringPendulumDriver(this);
+                data["physics"].deserializeValue(spring);
+                driver = spring;
                 break;
             default:
                 break;
@@ -166,7 +685,7 @@ public:
     float[][Node] meshCaches;
     bool physicsOnly = false;
 
-    Curve createCurve(vec2[] points) {
+    Curve createCurve(Vec2Array points) {
         if (curveType == CurveType.Bezier) {
             return new BezierCurve(points);
         } else {
@@ -175,6 +694,11 @@ public:
     }
 
     PhysicsDriver createPhysics() {
+        if (hasDegenerateBaseline) {
+            pathLog("[PathDeformer][PhysicsDisabled] node=", name,
+                    " reason=degenerateBaseline");
+            return null;
+        }
         switch (physicsType) {
         case PhysicsType.SpringPendulum:
             return new ConnectedSpringPendulumDriver(this);
@@ -184,15 +708,16 @@ public:
     }
 
     override
-    ref vec2[] vertices() {
+    ref Vec2Array vertices() {
         return originalCurve.controlPoints;
     }
 
     this(Node parent = null, CurveType curveType = CurveType.Spline) {
         super(parent);
+        requirePreProcessTask();
         this.curveType = curveType;
-        originalCurve = createCurve([]);
-        deformedCurve = createCurve([]);
+        originalCurve = createCurve(Vec2Array());
+        deformedCurve = createCurve(Vec2Array());
         driver = null;
         prevRootSet = false;
     }
@@ -201,7 +726,7 @@ public:
     string typeId() { return "PathDeformer"; }
 
     override
-    void rebuffer(vec2[] originalControlPoints) {
+    void rebuffer(Vec2Array originalControlPoints) {
 
         this.originalCurve = createCurve(originalControlPoints);
         this.deformedCurve = createCurve(originalControlPoints);
@@ -209,74 +734,175 @@ public:
         clearCache();
         driverInitialized = false;
         prevCurve = originalCurve;
+        ensureDiagnosticCapacity(this.deformation.length);
+        checkBaselineDegeneracy(originalCurve.controlPoints);
+        logCurveState("rebuffer");
     }
 
     void driver(PhysicsDriver d) {
-        _driver = d;
-        if (_driver !is null) {
-            _driver.retarget(this);
+        if (_driver is d) {
+            if (_driver !is null) {
+                if (hasDegenerateBaseline) {
+                    disablePhysicsDriver("degenerateBaseline");
+                } else {
+                    _driver.retarget(this);
+                }
+            }
+            return;
         }
+        _driver = d;
+        driverInitialized = false;
+        prevRootSet = false;
+        if (_driver !is null) {
+            if (hasDegenerateBaseline) {
+                disablePhysicsDriver("degenerateBaseline");
+            } else {
+                _driver.retarget(this);
+            }
+        }
+        clearCache();
     }
     auto driver() {
         return _driver;
     }
 
+    private
+    void disablePhysicsDriver(string reason) {
+        if (_driver is null) return;
+        driverInitialized = false;
+        prevRootSet = false;
+        physicsOnly = false;
+        deformation[] = vec2(0, 0);
+        _driver.reset();
+    }
+    package(nijilive)
+    void reportPhysicsDegeneracy(string reason) {
+        disablePhysicsDriver(reason);
+    }
+    package(nijilive)
+    void reportDriverInvalid(string context, size_t index, vec2 value) {
+        if (index < deformation.length) {
+            deformation[index] = vec2(0, 0);
+        }
+    }
+
     override
-    void update() {
+    protected void runPreProcessTask(ref RenderContext ctx) {
+        // Child filters consume inverseMatrix during super.runPreProcessTask();
+        // ensure it reflects this frame's transform before they run.
+        if (diagnosticsFrameActive) {
+            endDiagnosticFrame();
+        }
+        bool diagnosticsStarted = beginDiagnosticFrame();
+        auto currentTransform = this.transform();
+        if (!matrixIsFinite(currentTransform.matrix)) {
+            logTransformFailure("runPreProcessTask:transform", currentTransform);
+            disablePhysicsDriver("transformInvalid");
+            return;
+        }
+        refreshInverseMatrix("runPreProcessTask:initial");
+        auto origDeform = deformation.dup;
+        super.runPreProcessTask(ctx);
+        applyPathDeform(origDeform);
+        if (diagnosticsStarted) {
+            endDiagnosticFrame();
+        }
+    }
+
+    override
+    protected void runDynamicTask(ref RenderContext ctx) {
+        super.runDynamicTask(ctx);
+    }
+
+    private void applyPathDeform(const Vec2Array origDeform) {
+        // Ensure global transform is fresh before using cached matrix values.
+        this.transform();
+        refreshInverseMatrix("applyPathDeform:pre");
+        sanitizeOffsets(deformation);
+
         if (driver) {
-            vec2[] origDeform = deformation.dup;
+            Vec2Array baseline = (origDeform.length == deformation.length) ? origDeform.dup : deformation.dup;
+            sanitizeOffsets(baseline);
             if (!driverInitialized && driver !is null && puppet !is null && puppet.enableDrivers ) {
                 driver.setup();
+                if (driver is null) {
+                    handleInvalidDeformation("applyPathDeform:setupDisabled", origDeform);
+                    return;
+                }
                 driverInitialized = true;
             }
-            preProcess();
-            vec2[] diffDeform = zip(origDeform, deformation).map!((t) => t[1] - t[0]).array;
+            Vec2Array diffDeform = deformation.dup;
+            diffDeform -= baseline;
+            sanitizeOffsets(diffDeform);
 
             if (vertices.length >= 2) {
-                prevCurve = createCurve(zip(vertices(), diffDeform).map!((t) => t[0] + t[1] ).array);
+                auto prevCandidate = vertices.dup;
+                prevCandidate += diffDeform;
+                prevCurve = createCurve(prevCandidate);
                 clearCache();
+                logCurveHealth("applyPathDeform:driverPrev", originalCurve, prevCurve, deformation);
                 if (driver !is null && puppet !is null && puppet.enableDrivers)
                     driver.updateDefaultShape();
-                deformStack.update();
+                if (driver is null) {
+                    handleInvalidDeformation("applyPathDeform:updateDefaultShapeDisabled", origDeform);
+                    return;
+                }
                 if (driver !is null && puppet !is null && puppet.enableDrivers) {
                     vec2 root;
+                    mat4 transformMatrix = requireFiniteMatrix(transform.matrix, "applyPathDeform:transform");
                     if (deformation.length > 0)
-                        root = (transform.matrix * vec4(vertices[0] + deformation[0], 0, 1)).xy;
+                        root = sanitizeVec2((transformMatrix * vec4(vertices[0] + deformation[0], 0, 1)).xy);
                     else
                         root = vec2(0, 0);
                     if (prevRootSet) {
-                        vec2 deform = root - prevRoot;
+                        vec2 deform = sanitizeVec2(root - prevRoot);
                         driver.reset();
                         driver.enforce(deform);
                         driver.rotate(transform.rotation.z);
                         if (physicsOnly) { // Tentative solution.
-                            vec2[] prevDeform = deformation.dup;
+                            Vec2Array prevDeform = deformation.dup;
                             driver.update();
-                            prevCurve = createCurve(vertices());
-                            deformation = zip(deformation, prevDeform).map!(t=>t[0] - t[1]).array;
+                            if (driver is null) {
+                                handleInvalidDeformation("applyPathDeform:updateDisabled", origDeform);
+                                return;
+                            }
+                            prevCurve = createCurve(vertices);
+                            logCurveHealth("applyPathDeform:physicsPrev", originalCurve, prevCurve, deformation);
+                            deformation -= prevDeform;
+                            sanitizeOffsets(deformation);
                         } else
                             driver.update();
+                        if (driver is null) {
+                            handleInvalidDeformation("applyPathDeform:updateDisabled", origDeform);
+                            return;
+                        }
                     }
                     prevRoot = root;
                     prevRootSet = true;
                 }
 
-                deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+                auto candidate = vertices.dup;
+                candidate += deformation;
+                sanitizeOffsets(candidate);
+                deform(candidate);
+                logCurveState("applyPathDeform");
             }
-            inverseMatrix = globalTransform.matrix.inverse;
+            refreshInverseMatrix("applyPathDeform:postDriver");
         } else {
-            preProcess();
 
             if (vertices.length >= 2) {
-                deformStack.update();
-                deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+                // If there is no driver, apply the current deformation as-is.
+                auto candidate = vertices.dup;
+                candidate += deformation;
+                sanitizeOffsets(candidate);
+                deform(candidate);
+                logCurveState("applyPathDeform");
             }
-            inverseMatrix = globalTransform.matrix.inverse;
+            refreshInverseMatrix("applyPathDeform:postNoDriver");
 
         }
 
-        Node.update();
-        this.updateDeform();
+        updateDeform();
     }
 
     override
@@ -364,68 +990,169 @@ public:
         children_ref = children_ref.removeByValue(target);
     }
 
+    override
+    protected void runRenderTask(ref RenderContext ctx) {
+        // PathDeformer does not enqueue GPU work.
+    }
+
     debug(path_deform) {
-        vec2[][Node] closestPointsDeformed; // debug code
-        vec2[][Node] closestPointsOriginal; // debug code
+        Vec2Array[Node] closestPointsDeformed; // debug code
+        Vec2Array[Node] closestPointsOriginal; // debug code
     }
     override
-    Tuple!(vec2[], mat4*, bool) deformChildren(Node target, vec2[] origVertices, vec2[] origDeformation, mat4* origTransform) {
+    Tuple!(Vec2Array, mat4*, bool) deformChildren(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         if (!originalCurve || vertices.length < 2) {
-            return Tuple!(vec2[], mat4*, bool)(null, null, false);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
+        bool diagnosticsStarted = beginDiagnosticFrame();
+        scope(exit) {
+            if (diagnosticsStarted) {
+                endDiagnosticFrame();
+            }
         }
         mat4 centerMatrix = inverseMatrix * (*origTransform);
+        centerMatrix = requireFiniteMatrix(centerMatrix, "deformChildren:centerMatrix:" ~ target.name);
+        sanitizeOffsets(origDeformation);
 
-        vec2[] cVertices;
-        vec2[] deformedClosestPointsA;
-        deformedClosestPointsA.length = origVertices.length;
-        vec2[] deformedVertices;
+        size_t vertexCount = origVertices.length;
+        Vec2Array cVertices;
+        Vec2Array deformedVertices;
         deformedVertices.length = origVertices.length;
+        if (origDeformation.length < origVertices.length) {
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
 
-        if (target !in meshCaches)
+        transformAssign(cVertices, origVertices, centerMatrix);
+        transformAdd(cVertices, origDeformation, centerMatrix);
+
+        auto deformLaneX = origDeformation.lane(0);
+        auto deformLaneY = origDeformation.lane(1);
+        auto origLaneX = origVertices.lane(0);
+        auto origLaneY = origVertices.lane(1);
+        auto centerLaneX = cVertices.lane(0);
+        auto centerLaneY = cVertices.lane(1);
+        auto invalidCenterIdx = firstNonFiniteIndex(cVertices);
+        if (invalidCenterIdx >= 0) {
+            vec2 deformationValue = vec2(deformLaneX[invalidCenterIdx], deformLaneY[invalidCenterIdx]);
+            markInvalidOffset("deformChildren:cVertexNaN", invalidCenterIdx, deformationValue);
+            pathLog("[PathDeformer][CurveDiag] node=", name,
+                    " context=deformChildren:cVertexNaN",
+                    " index=", invalidCenterIdx,
+                    " vertex=", formatVec2(vec2(origLaneX[invalidCenterIdx], origLaneY[invalidCenterIdx])),
+                    " deformation=", formatVec2(deformationValue),
+                    " target=", target.name);
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
+
+        if (target !in meshCaches || meshCaches[target].length < vertexCount)
             cacheClosestPoints(target);
-        foreach (i, vertex; origVertices) {
-            vec2 cVertex;
-            cVertex = vec2(centerMatrix * vec4(vertex + origDeformation[i], 0, 1));
-            cVertices ~= cVertex;
-
-            float t;
-            if (target !in meshCaches || i>= meshCaches[target].length ) {
-                meshCaches.remove(target);
-                cacheClosestPoints(target);
-            }
-            t = meshCaches[target][i];
-            vec2 closestPointOriginal = (prevCurve? prevCurve: originalCurve).point(t);
-            debug(path_deform) closestPointsOriginal[target] ~= closestPointOriginal; // debug code
-            vec2 tangentOriginal = (prevCurve? prevCurve: originalCurve).derivative(t).normalized;
-            vec2 normalOriginal = vec2(-tangentOriginal.y, tangentOriginal.x);
-            float originalNormalDistance = dot(cVertex - closestPointOriginal, normalOriginal); 
-            float tangentialDistance = dot(cVertex - closestPointOriginal, tangentOriginal);
-
-            // Find the corresponding point on the deformed Bezier curve
-            vec2 closestPointDeformedA = deformedCurve.point(t); // 修正: deformedCurve を使用
-            debug(path_deform) closestPointsDeformed[target] ~= closestPointDeformedA; // debug code
-            vec2 tangentDeformed = deformedCurve.derivative(t).normalized; // 修正: deformedCurve を使用
-            vec2 normalDeformed = vec2(-tangentDeformed.y, tangentDeformed.x);
-
-            // Adjust the vertex to maintain the same normal and tangential distances
-            vec2 deformedVertex = closestPointDeformedA + normalDeformed * originalNormalDistance + tangentDeformed * tangentialDistance;
-
-            deformedVertices[i] = deformedVertex;
-            deformedClosestPointsA[i] = closestPointOriginal;
+        if (target !in meshCaches || meshCaches[target].length < vertexCount) {
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
         }
 
-        foreach (i, cVertex; cVertices) {
-            mat4 inv = centerMatrix.inverse;
-            inv[0][3] = 0;
-            inv[1][3] = 0;
-            inv[2][3] = 0;
-            origDeformation[i] += (inv * vec4(deformedVertices[i] - cVertex, 0, 1)).xy;
+        float[] tSamples;
+        tSamples.length = vertexCount;
+        tSamples[] = meshCaches[target][0 .. vertexCount];
+
+        Vec2Array closestOriginal;
+        auto baseCurve = prevCurve ? prevCurve : originalCurve;
+        baseCurve.evaluatePoints(tSamples, closestOriginal);
+
+        Vec2Array closestDeformed;
+        deformedCurve.evaluatePoints(tSamples, closestDeformed);
+
+        Vec2Array tangentOriginalRaw;
+        baseCurve.evaluateDerivatives(tSamples, tangentOriginalRaw);
+
+        Vec2Array tangentDeformedRaw;
+        deformedCurve.evaluateDerivatives(tSamples, tangentDeformedRaw);
+
+        debug(path_deform) {
+            closestPointsOriginal[target] = closestOriginal.dup;
+            closestPointsDeformed[target] = closestDeformed.dup;
         }
+
+        auto closestOrigX = closestOriginal.lane(0);
+        auto closestOrigY = closestOriginal.lane(1);
+        auto closestDefX = closestDeformed.lane(0);
+        auto closestDefY = closestDeformed.lane(1);
+
+        auto invalidIdx = firstNonFiniteIndex(closestDeformed);
+        if (invalidIdx >= 0) {
+            vec2 deformationValue = vec2(deformLaneX[invalidIdx], deformLaneY[invalidIdx]);
+            markInvalidOffset("deformChildren:closestPointDeformedNaN", invalidIdx, deformationValue);
+            pathLog("[PathDeformer][CurveDiag] node=", name,
+                    " context=closestPointDeformedNaN",
+                    " t=", tSamples[invalidIdx],
+                    " centerVertex=", formatVec2(vec2(centerLaneX[invalidIdx], centerLaneY[invalidIdx])),
+                    " origPoint=", formatVec2(vec2(closestOrigX[invalidIdx], closestOrigY[invalidIdx])),
+                    " deformedPoint=", formatVec2(vec2(closestDefX[invalidIdx], closestDefY[invalidIdx])),
+                    " deformation=", deformationSnapshot());
+            return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, false);
+        }
+
+        Vec2Array tangentOriginal = tangentOriginalRaw.dup;
+        normalizeVec2ArrayWithConstantFallback(
+            tangentOriginal,
+            tangentEpsilon,
+            vec2(1, 0),
+            (idx) {
+                pathLog("[PathDeformer][CurveDiag] node=", name,
+                        " context=tangentOriginalDegenerate",
+                        " t=", tSamples[idx],
+                        " controlPoints=", summarizePoints(baseCurve.controlPoints));
+            });
+
+        Vec2Array tangentDeformed = tangentDeformedRaw.dup;
+        normalizeVec2ArrayWithArrayFallback(
+            tangentDeformed,
+            tangentEpsilon,
+            tangentOriginal,
+            (idx) {
+                pathLog("[PathDeformer][CurveDiag] node=", name,
+                        " context=tangentDeformedDegenerate",
+                        " t=", tSamples[idx],
+                        " controlPoints=", summarizePoints(deformedCurve.controlPoints));
+            });
+
+        Vec2Array normalOriginal;
+        rotateVec2TangentsToNormals(normalOriginal, tangentOriginal);
+        Vec2Array normalDeformed;
+        rotateVec2TangentsToNormals(normalDeformed, tangentDeformed);
+
+        float[] normalDistances;
+        float[] tangentialDistances;
+        normalDistances.length = vertexCount;
+        tangentialDistances.length = vertexCount;
+
+        projectVec2OntoAxes(
+            cVertices,
+            closestOriginal,
+            normalOriginal,
+            tangentOriginal,
+            normalDistances,
+            tangentialDistances);
+
+        composeVec2FromAxes(
+            deformedVertices,
+            closestDeformed,
+            normalDistances,
+            normalDeformed,
+            tangentialDistances,
+            tangentDeformed);
+
+        mat4 invCenter = safeInverse(centerMatrix, "deformChildren:centerInverse:" ~ target.name);
+        invCenter[0][3] = 0;
+        invCenter[1][3] = 0;
+        invCenter[2][3] = 0;
+        Vec2Array offsetLocal = deformedVertices.dup;
+        offsetLocal -= cVertices;
+        transformAdd(origDeformation, offsetLocal, invCenter, offsetLocal.length);
 
         if (driver) {
             target.notifyChange(target);
         }
-        return Tuple!(vec2[], mat4*, bool)(origDeformation, null, true);
+        return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, true);
     }
 
     override
@@ -442,18 +1169,30 @@ public:
             return;
         }
 
-        void update(vec2[] deformation) {
-            if (vertices.length >= 2) {
-                deform(zip(vertices(), deformation).map!((t) => t[0] + t[1] ).array);
+        bool diagnosticsStarted = beginDiagnosticFrame();
+        scope(exit) {
+            if (diagnosticsStarted) {
+                endDiagnosticFrame();
             }
-            inverseMatrix = globalTransform.matrix.inverse;
+        }
+
+        void update(Vec2Array deformation) {
+            sanitizeOffsets(deformation);
+            if (vertices.length >= 2) {
+                Vec2Array candidate = vertices.dup;
+                candidate += deformation;
+                sanitizeOffsets(candidate);
+                deform(candidate);
+                logCurveState("applyDeformToChildren");
+            }
+            refreshInverseMatrix("applyDeformToChildren:update");
         }
 
         bool transfer() { return false; }
 
         _applyDeformToChildren(tuple(1, &deformChildren), &update, &transfer, params, recursive);
         physicsOnly = true;
-        rebuffer([]);
+        rebuffer(Vec2Array());
     }
 
     override
@@ -463,7 +1202,7 @@ public:
         }
 
         vec4 bounds;
-        vec4[] childTranslations;
+        Vec4Array childTranslations;
         if (children.length > 0) {
             bounds = children[0].getCombinedBounds();
             foreach (child; children) {
@@ -539,4 +1278,57 @@ public:
             build();
         }
     }
+
+    private string deformationSnapshot() {
+        return summarizePoints(deformation);
+    }
+
+private:
+    int firstNonFiniteIndex(const Vec2Array data) const {
+        auto laneX = data.lane(0);
+        auto laneY = data.lane(1);
+        foreach (i; 0 .. data.length) {
+            if (!laneX[i].isFinite || !laneY[i].isFinite) {
+                return cast(int)i;
+            }
+        }
+        return -1;
+    }
+
+    void normalizeVec2ArrayWithConstantFallback(ref Vec2Array data, float epsilon, vec2 fallback, scope void delegate(size_t) onFallback) {
+        auto laneX = data.lane(0);
+        auto laneY = data.lane(1);
+        foreach (i; 0 .. data.length) {
+            float lenSq = laneX[i] * laneX[i] + laneY[i] * laneY[i];
+            if (lenSq > epsilon) {
+                float invLen = 1.0f / sqrt(lenSq);
+                laneX[i] *= invLen;
+                laneY[i] *= invLen;
+            } else {
+                laneX[i] = fallback.x;
+                laneY[i] = fallback.y;
+                if (onFallback !is null) onFallback(i);
+            }
+        }
+    }
+
+    void normalizeVec2ArrayWithArrayFallback(ref Vec2Array data, float epsilon, const Vec2Array fallback, scope void delegate(size_t) onFallback) {
+        auto laneX = data.lane(0);
+        auto laneY = data.lane(1);
+        auto fallbackX = fallback.lane(0);
+        auto fallbackY = fallback.lane(1);
+        foreach (i; 0 .. data.length) {
+            float lenSq = laneX[i] * laneX[i] + laneY[i] * laneY[i];
+            if (lenSq > epsilon) {
+                float invLen = 1.0f / sqrt(lenSq);
+                laneX[i] *= invLen;
+                laneY[i] *= invLen;
+            } else {
+                laneX[i] = fallbackX[i];
+                laneY[i] = fallbackY[i];
+                if (onFallback !is null) onFallback(i);
+            }
+        }
+    }
+
 }

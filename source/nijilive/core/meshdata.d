@@ -20,13 +20,13 @@ struct MeshData {
     /**
         Vertices in the mesh
     */
-    vec2[] vertices;
+    Vec2Array vertices;
 
     /**
         Base uvs
     */
     @Optional
-    vec2[] uvs;
+    Vec2Array uvs;
 
     /**
         Indices in the mesh
@@ -78,7 +78,12 @@ struct MeshData {
         Whether the mesh data is ready to be used
     */
     bool isReady() {
-        return indices.length != 0 && indices.length % 3 == 0;
+        if (indices.length == 0 || indices.length % 3 != 0) return false;
+        size_t maxIdx = 0;
+        foreach (idx; indices) {
+            if (idx > maxIdx) maxIdx = idx;
+        }
+        return maxIdx < vertices.length;
     }
 
     /**
@@ -135,12 +140,10 @@ struct MeshData {
         MeshData newData;
 
         // Copy verts
-        newData.vertices.length = vertices.length;
-        newData.vertices[] = vertices[];
+        newData.vertices = vertices.dup;
 
         // Copy UVs
-        newData.uvs.length = uvs.length;
-        newData.uvs[] = uvs[];
+        newData.uvs = uvs.dup;
 
         // Copy UVs
         newData.indices.length = indices.length;
