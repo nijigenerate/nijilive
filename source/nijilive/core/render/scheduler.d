@@ -60,8 +60,8 @@ public:
         orderSequence = [TaskOrder.Init, TaskOrder.Parameters,
                          TaskOrder.PreProcess, TaskOrder.Dynamic,
                          TaskOrder.Post0, TaskOrder.Post1, TaskOrder.Post2,
-                         TaskOrder.RenderBegin, TaskOrder.Render, TaskOrder.RenderEnd,
-                         TaskOrder.Final];
+                         TaskOrder.Final,
+                         TaskOrder.RenderBegin, TaskOrder.Render, TaskOrder.RenderEnd];
         foreach (order; orderSequence) {
             queues[order] = [];
         }

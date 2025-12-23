@@ -357,6 +357,50 @@ protected:
         }
     }
 
+    private Transform fullTransform() {
+        localTransform.update();
+        offsetTransform.update();
+        if (lockToRoot()) {
+            Transform trans = (puppet !is null && puppet.root !is null)
+                ? puppet.root.localTransform
+                : Transform(vec3(0, 0, 0));
+            return localTransform.calcOffset(offsetTransform) * trans;
+        }
+        if (parent !is null) {
+            if (auto parentDyn = cast(DynamicComposite)parent) {
+                return localTransform.calcOffset(offsetTransform) * parentDyn.fullTransform();
+            }
+            return localTransform.calcOffset(offsetTransform) * parent.transform();
+        }
+        return localTransform.calcOffset(offsetTransform);
+    }
+
+    private mat4 fullTransformMatrix() {
+        return fullTransform().matrix;
+    }
+
+    private vec4 boundsFromMatrix(Part child, const mat4 matrix) {
+        float tx = matrix[0][3];
+        float ty = matrix[1][3];
+        vec4 bounds = vec4(tx, ty, tx, ty);
+        if (child.vertices.length == 0) {
+            return bounds;
+        }
+        auto deform = child.deformation;
+        foreach (i, vertex; child.vertices) {
+            vec2 localVertex = vertex;
+            if (i < deform.length) {
+                localVertex += deform[i];
+            }
+            vec2 vertOriented = vec2(matrix * vec4(localVertex, 0, 1));
+            bounds.x = min(bounds.x, vertOriented.x);
+            bounds.y = min(bounds.y, vertOriented.y);
+            bounds.z = max(bounds.z, vertOriented.x);
+            bounds.w = max(bounds.w, vertOriented.y);
+        }
+        return bounds;
+    }
+
     vec4 getChildrenBounds(bool forceUpdate = true) {
         auto frameId = currentDynamicCompositeFrame();
         if (useMaxChildrenBounds) {
@@ -369,7 +413,29 @@ protected:
         if (forceUpdate) {
             foreach (p; subParts) p.updateBounds();
         }
-        auto bounds = mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
+        vec4 bounds;
+        if (autoResizedMesh) {
+            auto correction = fullTransformMatrix() * transform.matrix.inverse;
+            bool hasBounds = false;
+            foreach (part; subParts) {
+                auto childMatrix = correction * part.transform.matrix;
+                auto childBounds = boundsFromMatrix(part, childMatrix);
+                if (!hasBounds) {
+                    bounds = childBounds;
+                    hasBounds = true;
+                } else {
+                    bounds.x = min(bounds.x, childBounds.x);
+                    bounds.y = min(bounds.y, childBounds.y);
+                    bounds.z = max(bounds.z, childBounds.z);
+                    bounds.w = max(bounds.w, childBounds.w);
+                }
+            }
+            if (!hasBounds) {
+                bounds = transform.translation.xyxy;
+            }
+        } else {
+            bounds = mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
+        }
         if (!useMaxChildrenBounds) {
             maxChildrenBounds = bounds;
         }
@@ -378,7 +444,7 @@ protected:
 
     void enableMaxChildrenBounds(Node target = null) {
         Drawable targetDrawable = cast(Drawable)target;
-        if (targetDrawable !is null) {
+        if (targetDrawable !is null && !autoResizedMesh) {
             targetDrawable.updateBounds();
         }
         auto frameId = currentDynamicCompositeFrame();
@@ -388,7 +454,17 @@ protected:
             maxChildrenBounds = getChildrenBounds(true);
         }
         if (targetDrawable !is null) {
-            auto b = targetDrawable.bounds;
+            vec4 b;
+            if (autoResizedMesh) {
+                if (auto targetPart = cast(Part)targetDrawable) {
+                    auto correction = fullTransformMatrix() * transform.matrix.inverse;
+                    b = boundsFromMatrix(targetPart, correction * targetPart.transform.matrix);
+                } else {
+                    b = targetDrawable.bounds;
+                }
+            } else {
+                b = targetDrawable.bounds;
+            }
             maxChildrenBounds.x = min(maxChildrenBounds.x, b.x);
             maxChildrenBounds.y = min(maxChildrenBounds.y, b.y);
             maxChildrenBounds.z = max(maxChildrenBounds.z, b.z);
@@ -513,28 +589,13 @@ public:
     @Ignore
     override
     Transform transform() {
+        auto trans = super.transform();
         if (autoResizedMesh) {
-            if (recalculateTransform) {
-                localTransform.update();
-                offsetTransform.update();
-
-                if (lockToRoot())
-                    globalTransform = localTransform.calcOffset(offsetTransform) * puppet.root.localTransform;
-                else if (parent !is null)
-                    globalTransform = localTransform.calcOffset(offsetTransform) * parent.transform;
-                else
-                    globalTransform = localTransform.calcOffset(offsetTransform);
-
-                globalTransform.rotation = vec3(0, 0, 0);
-                globalTransform.scale = vec2(1, 1);
-                globalTransform.update();
-                recalculateTransform = false;
-            }
-
-            return globalTransform;
-        } else {
-            return super.transform();
+            trans.rotation = vec3(0, 0, 0);
+            trans.scale = vec2(1, 1);
+            trans.update();
         }
+        return trans;
     }
 
     override
@@ -595,8 +656,12 @@ public:
         tmp[0][3] -= textureOffset.x;
         tmp[1][3] -= textureOffset.y;
         setOneTimeTransform(&tmp);
+        auto correction = fullTransformMatrix() * transform.matrix.inverse;
         foreach (Part child; subParts) {
+            auto childMatrix = correction * child.transform.matrix;
+            child.setOffscreenModelMatrix(childMatrix);
             child.drawOne();
+            child.clearOffscreenModelMatrix();
         }
         setOneTimeTransform(original);
 
@@ -703,9 +768,11 @@ public:
         auto basis = transform.matrix.inverse;
         auto translate = mat4.translation(-textureOffset.x, -textureOffset.y, 0);
         auto childBasis = translate * basis;
+        auto correction = fullTransformMatrix() * transform.matrix.inverse;
 
         foreach (Part child; subParts) {
-            auto finalMatrix = childBasis * child.transform.matrix();
+            auto childMatrix = correction * child.transform.matrix;
+            auto finalMatrix = childBasis * childMatrix;
             child.setOffscreenModelMatrix(finalMatrix);
             if (auto dynChild = cast(DynamicComposite)child) {
                 dynChild.renderNestedOffscreen(ctx);
@@ -927,11 +994,12 @@ public:
     void onAncestorChanged(Node target, NotifyReason reason) {
         if (autoResizedMesh) {
             if (reason == NotifyReason.Transformed) {
-                if (prevTranslation != transform.translation || prevRotation != transform.rotation || prevScale != transform.scale) {
+                auto full = fullTransform();
+                if (prevTranslation != full.translation || prevRotation != full.rotation || prevScale != full.scale) {
                     deferredChanged = true;
-                    prevTranslation = transform.translation;
-                    prevRotation    = transform.rotation;
-                    prevScale       = transform.scale;
+                    prevTranslation = full.translation;
+                    prevRotation    = full.rotation;
+                    prevScale       = full.scale;
                     invalidateChildrenBounds();
                 }
             }
