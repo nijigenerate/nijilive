@@ -32,6 +32,7 @@ protected:
         puppet.root.parent(cast(Node)dcomposite);
         dcomposite.setPuppet(puppet);
         puppet.rescanNodes();
+        puppet.requestFullRenderRebuild();
         dcomposite.build();
     }
 
@@ -63,9 +64,9 @@ public:
 
     Texture capture() {
         snapshotPuppet.rescanNodes();
+        snapshotPuppet.requestFullRenderRebuild();
         dcomposite.setupSelf();
-//        dcomposite.autoResizedMesh = false;
-//        dcomposite.draw();
+        dcomposite.draw();
         auto tex = dcomposite.textures[0];
         return tex;
     }
