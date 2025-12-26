@@ -174,6 +174,7 @@ protected:
         auto scale = appliedAutoScale();
         pass.scale = vec2(transform.scale.x * scale.x, transform.scale.y * scale.y);
         pass.rotationZ = transform.rotation.z;
+        pass.autoScaled = effectiveAutoScaled();
         return pass;
     }
 

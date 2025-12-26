@@ -97,6 +97,7 @@ class DynamicCompositePass {
     float rotationZ;
     RenderResourceHandle origBuffer;
     int[4] origViewport;
+    bool autoScaled;
 }
 
 PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {
@@ -206,5 +207,4 @@ CompositeDrawPacket makeCompositeDrawPacket(Composite composite) {
     }
     return packet;
 }
-
 
