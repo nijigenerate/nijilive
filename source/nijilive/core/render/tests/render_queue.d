@@ -109,24 +109,9 @@ final class RecordingEmitter : RenderCommandEmitter {
         commands ~= cmd;
     }
 
-    void beginComposite(Composite) {
-        RecordedCommand cmd;
-        cmd.kind = RenderCommandKind.BeginComposite;
-        commands ~= cmd;
-    }
-
-    void drawCompositeQuad(Composite composite) {
-        RecordedCommand cmd;
-        cmd.kind = RenderCommandKind.DrawCompositeQuad;
-        cmd.compositePacket = makeCompositeDrawPacket(composite);
-        commands ~= cmd;
-    }
-
-    void endComposite(Composite) {
-        RecordedCommand cmd;
-        cmd.kind = RenderCommandKind.EndComposite;
-        commands ~= cmd;
-    }
+    void beginComposite(Composite) {}
+    void drawCompositeQuad(Composite) {}
+    void endComposite(Composite) {}
 }
 
 shared static this() {

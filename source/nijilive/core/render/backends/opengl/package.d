@@ -3,7 +3,7 @@ module nijilive.core.render.backends.opengl;
 version (InDoesRender) {
 
 import nijilive.core.render.backends;
-import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
+import nijilive.core.render.commands : PartDrawPacket, MaskApplyPacket,
     MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.common : BlendMode;
@@ -15,17 +15,11 @@ import nijilive.core.render.backends.opengl.runtime :
     oglEndScene,
     oglPostProcessScene,
     oglAddBasicLightingPostProcess,
-    oglBeginComposite,
-    oglEndComposite,
     oglGetFramebuffer,
     oglGetRenderImage,
-    oglGetCompositeFramebuffer,
-    oglGetCompositeImage,
     oglGetMainAlbedo,
     oglGetMainEmissive,
     oglGetMainBump,
-    oglGetCompositeEmissive,
-    oglGetCompositeBump,
     oglGetBlendFramebuffer,
     oglGetBlendAlbedo,
     oglGetBlendEmissive,
@@ -53,7 +47,6 @@ import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvalua
 import nijilive.core.render.backends.opengl.part :
     oglDrawPartPacket,
     oglInitPartBackendResources;
-import nijilive.core.render.backends.opengl.composite : oglDrawCompositeQuad;
 import nijilive.core.render.backends.opengl.mask :
     oglExecuteMaskApplyPacket,
     oglExecuteMaskPacket,
@@ -278,20 +271,6 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         auto profile = profileScope("EndMask");
         oglEndMask();
     }
-    void beginComposite() {
-        auto profile = profileScope("BeginComposite");
-        oglBeginComposite();
-    }
-
-    void drawCompositeQuad(ref CompositeDrawPacket packet) {
-        auto profile = profileScope("DrawComposite");
-        oglDrawCompositeQuad(packet);
-    }
-
-    void endComposite() {
-        auto profile = profileScope("EndComposite");
-        oglEndComposite();
-    }
 
     void drawTextureAtPart(Texture texture, Part part) {
         oglDrawTextureAtPart(texture, part);
@@ -316,14 +295,6 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         return cast(RenderResourceHandle)oglGetRenderImage();
     }
 
-    RenderResourceHandle compositeFramebufferHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeFramebuffer();
-    }
-
-    RenderResourceHandle compositeImageHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeImage();
-    }
-
     RenderResourceHandle mainAlbedoHandle() {
         return cast(RenderResourceHandle)oglGetMainAlbedo();
     }
@@ -334,14 +305,6 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
 
     RenderResourceHandle mainBumpHandle() {
         return cast(RenderResourceHandle)oglGetMainBump();
-    }
-
-    RenderResourceHandle compositeEmissiveHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeEmissive();
-    }
-
-    RenderResourceHandle compositeBumpHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeBump();
     }
 
     RenderResourceHandle blendFramebufferHandle() {

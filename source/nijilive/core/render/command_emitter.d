@@ -24,8 +24,5 @@ interface RenderCommandEmitter {
     void applyMask(Drawable drawable, bool isDodge);
     void beginMaskContent();
     void endMask();
-    void beginComposite(Composite composite);
-    void drawCompositeQuad(Composite composite);
-    void endComposite(Composite composite);
     void endFrame(RenderBackend backend, ref RenderGpuState state);
 }

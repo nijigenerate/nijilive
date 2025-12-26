@@ -4,7 +4,7 @@ import std.exception : enforce;
 
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.common : BlendMode;
-import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
+import nijilive.core.render.commands : PartDrawPacket, MaskApplyPacket,
     MaskDrawPacket, DynamicCompositeSurface, DynamicCompositePass;
 import nijilive.core.meshdata : MeshData;
 import nijilive.core.texture : Texture;
@@ -94,9 +94,6 @@ class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.O
     void applyMask(ref MaskApplyPacket packet) { backendUnsupported(__FUNCTION__); }
     void beginMaskContent() { backendUnsupported(__FUNCTION__); }
     void endMask() { backendUnsupported(__FUNCTION__); }
-    void beginComposite() { backendUnsupported(__FUNCTION__); }
-    void drawCompositeQuad(ref CompositeDrawPacket packet) { backendUnsupported(__FUNCTION__); }
-    void endComposite() { backendUnsupported(__FUNCTION__); }
     void drawTextureAtPart(Texture texture, Part part) { backendUnsupported(__FUNCTION__); }
     void drawTextureAtPosition(Texture texture, vec2 position, float opacity,
                                vec3 color, vec3 screenColor) { backendUnsupported(__FUNCTION__); }
@@ -105,13 +102,13 @@ class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.O
                            Shader shader = null, Camera cam = null) { backendUnsupported(__FUNCTION__); }
     uint framebufferHandle() { return backendUnsupported!uint(__FUNCTION__); }
     uint renderImageHandle() { return backendUnsupported!uint(__FUNCTION__); }
-    uint compositeFramebufferHandle() { return backendUnsupported!uint(__FUNCTION__); }
-    uint compositeImageHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint compositeFramebufferHandle() { return 0; }
+    uint compositeImageHandle() { return 0; }
     uint mainAlbedoHandle() { return backendUnsupported!uint(__FUNCTION__); }
     uint mainEmissiveHandle() { return backendUnsupported!uint(__FUNCTION__); }
     uint mainBumpHandle() { return backendUnsupported!uint(__FUNCTION__); }
-    uint compositeEmissiveHandle() { return backendUnsupported!uint(__FUNCTION__); }
-    uint compositeBumpHandle() { return backendUnsupported!uint(__FUNCTION__); }
+    uint compositeEmissiveHandle() { return 0; }
+    uint compositeBumpHandle() { return 0; }
     uint blendFramebufferHandle() { return backendUnsupported!uint(__FUNCTION__); }
     uint blendAlbedoHandle() { return backendUnsupported!uint(__FUNCTION__); }
     uint blendEmissiveHandle() { return backendUnsupported!uint(__FUNCTION__); }

@@ -103,10 +103,6 @@ private:
         }
 
         RenderCommandBuilder builder = (RenderCommandEmitter emitter) {
-            emitter.beginComposite(compositeNode);
-            playbackItems(childItems, emitter);
-            emitter.endComposite(compositeNode);
-
             if (hasMasks) {
                 emitter.beginMask(maskUsesStencil);
                 foreach (binding; maskBindings) {
@@ -123,7 +119,7 @@ private:
                 emitter.beginMaskContent();
             }
 
-            emitter.drawCompositeQuad(compositeNode);
+            playbackItems(childItems, emitter);
 
             if (hasMasks) {
                 emitter.endMask();

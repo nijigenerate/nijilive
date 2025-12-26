@@ -24,7 +24,7 @@ import nijilive.core.render.backends.directx12.pso_cache : PartPipelineState, Pa
     MaskPipelineState, CompositePipelineState, QuadPipelineState;
 import nijilive.core.render.backends.directx12.dxhelpers;
 import nijilive.core.runtime_state : inGetCamera, inGetClearColor;
-import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
+import nijilive.core.render.commands : PartDrawPacket, MaskApplyPacket,
     MaskDrawPacket, DynamicCompositeSurface, DynamicCompositePass;
 import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.nodes.part : Part;
@@ -427,41 +427,9 @@ public:
         maskStage = MaskStage.none;
         maskStencilRef = 1;
     }
-    void beginComposite() {
-        if (!rendererInitialized) return;
-        auto targetScope = makeCompositeScope();
-        pushScope(targetScope);
-        clearCompositeTargets();
-    }
-    void drawCompositeQuad(ref CompositeDrawPacket packet) {
-        if (!rendererInitialized || !packet.valid) return;
-        auto cmdList = device.commandList();
-        if (cmdList is null) return;
-        auto rootSig = partRootSignature.value();
-        auto pipeline = compositePso.value();
-        if (rootSig is null || pipeline is null) return;
-
-        cmdList.SetGraphicsRootSignature(rootSig);
-        ID3D12DescriptorHeap[] descriptorHeaps = [cbvSrvUavHeap.heapHandle()];
-        cmdList.SetDescriptorHeaps(descriptorHeaps.length, descriptorHeaps.ptr);
-        cmdList.SetGraphicsRootDescriptorTable(0, sharedBufferDescriptorTable.gpuHandle);
-        cmdList.SetGraphicsRootDescriptorTable(1, renderTargets.compositeSrvHandle(0));
-
-        PartPixelConstants pixelConsts;
-        pixelConsts.tint = vec4(packet.tint, packet.opacity);
-        pixelConsts.screen = vec4(packet.screenTint, packet.opacity);
-        pixelConsts.extra = vec4(0, 0, 0, 0);
-        auto pixelGpu = constantBufferRing.upload(&pixelConsts, PartPixelConstants.sizeof);
-        cmdList.SetGraphicsRootConstantBufferView(3, pixelGpu);
-
-        cmdList.SetPipelineState(pipeline);
-        cmdList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        cmdList.DrawInstanced(6, 1, 0, 0);
-    }
-    void endComposite() {
-        if (!rendererInitialized) return;
-        popScope();
-    }
+    void beginComposite() {}
+    void drawCompositeQuad(ref CompositeDrawPacket) {}
+    void endComposite() {}
 
     void drawTextureAtPart(Texture texture, Part part) {
         if (texture is null || part is null) return;

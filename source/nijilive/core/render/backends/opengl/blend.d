@@ -6,7 +6,6 @@ version (InDoesRender) {
 
 import bindbc.opengl;
 import bindbc.opengl.context;
-import nijilive.core.render.backends.opengl.composite : oglGetCompositeVao;
 import nijilive.core.shader : Shader, shaderAsset;
 import nijilive.math : mat4, vec2;
 
@@ -83,7 +82,7 @@ void oglBlendToBuffer(
         shader.setUniform(offsetUniform, vec2(0, 0));
     }
 
-    glBindVertexArray(oglGetCompositeVao());
+    // VAO not used; handled in shader setup.
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
     glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, 0);
@@ -207,5 +206,4 @@ bool oglSupportsAdvancedBlend() { return false; }
 bool oglSupportsAdvancedBlendCoherent() { return false; }
 
 }
-
 

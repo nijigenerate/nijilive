@@ -3,13 +3,11 @@ module nijilive.core.render.backends.opengl.queue;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.mask : Mask;
 import nijilive.core.nodes.drawable : Drawable;
-import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.commands :
     makePartDrawPacket,
     makeMaskDrawPacket,
-    makeCompositeDrawPacket,
     tryMakeMaskApplyPacket,
     DynamicCompositePass,
     MaskApplyPacket;
@@ -130,21 +128,6 @@ public:
         activeBackend.endMask();
     }
 
-    void beginComposite(Composite) {
-        if (!ready()) return;
-        activeBackend.beginComposite();
-    }
-
-    void drawCompositeQuad(Composite composite) {
-        if (!ready() || composite is null) return;
-        auto packet = makeCompositeDrawPacket(composite);
-        activeBackend.drawCompositeQuad(packet);
-    }
-
-    void endComposite(Composite) {
-        if (!ready()) return;
-        activeBackend.endComposite();
-    }
 }
 
 } else {
@@ -159,9 +142,6 @@ final class RenderQueue : RenderCommandEmitter {
     void applyMask(Drawable, bool) {}
     void beginMaskContent() {}
     void endMask() {}
-    void beginComposite(Composite) {}
-    void drawCompositeQuad(Composite) {}
-    void endComposite(Composite) {}
     void endFrame(RenderBackend, ref RenderGpuState) {}
 }
 
