@@ -131,10 +131,6 @@ private:
         };
 
         addItemToPass(passStack[parentIndex], pass.scopeZSort, builder);
-
-        if (autoClose && compositeNode !is null) {
-            compositeNode.markCompositeScopeClosed();
-        }
     }
 
     void finalizeDynamicCompositePass(bool autoClose, RenderCommandBuilder postCommands = null) {
@@ -224,10 +220,6 @@ private:
                 auto idx = findPassIndex(dyn.dynamicScopeTokenValue(), RenderPassKind.DynamicComposite);
                 if (idx > 0) return idx;
             }
-            if (auto comp = cast(Composite)ancestor) {
-                auto idx = findPassIndex(comp.compositeScopeTokenValue(), RenderPassKind.Composite);
-                if (idx > 0) return idx;
-            }
             ancestor = ancestor.parent;
         }
         return 0;
@@ -239,10 +231,6 @@ private:
         while (ancestor !is null) {
             if (auto dyn = cast(DynamicComposite)ancestor) {
                 auto idx = findPassIndex(dyn.dynamicScopeTokenValue(), RenderPassKind.DynamicComposite);
-                if (idx > 0) return idx;
-            }
-            if (auto comp = cast(Composite)ancestor) {
-                auto idx = findPassIndex(comp.compositeScopeTokenValue(), RenderPassKind.Composite);
                 if (idx > 0) return idx;
             }
             ancestor = ancestor.parent;

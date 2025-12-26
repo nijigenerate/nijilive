@@ -1014,11 +1014,6 @@ public:
                 }
                 return RenderScopeHint.skipHint();
             }
-            if (auto comp = cast(Composite)current) {
-                if (comp.isCompositeScopeActive()) {
-                    return RenderScopeHint.forComposite(comp.compositeScopeTokenValue());
-                }
-            }
             current = current.parent;
         }
         return RenderScopeHint.root();
