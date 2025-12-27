@@ -66,6 +66,28 @@ public:
         sort!((a, b) => a.zSort > b.zSort)(subParts);
     }
 
+    // Ensure puppet transform can be ignored when rendering children offscreen.
+    void setIgnorePuppetRecurse(Node node, bool ignorePuppet) {
+        if (Part part = cast(Part)node) {
+            part.ignorePuppet = ignorePuppet;
+            foreach (child; node.children) {
+                setIgnorePuppetRecurse(child, ignorePuppet);
+            }
+        } else {
+            foreach (child; node.children) {
+                setIgnorePuppetRecurse(child, ignorePuppet);
+            }
+        }
+    }
+
+    void setIgnorePuppet(bool ignorePuppet) {
+        foreach (child; children) {
+            setIgnorePuppetRecurse(child, ignorePuppet);
+        }
+        if (puppet !is null)
+            puppet.rescanNodes();
+    }
+
     void scanPartsRecurse(ref Node node) {
 
         // Don't need to scan null nodes
@@ -98,27 +120,6 @@ public:
     // setup Children to project image to DynamicComposite
     //  - Part: ignore transform by puppet.
     //  - Compose: use internal DynamicComposite instead of Composite implementation.
-    void setIgnorePuppetRecurse(Node node, bool ignorePuppet) {
-        if (Part part = cast(Part)node) {
-            part.ignorePuppet = ignorePuppet;
-            foreach (child; node.children) {
-                setIgnorePuppetRecurse(child, ignorePuppet);
-            }
-        } else {
-            foreach (child; node.children) {
-                setIgnorePuppetRecurse(child, ignorePuppet);
-            }
-        }
-    }
-
-    void setIgnorePuppet(bool ignorePuppet) {
-        foreach (child; children) {
-            setIgnorePuppetRecurse(child, ignorePuppet);
-        }
-        if (puppet !is null)
-            puppet.rescanNodes();
-    }
-
     void drawSelf(bool isMask = false)() {
         if (children.length == 0) return;
         super.drawSelf!isMask();
@@ -171,10 +172,9 @@ protected:
 
         auto pass = new DynamicCompositePass();
         pass.surface = offscreenSurface;
-        auto scale = appliedAutoScale();
-        pass.scale = vec2(transform.scale.x * scale.x, transform.scale.y * scale.y);
+        pass.scale = vec2(transform.scale.x, transform.scale.y);
         pass.rotationZ = transform.rotation.z;
-        pass.autoScaled = effectiveAutoScaled();
+        pass.autoScaled = false;
         return pass;
     }
 
@@ -222,7 +222,6 @@ protected:
         texWidth = cast(uint)(ceil(size.x)) + 1;
         texHeight = cast(uint)(ceil(size.y)) + 1;
         textureOffset = (worldBounds.xy + worldBounds.zw) / 2 - transform.translation.xy;
-        setIgnorePuppet(true);
 
         textures = [new Texture(texWidth, texHeight), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true);
@@ -296,8 +295,6 @@ protected:
         if (flags & SerializeNodeFlags.State) {
             serializer.putKey("auto_resized");
             serializer.serializeValue(autoResizedMesh);
-            serializer.putKey("auto_scaled");
-            serializer.serializeValue(autoScaled);
         }
         textures = tmpTextures;
     }
@@ -311,9 +308,6 @@ protected:
         else if (this.data.indices.length != 0) {
             autoResizedMesh = false;
         } else autoResizedMesh = true;
-        if (!data["auto_scaled"].isEmpty) {
-            data["auto_scaled"].deserializeValue(autoScaled);
-        }
         return result;
     }
 
@@ -329,69 +323,7 @@ protected:
         }
     }
 
-    private DynamicComposite ancestorAutoScaleController() {
-        for (Node node = parent; node !is null; node = node.parent) {
-            if (auto dyn = cast(DynamicComposite)node) {
-                return dyn;
-            }
-        }
-        return null;
-    }
-
-    private bool effectiveAutoScaled() {
-        if (auto ancestor = ancestorAutoScaleController()) {
-            return ancestor.autoScaled;
-        }
-        return autoScaled;
-    }
-
-    private vec2 puppetScale() {
-        auto pup = puppet;
-        if (pup is null) return vec2(1, 1);
-        return vec2(pup.transform.scale.x, pup.transform.scale.y);
-    }
-
-    private vec2 cameraScale() {
-        auto cam = inGetCamera();
-        return vec2(abs(cam.scale.x), abs(cam.scale.y));
-    }
-
-    private vec2 appliedAutoScale() {
-        if (!effectiveAutoScaled()) return vec2(1, 1);
-        vec2 scale = puppetScale();
-        auto camScale = cameraScale();
-        scale.x *= camScale.x;
-        scale.y *= camScale.y;
-        return scale;
-    }
-
-    private vec2 safeInverse(vec2 scale) {
-        enum float epsilon = 1e-6f;
-        vec2 result;
-        result.x = abs(scale.x) < epsilon ? 1 : 1 / scale.x;
-        result.y = abs(scale.y) < epsilon ? 1 : 1 / scale.y;
-        return result;
-    }
-
-    private mat4 applyAutoScale(mat4 matrix) {
-        auto scale = appliedAutoScale();
-        if (scale.x == 1 && scale.y == 1) {
-            return matrix;
-        }
-        auto scaleMatrix = mat4.identity.scaling(scale.x, scale.y, 1);
-        return scaleMatrix * matrix;
-    }
-
-    private mat4 childCorrectionMatrix() {
-        return fullTransformMatrix() * transform.matrix.inverse;
-    }
-
-    private mat4 applyAutoScaleToChild(Part child, mat4 matrix) {
-        if (!effectiveAutoScaled()) return matrix;
-        if (cast(DynamicComposite)child !is null) return matrix;
-        return applyAutoScale(matrix);
-    }
-
+protected:
     private Transform fullTransform() {
         localTransform.update();
         offsetTransform.update();
@@ -449,12 +381,12 @@ protected:
             foreach (p; subParts) p.updateBounds();
         }
         vec4 bounds;
-        bool useMatrixBounds = autoResizedMesh || effectiveAutoScaled();
+        bool useMatrixBounds = autoResizedMesh;
         if (useMatrixBounds) {
-            auto correction = childCorrectionMatrix();
+            auto correction = fullTransformMatrix() * transform.matrix.inverse;
             bool hasBounds = false;
             foreach (part; subParts) {
-                auto childMatrix = applyAutoScaleToChild(part, correction * part.transform.matrix);
+                auto childMatrix = correction * part.transform.matrix;
                 auto childBounds = boundsFromMatrix(part, childMatrix);
                 if (!hasBounds) {
                     bounds = childBounds;
@@ -480,7 +412,7 @@ protected:
 
     void enableMaxChildrenBounds(Node target = null) {
         Drawable targetDrawable = cast(Drawable)target;
-        if (targetDrawable !is null && (!autoResizedMesh || effectiveAutoScaled())) {
+        if (targetDrawable !is null && (!autoResizedMesh)) {
             targetDrawable.updateBounds();
         }
         auto frameId = currentDynamicCompositeFrame();
@@ -491,10 +423,10 @@ protected:
         }
         if (targetDrawable !is null) {
             vec4 b;
-            if (autoResizedMesh || effectiveAutoScaled()) {
+            if (autoResizedMesh) {
                 if (auto targetPart = cast(Part)targetDrawable) {
-                    auto correction = childCorrectionMatrix();
-                    b = boundsFromMatrix(targetPart, applyAutoScaleToChild(targetPart, correction * targetPart.transform.matrix));
+                    auto correction = fullTransformMatrix() * transform.matrix.inverse;
+                    b = boundsFromMatrix(targetPart, correction * targetPart.transform.matrix);
                 } else {
                     b = targetDrawable.bounds;
                 }
@@ -606,7 +538,6 @@ protected:
 public:
     vec2 textureOffset;
     bool autoResizedMesh = true;
-    bool autoScaled = false;
 
     /**
         Constructs a new mask
@@ -693,9 +624,9 @@ public:
         tmp[0][3] -= textureOffset.x;
         tmp[1][3] -= textureOffset.y;
         setOneTimeTransform(&tmp);
-        auto correction = childCorrectionMatrix();
+        auto correction = fullTransformMatrix() * transform.matrix.inverse;
         foreach (Part child; subParts) {
-            auto childMatrix = applyAutoScaleToChild(child, correction * child.transform.matrix);
+            auto childMatrix = correction * child.transform.matrix;
             child.setOffscreenModelMatrix(childMatrix);
             child.drawOne();
             child.clearOffscreenModelMatrix();
@@ -735,22 +666,7 @@ public:
 
     override void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
         super.fillDrawPacket(packet, isMask);
-
-        bool autoScale = effectiveAutoScaled();
-        if (!autoScale) return;
-
-        auto invCamScale = safeInverse(cameraScale());
-        auto cancelCamera = mat4.identity.scaling(invCamScale.x, invCamScale.y, 1);
-
-        if (!ignorePuppet && puppet !is null) {
-            auto puppetTransformNoScale = puppet.transform;
-            puppetTransformNoScale.scale = vec2(1, 1);
-            puppetTransformNoScale.update();
-            packet.puppetMatrix = cancelCamera * puppetTransformNoScale.matrix;
-        } else {
-            packet.puppetMatrix = cancelCamera * packet.puppetMatrix;
-        }
-        // modelMatrix left as provided by base; puppetMatrix handles camera scale cancellation.
+        // No autoscale handling in base; Composite handles scaling.
     }
 
     override
@@ -787,7 +703,7 @@ public:
         }
     }
 
-    private void dynamicRenderBegin(ref RenderContext ctx) {
+    protected void dynamicRenderBegin(ref RenderContext ctx) {
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
@@ -822,13 +738,12 @@ public:
         dynamicScopeActive = true;
 
         queuedOffscreenParts.length = 0;
-        auto basis = transform.matrix.inverse;
         auto translate = mat4.translation(-textureOffset.x, -textureOffset.y, 0);
-        auto childBasis = translate * basis;
-        auto correction = childCorrectionMatrix();
+        auto correction = fullTransformMatrix() * transform.matrix.inverse;
+        auto childBasis = translate * transform.matrix.inverse;
 
         foreach (Part child; subParts) {
-            auto childMatrix = applyAutoScaleToChild(child, correction * child.transform.matrix);
+            auto childMatrix = correction * child.transform.matrix;
             auto finalMatrix = childBasis * childMatrix;
             child.setOffscreenModelMatrix(finalMatrix);
             if (auto dynChild = cast(DynamicComposite)child) {
@@ -842,7 +757,7 @@ public:
 
     }
 
-    private void dynamicRenderEnd(ref RenderContext ctx) {
+    protected void dynamicRenderEnd(ref RenderContext ctx) {
         if (ctx.renderGraph is null) return;
         bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
@@ -1201,26 +1116,17 @@ public:
         initialized = false;
         if (auto dcomposite = cast(DynamicComposite)src) {
             autoResizedMesh = dcomposite.autoResizedMesh;
-            autoScaled = dcomposite.autoScaled;
             if (autoResizedMesh) {
                 createSimpleMesh();
                 updateBounds();
             }
         } else {
-            autoScaled = false;
             autoResizedMesh = false;
             if (data.vertices.length == 0) {
                 autoResizedMesh = true;
                 createSimpleMesh();
                 updateBounds();
             }
-        }
-        if (auto composite = cast(Composite)src) {
-            blendingMode = composite.blendingMode;
-            opacity = composite.opacity;
-            autoResizedMesh = true;
-            createSimpleMesh();
-            autoScaled = composite.autoScaled;
         }
     }
 
