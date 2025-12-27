@@ -353,7 +353,7 @@ protected:
 
     private vec2 cameraScale() {
         auto cam = inGetCamera();
-        return vec2(cam.scale.x, cam.scale.y);
+        return vec2(abs(cam.scale.x), abs(cam.scale.y));
     }
 
     private vec2 appliedAutoScale() {

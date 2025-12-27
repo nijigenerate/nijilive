@@ -1,7 +1,7 @@
 module nijilive.utils.snapshot;
 
 import nijilive.core.nodes;
-import nijilive.core.nodes.composite.dcomposite;
+import nijilive.core.nodes.composite;
 import nijilive.core.puppet;
 import nijilive.core.texture;
 import inmath;
@@ -9,7 +9,7 @@ import inmath;
 class Snapshot {
 protected:
     Puppet snapshotPuppet = null;
-    DynamicComposite dcomposite = null;
+    Composite dcomposite = null;
     int sharedCount = 0;
     static Snapshot[Puppet] handles;
 
@@ -25,7 +25,7 @@ protected:
                 dcomposite.textures[0] = null;
             }
         }
-        dcomposite = new DynamicComposite();
+        dcomposite = new Composite();
         snapshotPuppet = puppet;
         dcomposite.name = "Snapshot";
         dcomposite.parent(puppet.getPuppetRootNode());
