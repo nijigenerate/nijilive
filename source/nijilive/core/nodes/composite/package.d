@@ -17,10 +17,9 @@ import nijilive.core.nodes.common;
 import nijilive.core.nodes.composite.dcomposite;
 import nijilive.fmt;
 import nijilive.math;
-import nijilive.core.runtime_state : inGetCamera;
-import nijilive.core.render.commands : PartDrawPacket, DynamicCompositePass;
+import nijilive.core.render.commands : DynamicCompositePass;
 import nijilive.core.render.scheduler : RenderContext;
-import std.math : abs, isFinite;
+import std.math : isFinite;
 import std.algorithm : map;
 import std.algorithm.comparison : min, max;
 
@@ -46,79 +45,14 @@ public:
         autoResizedMesh = true;
     }
 
+public:
+    // Keep rotation/scale intact even when autoResizedMesh is true.
+    override Transform transform() {
+        return Part.transform();
+    }
+
 protected:
     override bool mustPropagate() { return propagateMeshGroup; }
-
-protected:
-    vec2 appliedAutoScale() {
-        if (!effectiveAutoScaled()) return vec2(1, 1);
-        vec2 scale = puppetScale();
-        auto camScale = cameraScale();
-        scale.x *= camScale.x;
-        scale.y *= camScale.y;
-        return scale;
-    }
-
-    mat4 applyAutoScale(mat4 matrix) {
-        auto scale = appliedAutoScale();
-        if (scale.x == 1 && scale.y == 1) {
-            return matrix;
-        }
-        auto scaleMatrix = mat4.identity.scaling(scale.x, scale.y, 1);
-        return scaleMatrix * matrix;
-    }
-
-    mat4 applyAutoScaleToChild(Part child, mat4 matrix) {
-        if (!effectiveAutoScaled()) return matrix;
-        if (cast(DynamicComposite)child !is null) return matrix;
-        return applyAutoScale(matrix);
-    }
-
-    protected vec2 puppetScale() {
-        if (puppet !is null) {
-            return puppet.transform.scale;
-        }
-        return vec2(1, 1);
-    }
-
-    protected Node ancestorAutoScaleController() {
-        for (Node node = parent; node !is null; node = node.parent) {
-            if (cast(Composite)node !is null) {
-                return node;
-            }
-            if (cast(DynamicComposite)node !is null) {
-                return node;
-            }
-        }
-        return null;
-    }
-
-    protected bool effectiveAutoScaled() {
-        if (auto ancestor = ancestorAutoScaleController()) {
-            if (auto comp = cast(Composite)ancestor) {
-                return true; // Compositeは常にautoScaled扱い
-            }
-            if (auto dyn = cast(DynamicComposite)ancestor) {
-                // DynamicComposite側は常にautoscale無効なのでここではfalse
-                return false;
-            }
-        }
-        return true;
-    }
-
-    protected vec2 cameraScale() {
-        auto cam = inGetCamera();
-        if (cam is null) return vec2(1, 1);
-        return vec2(abs(cam.scale.x), abs(cam.scale.y));
-    }
-
-    protected vec2 safeInverse(vec2 scale) {
-        const float epsilon = 1e-6f;
-        vec2 result;
-        result.x = abs(scale.x) < epsilon ? 1 : 1 / scale.x;
-        result.y = abs(scale.y) < epsilon ? 1 : 1 / scale.y;
-        return result;
-    }
 
     override void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
         super.serializeSelfImpl(serializer, recursive, flags);
@@ -133,59 +67,33 @@ protected:
         super.copyFrom(src, clone, deepCopy);
     }
 
-    override void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
-        super.fillDrawPacket(packet, isMask);
-        if (!effectiveAutoScaled()) return;
-        auto scale = appliedAutoScale();
-        if (scale.x == 1 && scale.y == 1) {
-            return;
-        }
-        auto inv = safeInverse(scale);
-        auto invCam = safeInverse(cameraScale());
-        auto cancelCamera = mat4.identity.scaling(invCam.x, invCam.y, 1);
-
-        if (!ignorePuppet && puppet !is null) {
-            auto puppetTransformNoScale = puppet.transform;
-            puppetTransformNoScale.scale = vec2(1, 1);
-            puppetTransformNoScale.update();
-            packet.puppetMatrix = cancelCamera * puppetTransformNoScale.matrix;
-        } else {
-            auto invScale = mat4.identity.scaling(inv.x, inv.y, 1);
-            packet.puppetMatrix = cancelCamera * packet.puppetMatrix * invScale;
-        }
-    }
-
-    // Use a neutral pass so offscreen camera is not skewed by local scale/rotation;
-    // texture offset handling stays in DynamicComposite.
+protected:
+    // Keep camera neutral; only use DynamicComposite offscreen surface.
     override DynamicCompositePass prepareDynamicCompositePass() {
         auto pass = super.prepareDynamicCompositePass();
         if (pass !is null) {
-            auto scale = appliedAutoScale();
-            pass.scale = vec2(transform.scale.x * scale.x, transform.scale.y * scale.y);
-            pass.rotationZ = transform.rotation.z;
-            pass.autoScaled = effectiveAutoScaled();
+            pass.scale = vec2(1, 1);
+            pass.rotationZ = 0;
+            pass.autoScaled = false;
         }
         return pass;
     }
 
-protected:
-    /// Build child matrix with texture offset; apply auto scale to non-dynamic children.
+    /// Build child matrix with texture offset; treat Composite as transparent.
     mat4 childOffscreenMatrix(Part child) {
         auto offset = textureOffset;
         if (!isFinite(offset.x) || !isFinite(offset.y)) {
             offset = vec2(0, 0);
         }
-        auto correction = compositeFullTransformMatrix() * transform.matrix.inverse;
-        auto scaled = applyAutoScaleToChild(child, correction * child.transform.matrix);
+        auto invComposite = transform().matrix.inverse;
+        auto childLocal = invComposite * child.transform.matrix;
         auto translate = mat4.translation(-offset.x, -offset.y, 0);
-        auto childBasis = translate * transform.matrix.inverse;
-        return childBasis * scaled;
+        return translate * childLocal;
     }
 
     /// Core child matrix without texture offset (for bounds calculation).
     mat4 childCoreMatrix(Part child) {
-        auto correction = compositeFullTransformMatrix() * transform.matrix.inverse;
-        return applyAutoScaleToChild(child, correction * child.transform.matrix);
+        return child.transform.matrix;
     }
 
     vec4 localBoundsFromMatrix(Part child, const mat4 matrix) {
@@ -210,26 +118,6 @@ protected:
         return bounds;
     }
 
-    // Recreate full transform matrix locally (base implementation is private).
-    Transform compositeFullTransform() {
-        localTransform.update();
-        offsetTransform.update();
-        if (lockToRoot()) {
-            Transform trans = (puppet !is null && puppet.root !is null)
-                ? puppet.root.localTransform
-                : Transform(vec3(0, 0, 0));
-            return localTransform.calcOffset(offsetTransform) * trans;
-        }
-        if (parent !is null) {
-            return localTransform.calcOffset(offsetTransform) * parent.transform();
-        }
-        return localTransform.calcOffset(offsetTransform);
-    }
-
-    mat4 compositeFullTransformMatrix() {
-        return compositeFullTransform().matrix;
-    }
-
     override vec4 getChildrenBounds(bool forceUpdate = true) {
         auto frameId = currentDynamicCompositeFrame();
         if (useMaxChildrenBounds) {
@@ -243,7 +131,7 @@ protected:
             foreach (p; subParts) p.updateBounds();
         }
         vec4 bounds;
-        bool useMatrixBounds = autoResizedMesh || effectiveAutoScaled();
+        bool useMatrixBounds = autoResizedMesh;
         if (useMatrixBounds) {
             bool hasBounds = false;
             foreach (part; subParts) {
@@ -273,7 +161,7 @@ protected:
 
     override void enableMaxChildrenBounds(Node target = null) {
         Drawable targetDrawable = cast(Drawable)target;
-        if (targetDrawable !is null && (!autoResizedMesh || effectiveAutoScaled())) {
+        if (targetDrawable !is null && (!autoResizedMesh)) {
             targetDrawable.updateBounds();
         }
         auto frameId = currentDynamicCompositeFrame();
@@ -284,7 +172,7 @@ protected:
         }
         if (targetDrawable !is null) {
             vec4 b;
-            if (autoResizedMesh || effectiveAutoScaled()) {
+            if (autoResizedMesh) {
                 if (auto targetPart = cast(Part)targetDrawable) {
                     b = localBoundsFromMatrix(targetPart, childCoreMatrix(targetPart));
                 } else {
