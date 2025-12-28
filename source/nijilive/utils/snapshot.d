@@ -12,6 +12,13 @@ protected:
     Composite dcomposite = null;
     int sharedCount = 0;
     static Snapshot[Puppet] handles;
+    alias CaptureCallback = void delegate(Texture tex);
+    CaptureCallback[] pendingCallbacks;
+    static struct PendingRequest {
+        Snapshot snap;
+        CaptureCallback cb;
+    }
+    static PendingRequest[] pendingQueue;
 
     this(Puppet puppet) {
         sharedCount = 1;
@@ -62,13 +69,44 @@ public:
         }
     }
 
-    Texture capture() {
-        snapshotPuppet.rescanNodes();
-        snapshotPuppet.requestFullRenderRebuild();
-        dcomposite.setupSelf();
-        dcomposite.draw();
-        auto tex = dcomposite.textures[0];
-        return tex;
+    /// Register a callback to run after the next deferred capture is processed.
+    void onCaptured(CaptureCallback cb) {
+        pendingCallbacks ~= cb;
+    }
+
+    /// Schedule a capture (deferred). Does not return a texture.
+    void capture() {
+        // Aggregate callbacks for this instance.
+        CaptureCallback aggregate;
+        if (pendingCallbacks.length > 0) {
+            aggregate = (tex) {
+                foreach (cb; pendingCallbacks) {
+                    if (cb !is null) cb(tex);
+                }
+                pendingCallbacks.length = 0;
+            };
+        }
+        Snapshot.requestCapture(snapshotPuppet, (tex) {
+            if (aggregate !is null) aggregate(tex);
+        });
+    }
+
+    /// Queue capture to run after the next render loop finishes.
+    static void requestCapture(Puppet puppet, CaptureCallback cb) {
+        auto snap = get(puppet);
+        pendingQueue ~= PendingRequest(snap, cb);
+    }
+
+    /// Called after the main render loop to process queued captures.
+    static void processPending() {
+        if (pendingQueue.length == 0) return;
+        auto queue = pendingQueue.dup;
+        pendingQueue.length = 0;
+        foreach (req; queue) {
+            // Capture snapshot offscreen now that main rendering is done.
+            auto tex = req.snap.dcomposite.textures[0];
+            if (req.cb !is null) req.cb(tex);
+        }
     }
 
     vec2 position() {
