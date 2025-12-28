@@ -8,6 +8,7 @@
 */
 module nijilive.core.nodes.composite.dcomposite;
 import nijilive.core.nodes.common;
+import nijilive.core.nodes.mask : Mask;
 import nijilive.core.nodes;
 import nijilive.fmt;
 import nijilive.core;
@@ -96,7 +97,8 @@ public:
         // Do the main check
         DynamicComposite dcomposite = cast(DynamicComposite)node;
         Part part = cast(Part)node;
-        if (part !is null && node != this && node.enabled) {
+        Mask mask = cast(Mask)node;
+        if (part !is null && node != this) {
             subParts ~= part;
             if (dcomposite is null) {
                 foreach(child; part.children) {
@@ -104,6 +106,11 @@ public:
                 }
             } else {
                 dcomposite.scanParts();
+            }
+        } else if (mask !is null && node != this) {
+            maskParts ~= mask;
+            foreach (child; mask.children) {
+                scanPartsRecurse(child);
             }
         } else if ((dcomposite is null || node == this) && node.enabled) {
 
@@ -143,7 +150,6 @@ protected:
     bool useMaxChildrenBounds = false;
     size_t maxBoundsStartFrame = 0;
     enum size_t MaxBoundsResetInterval = 120;
-    Part[] queuedOffscreenParts;
     bool hasDynamicCompositeAncestor() {
         for (Node node = parent; node !is null; node = node.parent) {
             if (cast(DynamicComposite)node !is null) {
@@ -279,6 +285,8 @@ protected:
         return true;
     }
     Part[] subParts;
+    Mask[] maskParts;
+    Drawable[] queuedOffscreenParts;
     
     override
     string typeId() { return "DynamicComposite"; }
@@ -631,6 +639,12 @@ public:
             child.drawOne();
             child.clearOffscreenModelMatrix();
         }
+        foreach (mask; maskParts) {
+            auto maskMatrix = correction * mask.transform.matrix;
+            mask.setOffscreenModelMatrix(maskMatrix);
+            mask.renderMask(false);
+            mask.clearOffscreenModelMatrix();
+        }
         setOneTimeTransform(original);
 
         version (InDoesRender) {
@@ -753,6 +767,13 @@ public:
             }
             queuedOffscreenParts ~= child;
         }
+        foreach (mask; maskParts) {
+            auto maskMatrix = correction * mask.transform.matrix;
+            auto finalMatrix = translate * maskMatrix;
+            mask.setOffscreenModelMatrix(finalMatrix);
+            mask.enqueueRenderCommands(ctx);
+            queuedOffscreenParts ~= mask;
+        }
 
 
     }
@@ -805,18 +826,16 @@ public:
                 }
 
                 foreach (part; queuedForCleanup) {
-                    if (part !is null) {
-                        part.clearOffscreenModelMatrix();
-                    }
+                    if (auto p = cast(Part)part) p.clearOffscreenModelMatrix();
+                    else if (auto m = cast(Mask)part) m.clearOffscreenModelMatrix();
                 }
             });
         } else {
             auto cleanupParts = queuedOffscreenParts.dup;
             enqueueRenderCommands(ctx, (RenderCommandEmitter emitter) {
                 foreach (part; cleanupParts) {
-                    if (part !is null) {
-                        part.clearOffscreenModelMatrix();
-                    }
+                    if (auto p = cast(Part)part) p.clearOffscreenModelMatrix();
+                    else if (auto m = cast(Mask)part) m.clearOffscreenModelMatrix();
                 }
             });
         }
@@ -879,6 +898,7 @@ public:
     */
     void scanParts() {
         subParts.length = 0;
+        maskParts.length = 0;
         foreach (child; children) {
             scanPartsRecurse(child);
         }
@@ -887,6 +907,7 @@ public:
 
     void scanSubParts(Node[] childNodes) { 
         subParts.length = 0;
+        maskParts.length = 0;
         foreach (child; childNodes) {
             scanPartsRecurse(child);
         }

@@ -23,6 +23,8 @@ public import nijilive.core.meshdata;
 
 import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind,
     makeMaskDrawPacket;
+import nijilive.core.render.scheduler : RenderContext;
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
 
 package(nijilive) {
     void inInitMask() {
@@ -37,6 +39,9 @@ package(nijilive) {
 class Mask : Drawable {
 private:
     this() { }
+
+    bool hasOffscreenModelMatrix = false;
+    mat4 offscreenModelMatrix;
 
     /*
         RENDERING
@@ -109,8 +114,19 @@ public:
     }
 
     package(nijilive)
+    void enqueueRenderCommands(RenderContext ctx) {
+        if (!renderEnabled() || ctx.renderGraph is null) return;
+        auto scopeHint = determineRenderScopeHint();
+        if (scopeHint.skip) return;
+        auto maskNode = this;
+        ctx.renderGraph.enqueueItem(zSort(), scopeHint, (RenderCommandEmitter emitter) {
+            emitter.drawMask(maskNode);
+        });
+    }
+
+    package(nijilive)
     void fillMaskDrawPacket(ref MaskDrawPacket packet) {
-        mat4 modelMatrix = transform.matrix();
+        mat4 modelMatrix = hasOffscreenModelMatrix ? offscreenModelMatrix : transform.matrix();
         if (overrideTransformMatrix !is null)
             modelMatrix = overrideTransformMatrix.matrix;
         if (oneTimeTransform !is null)
@@ -143,6 +159,16 @@ public:
         foreach(child; children) {
             child.draw();
         }
+    }
+
+package(nijilive):
+    void setOffscreenModelMatrix(const mat4 matrix) {
+        offscreenModelMatrix = matrix;
+        hasOffscreenModelMatrix = true;
+    }
+
+    void clearOffscreenModelMatrix() {
+        hasOffscreenModelMatrix = false;
     }
 
 }

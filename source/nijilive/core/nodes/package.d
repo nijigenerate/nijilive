@@ -14,6 +14,7 @@ import nijilive.fmt.serialize;
 import nijilive.math.serialization;
 import nijilive.core.dbg;
 import nijilive.core;
+import std.stdio : writefln;
 
 public import nijilive.core.nodes.part;
 public import nijilive.core.nodes.mask;
@@ -281,7 +282,6 @@ protected:
         taskFlags |= NodeTaskFlag.RenderEnd;
     }
 
-//    import std.stdio;
     void preProcess() {
         if (preProcessed)
             return;
