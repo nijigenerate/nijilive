@@ -988,7 +988,23 @@ public:
                     prevTranslation = full.translation;
                     prevRotation    = full.rotation;
                     prevScale       = full.scale;
-                    invalidateChildrenBounds();
+                    // Expand cached bounds instead of dropping them so cache can be reused.
+                    bool previousCache = useMaxChildrenBounds;
+                    // Recompute current bounds once, then union with the cached max.
+                    useMaxChildrenBounds = false;
+                    auto currentBounds = getChildrenBounds(true);
+                    useMaxChildrenBounds = previousCache;
+
+                    if (!previousCache) {
+                        useMaxChildrenBounds = true;
+                        maxBoundsStartFrame = currentProjectableFrame();
+                        maxChildrenBounds = currentBounds;
+                    } else {
+                        maxChildrenBounds.x = min(maxChildrenBounds.x, currentBounds.x);
+                        maxChildrenBounds.y = min(maxChildrenBounds.y, currentBounds.y);
+                        maxChildrenBounds.z = max(maxChildrenBounds.z, currentBounds.z);
+                        maxChildrenBounds.w = max(maxChildrenBounds.w, currentBounds.w);
+                    }
                 }
             }
         }
