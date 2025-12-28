@@ -57,11 +57,26 @@ public:
     void release() {
         if (--sharedCount <= 0) {
             if (snapshotPuppet !is null) {
-                if (snapshotPuppet.actualRoot != snapshotPuppet.root) {
-                    foreach (child; dcomposite.children)
-                        dcomposite.releaseChild(child);
-                    snapshotPuppet.root.parent(snapshotPuppet.getPuppetRootNode());
+                if (dcomposite !is null) {
+                    // Detach puppet root from snapshot composite and restore under puppet root node.
+                    if (snapshotPuppet.root.parent is dcomposite) {
+                        snapshotPuppet.root.reparent(snapshotPuppet.getPuppetRootNode(), Node.OFFSET_END, true);
+                    }
+                    // Remove snapshot composite from the scene graph.
+                    dcomposite.reparent(null, Node.OFFSET_END, true);
+                    if (dcomposite.textures.length > 0 && dcomposite.textures[0] !is null) {
+                        dcomposite.textures[0].dispose();
+                        dcomposite.textures[0] = null;
+                    }
                 }
+                // Drop pending captures targeting this snapshot.
+                PendingRequest[] filtered;
+                foreach (req; pendingQueue) {
+                    if (req.snap !is this) filtered ~= req;
+                }
+                pendingQueue = filtered;
+                snapshotPuppet.rescanNodes();
+                snapshotPuppet.requestFullRenderRebuild();
                 handles.remove(snapshotPuppet);
                 snapshotPuppet = null;
                 dcomposite = null;
@@ -86,14 +101,14 @@ public:
                 pendingCallbacks.length = 0;
             };
         }
-        Snapshot.requestCapture(snapshotPuppet, (tex) {
+        Snapshot.requestCapture(this, (tex) {
             if (aggregate !is null) aggregate(tex);
         });
     }
 
     /// Queue capture to run after the next render loop finishes.
-    static void requestCapture(Puppet puppet, CaptureCallback cb) {
-        auto snap = get(puppet);
+    static void requestCapture(Snapshot snap, CaptureCallback cb) {
+        if (snap is null) return;
         pendingQueue ~= PendingRequest(snap, cb);
     }
 
@@ -104,7 +119,10 @@ public:
         pendingQueue.length = 0;
         foreach (req; queue) {
             // Capture snapshot offscreen now that main rendering is done.
+            if (req.snap is null || req.snap.dcomposite is null) continue;
+            if (req.snap.dcomposite.textures.length == 0) continue;
             auto tex = req.snap.dcomposite.textures[0];
+            if (tex is null) continue;
             if (req.cb !is null) req.cb(tex);
         }
     }
