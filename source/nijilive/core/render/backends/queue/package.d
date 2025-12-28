@@ -361,7 +361,7 @@ public:
         }
     }
     void generateTextureMipmap(RenderTextureHandle) {}
-    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) {
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering, bool) {
         auto tex = cast(QueueTextureHandle)texture;
         if (tex !is null) tex.filtering = filtering;
     }

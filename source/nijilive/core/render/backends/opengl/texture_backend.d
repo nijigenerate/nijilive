@@ -11,7 +11,7 @@ mixin template TextureBackendStub() {
     void oglUploadTextureData(GLId, int, int, int, int, bool, ubyte[]) { }
     void oglUpdateTextureRegion(GLId, int, int, int, int, int, ubyte[]) { }
     void oglGenerateTextureMipmap(GLId) { }
-    void oglApplyTextureFiltering(GLId, Filtering) { }
+    void oglApplyTextureFiltering(GLId, Filtering, bool = true) { }
     void oglApplyTextureWrapping(GLId, Wrapping) { }
     void oglApplyTextureAnisotropy(GLId, float) { }
     float oglMaxTextureAnisotropy() { return 1; }
@@ -80,10 +80,13 @@ void oglGenerateTextureMipmap(GLId id) {
     glGenerateMipmap(GL_TEXTURE_2D);
 }
 
-void oglApplyTextureFiltering(GLId id, Filtering filtering) {
+void oglApplyTextureFiltering(GLId id, Filtering filtering, bool useMipmaps = true) {
     glBindTexture(GL_TEXTURE_2D, id);
-    auto minFilter = filtering == Filtering.Linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST;
-    auto magFilter = filtering == Filtering.Linear ? GL_LINEAR : GL_NEAREST;
+    bool linear = filtering == Filtering.Linear;
+    auto minFilter = useMipmaps
+        ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST)
+        : (linear ? GL_LINEAR : GL_NEAREST);
+    auto magFilter = linear ? GL_LINEAR : GL_NEAREST;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
 }

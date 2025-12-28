@@ -545,7 +545,7 @@ public:
         uploadTextureBytes(handle, prepared, x, y, width, height);
     }
     void generateTextureMipmap(RenderTextureHandle) {}
-    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) {
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering, bool) {
         auto handle = cast(DxTextureHandle)texture;
         if (handle !is null) {
             handle.filtering = filtering;

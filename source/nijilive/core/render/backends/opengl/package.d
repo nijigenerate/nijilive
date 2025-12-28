@@ -461,9 +461,9 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglGenerateTextureMipmap(handle.id);
     }
 
-    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) {
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering, bool useMipmaps = true) {
         auto handle = requireGLTexture(texture);
-        oglApplyTextureFiltering(handle.id, filtering);
+        oglApplyTextureFiltering(handle.id, filtering, useMipmaps);
     }
 
     void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping) {

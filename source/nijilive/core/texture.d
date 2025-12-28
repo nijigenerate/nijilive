@@ -164,6 +164,7 @@ private:
     int height_;
     int channels_;
     bool stencil_;
+    bool useMipmaps_ = true;
     size_t externalHandle = 0;
 
     uint uuid;
@@ -182,7 +183,7 @@ public:
         * TGA 8-bit non-palleted
         * JPEG baseline
     */
-    this(string file, int channels = 0) {
+    this(string file, int channels = 0, bool useMipmaps = true) {
         import std.file : read;
 
         // Ensure we keep this ref alive until we're done with it
@@ -194,37 +195,38 @@ public:
         scope(exit) image.free();
 
         // Load in image data to OpenGL
-        this(image.buf8, image.w, image.h, image.c, channels == 0 ? image.c : channels);
+        this(image.buf8, image.w, image.h, image.c, channels == 0 ? image.c : channels, false, useMipmaps);
         uuid = inCreateUUID();
     }
 
     /**
         Creates a texture from a ShallowTexture
     */
-    this(ShallowTexture shallow) {
-        this(shallow.data, shallow.width, shallow.height, shallow.channels, shallow.convChannels);
+    this(ShallowTexture shallow, bool useMipmaps = true) {
+        this(shallow.data, shallow.width, shallow.height, shallow.channels, shallow.convChannels, false, useMipmaps);
     }
 
     /**
         Creates a new empty texture
     */
-    this(int width, int height, int channels = 4, bool stencil = false) {
+    this(int width, int height, int channels = 4, bool stencil = false, bool useMipmaps = true) {
 
         // Create an empty texture array with no data
         ubyte[] empty = stencil? null: new ubyte[width_*height_*channels];
 
         // Pass it on to the other texturing
-        this(empty, width, height, channels, channels, stencil);
+        this(empty, width, height, channels, channels, stencil, useMipmaps);
     }
 
     /**
         Creates a new texture from specified data
     */
-    this(ubyte[] data, int width, int height, int inChannels = 4, int outChannels = 4, bool stencil = false) {
+    this(ubyte[] data, int width, int height, int inChannels = 4, int outChannels = 4, bool stencil = false, bool useMipmaps = true) {
         this.width_ = width;
         this.height_ = height;
         this.channels_ = outChannels;
         this.stencil_ = stencil;
+        this.useMipmaps_ = useMipmaps;
 
         version (InDoesRender) {
             auto backend = currentRenderBackend();
@@ -297,7 +299,7 @@ public:
     void setFiltering(Filtering filtering) {
         version (InDoesRender) {
             if (handle is null) return;
-            currentRenderBackend().applyTextureFiltering(handle, filtering);
+            currentRenderBackend().applyTextureFiltering(handle, filtering, useMipmaps_);
         }
     }
 
@@ -340,7 +342,7 @@ public:
     */
     void genMipmap() {
         version (InDoesRender) {
-            if (!stencil_ && handle !is null) {
+            if (!stencil_ && handle !is null && useMipmaps_) {
                 currentRenderBackend().generateTextureMipmap(handle);
             }
         }

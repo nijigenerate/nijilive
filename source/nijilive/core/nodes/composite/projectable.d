@@ -227,8 +227,8 @@ protected:
         texHeight = cast(uint)(ceil(size.y)) + 1;
         textureOffset = (worldBounds.xy + worldBounds.zw) / 2 - transform.translation.xy;
 
-        textures = [new Texture(texWidth, texHeight), null, null];
-        stencil = new Texture(texWidth, texHeight, 1, true);
+        textures = [new Texture(texWidth, texHeight, 4, false, false), null, null];
+        stencil = new Texture(texWidth, texHeight, 1, true, false);
         if (prevTexture !is null) {
             prevTexture.dispose();
         }

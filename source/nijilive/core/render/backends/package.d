@@ -141,7 +141,7 @@ class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.O
     void updateTextureRegion(RenderTextureHandle texture, int x, int y, int width, int height,
                              int channels, ubyte[] data) { backendUnsupported(__FUNCTION__); }
     void generateTextureMipmap(RenderTextureHandle texture) { backendUnsupported(__FUNCTION__); }
-    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) { backendUnsupported(__FUNCTION__); }
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering, bool useMipmaps = true) { backendUnsupported(__FUNCTION__); }
     void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping) { backendUnsupported(__FUNCTION__); }
     void applyTextureAnisotropy(RenderTextureHandle texture, float value) { backendUnsupported(__FUNCTION__); }
     float maxTextureAnisotropy() { return backendUnsupported!float(__FUNCTION__); }
