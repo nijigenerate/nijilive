@@ -24,6 +24,7 @@ public import nijilive.core.nodes.composite;
 public import nijilive.core.nodes.meshgroup;
 public import nijilive.core.nodes.drivers; 
 public import nijilive.core.nodes.composite.dcomposite;
+import nijilive.core.nodes.composite.projectable : Projectable;
 public import nijilive.core.nodes.deformer.path;
 public import nijilive.core.nodes.deformer.grid;
 public import nijilive.core.nodes.filter;
@@ -1005,11 +1006,11 @@ public:
     protected RenderScopeHint determineRenderScopeHint() {
         Node current = parent;
         while (current !is null) {
-            if (auto dyn = cast(DynamicComposite)current) {
-                if (dyn.dynamicScopeActive) {
-                    return RenderScopeHint.forDynamic(dyn.dynamicScopeTokenValue());
+            if (auto proj = cast(Projectable)current) {
+                if (proj.dynamicScopeActive) {
+                    return RenderScopeHint.forDynamic(proj.dynamicScopeTokenValue());
                 }
-                if (dyn.reuseCachedTextureThisFrame) {
+                if (proj.reuseCachedTextureThisFrame) {
                     return RenderScopeHint.skipHint();
                 }
                 return RenderScopeHint.skipHint();

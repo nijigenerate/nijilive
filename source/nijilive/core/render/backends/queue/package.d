@@ -11,7 +11,8 @@ import nijilive.core.render.backends : RenderGpuState, RenderResourceHandle,
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.mask : Mask;
 import nijilive.core.nodes.drawable : Drawable;
-import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
+import nijilive.core.nodes.composite.projectable : Projectable;
+import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.texture : Texture;
@@ -70,13 +71,13 @@ public:
         });
     }
 
-    void beginDynamicComposite(DynamicComposite composite, DynamicCompositePass passData) {
+    void beginDynamicComposite(Projectable composite, DynamicCompositePass passData) {
         record(RenderCommandKind.BeginDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });
     }
 
-    void endDynamicComposite(DynamicComposite composite, DynamicCompositePass passData) {
+    void endDynamicComposite(Projectable composite, DynamicCompositePass passData) {
         record(RenderCommandKind.EndDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });
@@ -120,9 +121,20 @@ public:
         record(RenderCommandKind.EndMask, (ref QueuedCommand) {});
     }
 
-    void beginComposite(Composite) {}
-    void drawCompositeQuad(Composite) {}
-    void endComposite(Composite) {}
+    void beginComposite(Composite composite) {
+        record(RenderCommandKind.BeginComposite, (ref QueuedCommand) {});
+    }
+
+    void drawCompositeQuad(Composite composite) {
+        auto packet = makeCompositeDrawPacket(composite);
+        record(RenderCommandKind.DrawCompositeQuad, (ref QueuedCommand cmd) {
+            cmd.payload.compositePacket = packet;
+        });
+    }
+
+    void endComposite(Composite composite) {
+        record(RenderCommandKind.EndComposite, (ref QueuedCommand) {});
+    }
 
     void endFrame(RenderBackend backend, ref RenderGpuState state) {
         activeBackend = backend;

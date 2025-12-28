@@ -4,7 +4,7 @@ version (InDoesRender) {
 
 import nijilive.core.render.backends;
 import nijilive.core.render.commands : PartDrawPacket, MaskApplyPacket,
-    MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface;
+    MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface, CompositeDrawPacket;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.render.backends.opengl.runtime :
@@ -23,7 +23,9 @@ import nijilive.core.render.backends.opengl.runtime :
     oglGetBlendFramebuffer,
     oglGetBlendAlbedo,
     oglGetBlendEmissive,
-    oglGetBlendBump;
+    oglGetBlendBump,
+    oglBeginComposite,
+    oglEndComposite;
 import nijilive.core.render.backends.opengl.debug_renderer :
     oglInitDebugRenderer,
     oglSetDebugPointSize,
@@ -78,6 +80,7 @@ import nijilive.core.render.backends.opengl.blend :
     oglBlendToBuffer;
 import nijilive.core.render.backends.opengl.draw_texture :
     oglDrawTextureAtPart, oglDrawTextureAtPosition, oglDrawTextureAtRect;
+import nijilive.core.render.backends.opengl.composite : oglDrawCompositeQuad;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.render.profiler : profileScope, renderProfilerFrameCompleted;
 import nijilive.core.render.backends.opengl.shader_backend :
@@ -270,6 +273,21 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     void endMask() {
         auto profile = profileScope("EndMask");
         oglEndMask();
+    }
+
+    void beginComposite() {
+        auto profile = profileScope("BeginComposite");
+        oglBeginComposite();
+    }
+
+    void drawCompositeQuad(ref CompositeDrawPacket packet) {
+        auto profile = profileScope("DrawCompositeQuad");
+        oglDrawCompositeQuad(packet);
+    }
+
+    void endComposite() {
+        auto profile = profileScope("EndComposite");
+        oglEndComposite();
     }
 
     void drawTextureAtPart(Texture texture, Part part) {

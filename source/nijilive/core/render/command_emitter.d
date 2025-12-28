@@ -4,7 +4,7 @@ import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.mask : Mask;
 import nijilive.core.nodes.drawable : Drawable;
 import nijilive.core.nodes.composite : Composite;
-import nijilive.core.nodes.composite.dcomposite : DynamicComposite;
+import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.render.commands : DynamicCompositePass;
 version (UseQueueBackend) {
     import nijilive.core.render.backends : RenderGpuState, BackendEnum;
@@ -18,8 +18,11 @@ interface RenderCommandEmitter {
     void beginFrame(RenderBackend backend, ref RenderGpuState state);
     void drawPart(Part part, bool isMask);
     void drawMask(Mask mask);
-    void beginDynamicComposite(DynamicComposite composite, DynamicCompositePass passData);
-    void endDynamicComposite(DynamicComposite composite, DynamicCompositePass passData);
+    void beginDynamicComposite(Projectable composite, DynamicCompositePass passData);
+    void endDynamicComposite(Projectable composite, DynamicCompositePass passData);
+    void beginComposite(Composite composite);
+    void drawCompositeQuad(Composite composite);
+    void endComposite(Composite composite);
     void beginMask(bool useStencil);
     void applyMask(Drawable drawable, bool isDodge);
     void beginMaskContent();

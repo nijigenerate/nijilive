@@ -15,10 +15,14 @@ import nijilive.core.meshdata;
 import nijilive.core.nodes;
 import nijilive.core.nodes.common;
 import nijilive.core.nodes.composite.dcomposite;
+import nijilive.core.nodes.composite.projectable;
+import nijilive.core.nodes.mask : Mask;
 import nijilive.fmt;
 import nijilive.math;
-import nijilive.core.render.commands : DynamicCompositePass;
+import nijilive.core.render.commands : DynamicCompositePass, PartDrawPacket;
+import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext;
+import std.stdio : writefln;
 import std.math : isFinite;
 import std.algorithm : map;
 import std.algorithm.comparison : min, max;
@@ -30,7 +34,7 @@ package(nijilive) {
 }
 
 @TypeId("Composite")
-class Composite : DynamicComposite {
+class Composite : Projectable {
 public:
     bool propagateMeshGroup = true;
     alias threshold = maskAlphaThreshold;
@@ -229,6 +233,7 @@ protected:
         loggedFirstRenderAttempt = true;
     }
 
+    /// Compositeは子を素のスケール/回転のまま描き、textureOffsetだけ平行移動してオフスクリーンへ描く。
     protected override void dynamicRenderBegin(ref RenderContext ctx) {
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
@@ -258,6 +263,7 @@ protected:
             loggedFirstRenderAttempt = true;
             return;
         }
+        // CompositeもDynamicCompositeパスでレンダリングし、転送はdrawOne()内のdrawSelf。
         dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
         dynamicScopeActive = true;
 
@@ -266,7 +272,7 @@ protected:
         foreach (Part child; subParts) {
             auto finalMatrix = childOffscreenMatrix(child);
             child.setOffscreenModelMatrix(finalMatrix);
-            if (auto dynChild = cast(DynamicComposite)child) {
+            if (auto dynChild = cast(Projectable)child) {
                 dynChild.renderNestedOffscreen(ctx);
             } else {
                 child.enqueueRenderCommands(ctx);
@@ -274,6 +280,4 @@ protected:
             queuedOffscreenParts ~= child;
         }
     }
-
-    // no override of dynamicRenderBegin; uses base implementation
 }
