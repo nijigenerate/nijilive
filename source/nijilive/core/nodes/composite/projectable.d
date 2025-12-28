@@ -135,6 +135,7 @@ protected:
     DynamicCompositeSurface offscreenSurface;
     bool textureInvalidated = false;
     bool shouldUpdateVertices = false;
+    bool boundsDirty = true;
 
     uint texWidth = 0, texHeight = 0;
     vec2 autoResizedSize;
@@ -147,6 +148,7 @@ protected:
     vec4 maxChildrenBounds;
     bool useMaxChildrenBounds = false;
     size_t maxBoundsStartFrame = 0;
+    size_t lastInitAttemptFrame = size_t.max;
     enum size_t MaxBoundsResetInterval = 120;
     bool hasProjectableAncestor() {
         for (Node node = parent; node !is null; node = node.parent) {
@@ -252,6 +254,7 @@ protected:
 
     bool updateDynamicRenderStateFlags() {
         bool resized = false;
+        auto frameId = currentProjectableFrame();
         if (deferredChanged) {
             if (autoResizedMesh) {
                 bool ran = false;
@@ -272,7 +275,19 @@ protected:
                 loggedFirstRenderAttempt = false;
             }
         }
+        if (autoResizedMesh && boundsDirty) {
+            bool resizedNow = createSimpleMesh();
+            boundsDirty = false;
+            if (resizedNow) {
+                textureInvalidated = true;
+                initialized = false;
+            }
+        }
         if (!initialized) {
+            if (lastInitAttemptFrame == frameId) {
+                return false;
+            }
+            lastInitAttemptFrame = frameId;
             if (!initTarget()) {
                 return false;
             }
@@ -719,11 +734,6 @@ public:
         if (!hasValidOffscreenContent) {
             textureInvalidated = true;
         }
-        if (autoResizedMesh) {
-            if (createSimpleMesh()) {
-                textureInvalidated = true;
-            }
-        }
         queuedOffscreenParts.length = 0;
         if (!renderEnabled() || ctx.renderGraph is null) return;
         if (!updateDynamicRenderStateFlags()) {
@@ -898,6 +908,7 @@ public:
             scanPartsRecurse(child);
         }
         invalidateChildrenBounds();
+        boundsDirty = true;
     }
 
     void scanSubParts(Node[] childNodes) { 
@@ -907,6 +918,7 @@ public:
             scanPartsRecurse(child);
         }
         invalidateChildrenBounds();
+        boundsDirty = true;
     }
 
     override
@@ -917,6 +929,7 @@ public:
 
         forceResize = true;
         invalidateChildrenBounds();
+        boundsDirty = true;
 
         return false;
     }
@@ -927,6 +940,7 @@ public:
         scanSubParts(children);
         forceResize = true;
         invalidateChildrenBounds();
+        boundsDirty = true;
 
         return false;
     }
@@ -939,6 +953,7 @@ public:
             if (createSimpleMesh()) initialized = false;
         }
         textureInvalidated = true;
+        boundsDirty = false;
         for (Node c = this; c !is null; c = c.parent) {
             c.addNotifyListener(&onAncestorChanged);
         }
@@ -1005,6 +1020,7 @@ public:
                         maxChildrenBounds.z = max(maxChildrenBounds.z, currentBounds.z);
                         maxChildrenBounds.w = max(maxChildrenBounds.w, currentBounds.w);
                     }
+                    boundsDirty = true;
                 }
             }
         }
@@ -1063,11 +1079,13 @@ public:
             } else {
                 invalidateChildrenBounds();
             }
+            boundsDirty = true;
         } else if (reason == NotifyReason.AttributeChanged) {
             textureInvalidated = true;
             hasValidOffscreenContent = false;
             loggedFirstRenderAttempt = false;
             invalidateChildrenBounds();
+            boundsDirty = true;
         }
         if (autoResizedMesh) {
             bool ran = false;
@@ -1135,6 +1153,7 @@ public:
             createSimpleMesh();
             updateBounds();
             initialized = false;
+            boundsDirty = false;
         }
     }
 
@@ -1151,6 +1170,7 @@ public:
             if (autoResizedMesh) {
                 createSimpleMesh();
                 updateBounds();
+                boundsDirty = false;
             }
         } else {
             autoResizedMesh = false;
@@ -1158,6 +1178,7 @@ public:
                 autoResizedMesh = true;
                 createSimpleMesh();
                 updateBounds();
+                boundsDirty = false;
             }
         }
     }
@@ -1169,6 +1190,7 @@ public:
         super.build(force);
         if (autoResizedMesh) {
             if (createSimpleMesh()) initialized = false;
+            boundsDirty = false;
         }
         if (force || !initialized) {
             initTarget();
