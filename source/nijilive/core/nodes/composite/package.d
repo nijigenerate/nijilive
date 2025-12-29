@@ -127,11 +127,10 @@ protected:
         version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:getChildrenBounds");
         auto frameId = currentDynamicCompositeFrame();
         if (useMaxChildrenBounds) {
-            if (frameId - maxBoundsStartFrame >= MaxBoundsResetInterval) {
-                useMaxChildrenBounds = false;
-            } else {
+            if (frameId - maxBoundsStartFrame < MaxBoundsResetInterval) {
                 return maxChildrenBounds;
             }
+            useMaxChildrenBounds = false;
         }
         if (forceUpdate) {
             foreach (p; subParts) p.updateBounds();
@@ -161,6 +160,8 @@ protected:
         }
         if (!useMaxChildrenBounds) {
             maxChildrenBounds = bounds;
+            useMaxChildrenBounds = true;
+            maxBoundsStartFrame = frameId;
         }
         return bounds;
     }
@@ -171,11 +172,9 @@ protected:
             targetDrawable.updateBounds();
         }
         auto frameId = currentDynamicCompositeFrame();
-        if (!useMaxChildrenBounds) {
-            useMaxChildrenBounds = true;
-            maxBoundsStartFrame = frameId;
-            maxChildrenBounds = getChildrenBounds(true);
-        }
+        maxChildrenBounds = getChildrenBounds(true);
+        useMaxChildrenBounds = true;
+        maxBoundsStartFrame = frameId;
         if (targetDrawable !is null) {
             vec4 b;
             if (autoResizedMesh) {

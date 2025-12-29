@@ -146,6 +146,7 @@ protected:
     vec3 prevRotation;
     vec2 prevScale;
     bool deferredChanged = false;
+    bool ancestorChangeQueued = false;
     vec4 maxChildrenBounds;
     bool useMaxChildrenBounds = false;
     size_t maxBoundsStartFrame = 0;
@@ -261,6 +262,14 @@ protected:
                 bool ran = false;
                 resized = updateAutoResizedMeshOnce(ran);
                 pendingAncestorChangeFrame = size_t.max;
+                // 最新の変化を基準値に反映
+                if (ancestorChangeQueued) {
+                    auto full = fullTransform();
+                    prevTranslation = full.translation;
+                    prevRotation    = full.rotation;
+                    prevScale       = full.scale;
+                    ancestorChangeQueued = false;
+                }
                 if (ran && resized) {
                     initialized = false;
                 }
@@ -392,11 +401,10 @@ protected:
         version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:getChildrenBounds");
         auto frameId = currentProjectableFrame();
         if (useMaxChildrenBounds) {
-            if (frameId - maxBoundsStartFrame >= MaxBoundsResetInterval) {
-                useMaxChildrenBounds = false;
-            } else {
+            if (frameId - maxBoundsStartFrame < MaxBoundsResetInterval) {
                 return maxChildrenBounds;
             }
+            useMaxChildrenBounds = false;
         }
         if (forceUpdate) {
             foreach (p; subParts) p.updateBounds();
@@ -427,6 +435,8 @@ protected:
         }
         if (!useMaxChildrenBounds) {
             maxChildrenBounds = bounds;
+            useMaxChildrenBounds = true;
+            maxBoundsStartFrame = frameId;
         }
         return bounds;
     }
@@ -437,11 +447,9 @@ protected:
             targetDrawable.updateBounds();
         }
         auto frameId = currentProjectableFrame();
-        if (!useMaxChildrenBounds) {
-            useMaxChildrenBounds = true;
-            maxBoundsStartFrame = frameId;
-            maxChildrenBounds = getChildrenBounds(true);
-        }
+        maxChildrenBounds = getChildrenBounds(true);
+        useMaxChildrenBounds = true;
+        maxBoundsStartFrame = frameId;
         if (targetDrawable !is null) {
             vec4 b;
             if (autoResizedMesh) {
@@ -1003,18 +1011,13 @@ public:
         if (autoResizedMesh) {
             if (reason == NotifyReason.Transformed) {
                 version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:onAncestorChanged");
-                // 同一フレーム内は即リターンして重複呼び出しを避ける
                 auto frameId = currentProjectableFrame();
-                if (pendingAncestorChangeFrame == frameId) {
-                    return;
-                }
-                auto full = fullTransform();
-                if (prevTranslation != full.translation || prevRotation != full.rotation || prevScale != full.scale) {
+                // 同フレーム中は一度だけ処理を予約する。実計算は後段でまとめて行う。
+                if (pendingAncestorChangeFrame != frameId) {
                     pendingAncestorChangeFrame = frameId;
                     deferredChanged = true;
-                    prevTranslation = full.translation;
-                    prevRotation    = full.rotation;
-                    prevScale       = full.scale;
+                    ancestorChangeQueued = true;
+                    useMaxChildrenBounds = false; // 親変化直後は必ず再計算
                 }
             }
         }
