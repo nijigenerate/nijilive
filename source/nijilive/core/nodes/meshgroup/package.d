@@ -13,6 +13,7 @@ import nijilive.core.nodes.drawable;
 import nijilive.core.nodes.deformer.base;
 import nijilive.core.nodes.deformer.path;
 import nijilive.core.nodes.deformer.grid;
+import nijilive.core.nodes.composite : Composite;
 import nijilive.integration;
 import nijilive.fmt.serialize;
 import nijilive.math;
@@ -352,9 +353,11 @@ public:
 
     bool setupChildNoRecurse(bool prepend = false)(Node node) {
         auto drawable = cast(Deformable)node;
-        // Composite should not receive meshgroup filters; its children will still get them.
-        if (cast(Composite)node !is null && cast(DynamicComposite)node is null) {
-            return false;
+        // Compositeは propagateMeshGroup=true の場合は MeshGroup の translateChildren を適用しない
+        if (auto comp = cast(Composite)node) {
+            if (comp.propagateMeshGroup) {
+                return false;
+            }
         }
         bool isDeformable = drawable !is null;
         if (translateChildren || isDeformable) {
