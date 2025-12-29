@@ -96,6 +96,9 @@ protected:
     }
 
     override SerdeException deserializeFromFghj(Fghj data) {
+        // Base Node/Part first.
+        auto result = Node.deserializeFromFghj(data);
+
         // Legacy keys only
         if (!data["opacity"].isEmpty) data["opacity"].deserializeValue(this.opacity);
         if (!data["mask_threshold"].isEmpty) data["mask_threshold"].deserializeValue(this.threshold);
@@ -112,7 +115,7 @@ protected:
         autoResizedMesh = true;
         textures = [null, null, null];
 
-        return Node.deserializeFromFghj(data);
+        return result;
     }
 
     override void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
