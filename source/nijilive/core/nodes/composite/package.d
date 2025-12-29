@@ -59,12 +59,21 @@ public:
 protected:
     override bool mustPropagate() { return propagateMeshGroup; }
 
+    // Align serialization with legacy Composite (main): do not emit Projectable-specific fields.
     override void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
-        super.serializeSelfImpl(serializer, recursive, flags);
+        // Bypass Projectable.serializeSelfImpl to avoid writing auto_resized, etc.
+        Part.serializeSelfImpl(serializer, recursive, flags);
     }
 
     override SerdeException deserializeFromFghj(Fghj data) {
-        auto result = super.deserializeFromFghj(data);
+        // Bypass Projectable.deserializeFromFghj to avoid reading extra fields; keep legacy keys.
+        auto result = Part.deserializeFromFghj(data);
+        if (!data["propagate_meshgroup"].isEmpty) {
+            data["propagate_meshgroup"].deserializeValue(propagateMeshGroup);
+        }
+        // Composite defaults to auto-resized behavior.
+        autoResizedMesh = true;
+        textures = [null, null, null];
         return result;
     }
 
