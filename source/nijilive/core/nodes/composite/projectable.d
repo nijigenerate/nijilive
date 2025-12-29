@@ -25,6 +25,7 @@ import std.format;
 import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil, abs;
+version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
@@ -259,6 +260,7 @@ protected:
             if (autoResizedMesh) {
                 bool ran = false;
                 resized = updateAutoResizedMeshOnce(ran);
+                pendingAncestorChangeFrame = size_t.max;
                 if (ran && resized) {
                     initialized = false;
                 }
@@ -387,6 +389,7 @@ protected:
     }
 
     vec4 getChildrenBounds(bool forceUpdate = true) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:getChildrenBounds");
         auto frameId = currentProjectableFrame();
         if (useMaxChildrenBounds) {
             if (frameId - maxBoundsStartFrame >= MaxBoundsResetInterval) {
@@ -463,6 +466,7 @@ protected:
     }
 
     bool createSimpleMesh() {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:createSimpleMesh");
         auto bounds = getChildrenBounds();
         vec2 size = bounds.zw - bounds.xy;
         if (size.x <= 0 || size.y <= 0) {
@@ -994,33 +998,23 @@ public:
     // In autoResizedMesh mode, texture must be updated when any of the parents is translated, rotated, or scaled.
     // To detect parent's change, this object calls addNotifyListener to parents' event slot, and checks whether
     // they are changed or not.
+    size_t pendingAncestorChangeFrame = size_t.max;
     void onAncestorChanged(Node target, NotifyReason reason) {
         if (autoResizedMesh) {
             if (reason == NotifyReason.Transformed) {
+                version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:onAncestorChanged");
+                // 同一フレーム内は即リターンして重複呼び出しを避ける
+                auto frameId = currentProjectableFrame();
+                if (pendingAncestorChangeFrame == frameId) {
+                    return;
+                }
                 auto full = fullTransform();
                 if (prevTranslation != full.translation || prevRotation != full.rotation || prevScale != full.scale) {
+                    pendingAncestorChangeFrame = frameId;
                     deferredChanged = true;
                     prevTranslation = full.translation;
                     prevRotation    = full.rotation;
                     prevScale       = full.scale;
-                    // Expand cached bounds instead of dropping them so cache can be reused.
-                    bool previousCache = useMaxChildrenBounds;
-                    // Recompute current bounds once, then union with the cached max.
-                    useMaxChildrenBounds = false;
-                    auto currentBounds = getChildrenBounds(true);
-                    useMaxChildrenBounds = previousCache;
-
-                    if (!previousCache) {
-                        useMaxChildrenBounds = true;
-                        maxBoundsStartFrame = currentProjectableFrame();
-                        maxChildrenBounds = currentBounds;
-                    } else {
-                        maxChildrenBounds.x = min(maxChildrenBounds.x, currentBounds.x);
-                        maxChildrenBounds.y = min(maxChildrenBounds.y, currentBounds.y);
-                        maxChildrenBounds.z = max(maxChildrenBounds.z, currentBounds.z);
-                        maxChildrenBounds.w = max(maxChildrenBounds.w, currentBounds.w);
-                    }
-                    boundsDirty = true;
                 }
             }
         }

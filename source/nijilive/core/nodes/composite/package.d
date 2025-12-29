@@ -26,6 +26,7 @@ import std.stdio : writefln;
 import std.math : isFinite;
 import std.algorithm : map;
 import std.algorithm.comparison : min, max;
+version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 
 package(nijilive) {
     void inInitComposite() {
@@ -123,6 +124,7 @@ protected:
     }
 
     override vec4 getChildrenBounds(bool forceUpdate = true) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:getChildrenBounds");
         auto frameId = currentDynamicCompositeFrame();
         if (useMaxChildrenBounds) {
             if (frameId - maxBoundsStartFrame >= MaxBoundsResetInterval) {
