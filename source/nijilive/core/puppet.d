@@ -19,6 +19,7 @@ version (UseQueueBackend) {
 }
 import nijilive.core.runtime_state : currentRenderBackend;
 import nijilive.core.nodes : NotifyReason;
+import nijilive.utils.snapshot : Snapshot;
 
 import nijilive.core.render.scheduler;
 import nijilive.core.render.profiler : profileScope;
@@ -680,6 +681,7 @@ public:
         } else {
             drawImmediateFallback();
         }
+        Snapshot.processPending();
         /*
         // debug
         foreach (c; findNodesType!Composite(actualRoot())) {

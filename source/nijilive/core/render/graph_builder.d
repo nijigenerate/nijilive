@@ -8,6 +8,7 @@ import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.commands : DynamicCompositePass;
 import nijilive.core.render.passes : RenderPassKind, RenderScopeHint;
 import nijilive.core.nodes.composite : Composite;
+import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite, advanceDynamicCompositeFrame;
 import nijilive.core.nodes.common : MaskBinding, MaskingMode;
 
@@ -24,7 +25,7 @@ private struct RenderPass {
     size_t token;
     float scopeZSort;
     Composite composite;
-    DynamicComposite dynamicComposite;
+    Projectable projectable;
     DynamicCompositePass dynamicPass;
     bool maskUsesStencil;
     MaskBinding[] maskBindings;
@@ -131,31 +132,27 @@ private:
         };
 
         addItemToPass(passStack[parentIndex], pass.scopeZSort, builder);
-
-        if (autoClose && compositeNode !is null) {
-            compositeNode.markCompositeScopeClosed();
-        }
     }
 
     void finalizeDynamicCompositePass(bool autoClose, RenderCommandBuilder postCommands = null) {
         enforce(passStack.length > 1, "RenderQueue: cannot finalize dynamic composite scope without active pass. " ~ stackDebugString());
         auto pass = passStack[$ - 1];
         enforce(pass.kind == RenderPassKind.DynamicComposite, "RenderQueue: top scope is not dynamic composite. " ~ stackDebugString());
-        size_t parentIndex = parentPassIndexForDynamic(pass.dynamicComposite);
+        size_t parentIndex = parentPassIndexForDynamic(pass.projectable);
         passStack.length -= 1;
 
         auto childItems = collectPassItems(pass);
 
         if (pass.dynamicPass is null) {
-            if (autoClose && pass.dynamicComposite !is null) {
-                pass.dynamicComposite.dynamicScopeActive = false;
-                pass.dynamicComposite.dynamicScopeToken = size_t.max;
+            if (autoClose && pass.projectable !is null) {
+                pass.projectable.dynamicScopeActive = false;
+                pass.projectable.dynamicScopeToken = size_t.max;
             }
             pass.dynamicPostCommands = null;
             return;
         }
 
-        auto dynamicNode = pass.dynamicComposite;
+        auto dynamicNode = pass.projectable;
         auto passData = pass.dynamicPass;
         auto finalizer = postCommands is null ? pass.dynamicPostCommands : postCommands;
         RenderCommandBuilder builder = (RenderCommandEmitter emitter) {
@@ -169,9 +166,9 @@ private:
 
         addItemToPass(passStack[parentIndex], pass.scopeZSort, builder);
 
-        if (autoClose && pass.dynamicComposite !is null) {
-            pass.dynamicComposite.dynamicScopeActive = false;
-            pass.dynamicComposite.dynamicScopeToken = size_t.max;
+        if (autoClose && pass.projectable !is null) {
+            pass.projectable.dynamicScopeActive = false;
+            pass.projectable.dynamicScopeToken = size_t.max;
         }
         pass.dynamicPostCommands = null;
     }
@@ -220,12 +217,11 @@ private:
         if (composite is null || passStack.length == 0) return 0;
         auto ancestor = composite.parent;
         while (ancestor !is null) {
-            if (auto dyn = cast(DynamicComposite)ancestor) {
-                auto idx = findPassIndex(dyn.dynamicScopeTokenValue(), RenderPassKind.DynamicComposite);
+            if (auto proj = cast(Projectable)ancestor) {
+                auto token = proj.dynamicScopeTokenValue();
+                auto idx = findPassIndex(token, RenderPassKind.Composite);
                 if (idx > 0) return idx;
-            }
-            if (auto comp = cast(Composite)ancestor) {
-                auto idx = findPassIndex(comp.compositeScopeTokenValue(), RenderPassKind.Composite);
+                idx = findPassIndex(token, RenderPassKind.DynamicComposite);
                 if (idx > 0) return idx;
             }
             ancestor = ancestor.parent;
@@ -233,16 +229,15 @@ private:
         return 0;
     }
 
-    size_t parentPassIndexForDynamic(DynamicComposite composite) const {
+    size_t parentPassIndexForDynamic(Projectable composite) const {
         if (composite is null || passStack.length == 0) return 0;
         auto ancestor = composite.parent;
         while (ancestor !is null) {
-            if (auto dyn = cast(DynamicComposite)ancestor) {
-                auto idx = findPassIndex(dyn.dynamicScopeTokenValue(), RenderPassKind.DynamicComposite);
+            if (auto proj = cast(Projectable)ancestor) {
+                auto token = proj.dynamicScopeTokenValue();
+                auto idx = findPassIndex(token, RenderPassKind.DynamicComposite);
                 if (idx > 0) return idx;
-            }
-            if (auto comp = cast(Composite)ancestor) {
-                auto idx = findPassIndex(comp.compositeScopeTokenValue(), RenderPassKind.Composite);
+                idx = findPassIndex(token, RenderPassKind.Composite);
                 if (idx > 0) return idx;
             }
             ancestor = ancestor.parent;
@@ -333,11 +328,11 @@ public:
         finalizeCompositePass(false);
     }
 
-    size_t pushDynamicComposite(DynamicComposite composite, DynamicCompositePass passData, float zSort) {
+    size_t pushDynamicComposite(Projectable composite, DynamicCompositePass passData, float zSort) {
         ensureRootPass();
         RenderPass pass;
         pass.kind = RenderPassKind.DynamicComposite;
-        pass.dynamicComposite = composite;
+        pass.projectable = composite;
         pass.dynamicPass = passData;
         pass.scopeZSort = zSort;
         pass.token = ++nextToken;

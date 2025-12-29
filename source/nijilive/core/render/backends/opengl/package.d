@@ -3,8 +3,8 @@ module nijilive.core.render.backends.opengl;
 version (InDoesRender) {
 
 import nijilive.core.render.backends;
-import nijilive.core.render.commands : PartDrawPacket, CompositeDrawPacket, MaskApplyPacket,
-    MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface;
+import nijilive.core.render.commands : PartDrawPacket, MaskApplyPacket,
+    MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface, CompositeDrawPacket;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.render.backends.opengl.runtime :
@@ -15,21 +15,17 @@ import nijilive.core.render.backends.opengl.runtime :
     oglEndScene,
     oglPostProcessScene,
     oglAddBasicLightingPostProcess,
-    oglBeginComposite,
-    oglEndComposite,
     oglGetFramebuffer,
     oglGetRenderImage,
-    oglGetCompositeFramebuffer,
-    oglGetCompositeImage,
     oglGetMainAlbedo,
     oglGetMainEmissive,
     oglGetMainBump,
-    oglGetCompositeEmissive,
-    oglGetCompositeBump,
     oglGetBlendFramebuffer,
     oglGetBlendAlbedo,
     oglGetBlendEmissive,
-    oglGetBlendBump;
+    oglGetBlendBump,
+    oglBeginComposite,
+    oglEndComposite;
 import nijilive.core.render.backends.opengl.debug_renderer :
     oglInitDebugRenderer,
     oglSetDebugPointSize,
@@ -53,7 +49,6 @@ import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvalua
 import nijilive.core.render.backends.opengl.part :
     oglDrawPartPacket,
     oglInitPartBackendResources;
-import nijilive.core.render.backends.opengl.composite : oglDrawCompositeQuad;
 import nijilive.core.render.backends.opengl.mask :
     oglExecuteMaskApplyPacket,
     oglExecuteMaskPacket,
@@ -85,6 +80,7 @@ import nijilive.core.render.backends.opengl.blend :
     oglBlendToBuffer;
 import nijilive.core.render.backends.opengl.draw_texture :
     oglDrawTextureAtPart, oglDrawTextureAtPosition, oglDrawTextureAtRect;
+import nijilive.core.render.backends.opengl.composite : oglDrawCompositeQuad;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.render.profiler : profileScope, renderProfilerFrameCompleted;
 import nijilive.core.render.backends.opengl.shader_backend :
@@ -278,13 +274,14 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         auto profile = profileScope("EndMask");
         oglEndMask();
     }
+
     void beginComposite() {
         auto profile = profileScope("BeginComposite");
         oglBeginComposite();
     }
 
     void drawCompositeQuad(ref CompositeDrawPacket packet) {
-        auto profile = profileScope("DrawComposite");
+        auto profile = profileScope("DrawCompositeQuad");
         oglDrawCompositeQuad(packet);
     }
 
@@ -316,14 +313,6 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         return cast(RenderResourceHandle)oglGetRenderImage();
     }
 
-    RenderResourceHandle compositeFramebufferHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeFramebuffer();
-    }
-
-    RenderResourceHandle compositeImageHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeImage();
-    }
-
     RenderResourceHandle mainAlbedoHandle() {
         return cast(RenderResourceHandle)oglGetMainAlbedo();
     }
@@ -334,14 +323,6 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
 
     RenderResourceHandle mainBumpHandle() {
         return cast(RenderResourceHandle)oglGetMainBump();
-    }
-
-    RenderResourceHandle compositeEmissiveHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeEmissive();
-    }
-
-    RenderResourceHandle compositeBumpHandle() {
-        return cast(RenderResourceHandle)oglGetCompositeBump();
     }
 
     RenderResourceHandle blendFramebufferHandle() {
@@ -480,9 +461,9 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglGenerateTextureMipmap(handle.id);
     }
 
-    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering) {
+    void applyTextureFiltering(RenderTextureHandle texture, Filtering filtering, bool useMipmaps = true) {
         auto handle = requireGLTexture(texture);
-        oglApplyTextureFiltering(handle.id, filtering);
+        oglApplyTextureFiltering(handle.id, filtering, useMipmaps);
     }
 
     void applyTextureWrapping(RenderTextureHandle texture, Wrapping wrapping) {

@@ -8,7 +8,7 @@ import core.stdc.string : memcpy;
 import nijilive.math;
 import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.core.dbg : inInitDebug;
-import nijilive.core.render.backends.opengl.composite : oglGetCompositeVao;
+// Composite backend removed; no-op imports.
 import nijilive.core.runtime_state :
     inSetViewport,
     inViewportWidth,
@@ -505,13 +505,6 @@ GLuint oglGetMainAlbedo() {
 /**
     Gets the blend shader for the specified mode
 */
-GLuint oglGetCompositeVaoHandle() {
-    version (InDoesRender) {
-        return oglGetCompositeVao();
-    }
-    return 0;
-}
-
 package(nijilive) void oglSwapMainCompositeBuffers() {
     swap(fAlbedo, cfAlbedo);
     swap(fEmissive, cfEmissive);
@@ -631,5 +624,3 @@ void oglDumpViewport(ref ubyte[] dumpTo, int width, int height) {
         glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, dumpTo.ptr);
     }
 }
-
-

@@ -352,6 +352,10 @@ public:
 
     bool setupChildNoRecurse(bool prepend = false)(Node node) {
         auto drawable = cast(Deformable)node;
+        // Composite should not receive meshgroup filters; its children will still get them.
+        if (cast(Composite)node !is null && cast(DynamicComposite)node is null) {
+            return false;
+        }
         bool isDeformable = drawable !is null;
         if (translateChildren || isDeformable) {
             if (isDeformable && dynamic) {

@@ -93,7 +93,7 @@ void oglEndDynamicComposite(DynamicCompositePass pass) {
     glFlush();
 
     auto tex = pass.surface.textureCount > 0 ? pass.surface.textures[0] : null;
-    if (tex !is null) {
+    if (tex !is null && !pass.autoScaled) {
         tex.genMipmap();
     }
 }

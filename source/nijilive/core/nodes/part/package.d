@@ -686,7 +686,7 @@ public:
         }
     }
 
-    package(nijilive) void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
+    void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
         packet.isMask = isMask;
         packet.renderable = backendRenderable();
 

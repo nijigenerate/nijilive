@@ -18,6 +18,7 @@ import nijilive.core.nodes.part;
 import nijilive.core.nodes.deformer.grid;
 import nijilive.core.nodes.deformer.path;
 import nijilive.core.nodes.composite.dcomposite;
+import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.nodes.drawable : Drawable;
 import nijilive.core.render.graph_builder;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
@@ -66,14 +67,14 @@ final class RecordingEmitter : RenderCommandEmitter {
         commands ~= cmd;
     }
 
-    void beginDynamicComposite(DynamicComposite, DynamicCompositePass passData) {
+    void beginDynamicComposite(Projectable, DynamicCompositePass passData) {
         RecordedCommand cmd;
         cmd.kind = RenderCommandKind.BeginDynamicComposite;
         cmd.dynamicPass = passData;
         commands ~= cmd;
     }
 
-    void endDynamicComposite(DynamicComposite, DynamicCompositePass passData) {
+    void endDynamicComposite(Projectable, DynamicCompositePass passData) {
         RecordedCommand cmd;
         cmd.kind = RenderCommandKind.EndDynamicComposite;
         cmd.dynamicPass = passData;
@@ -109,9 +110,10 @@ final class RecordingEmitter : RenderCommandEmitter {
         commands ~= cmd;
     }
 
-    void beginComposite(Composite) {
+    void beginComposite(Composite composite) {
         RecordedCommand cmd;
         cmd.kind = RenderCommandKind.BeginComposite;
+        cmd.compositePacket = makeCompositeDrawPacket(composite);
         commands ~= cmd;
     }
 
@@ -122,9 +124,10 @@ final class RecordingEmitter : RenderCommandEmitter {
         commands ~= cmd;
     }
 
-    void endComposite(Composite) {
+    void endComposite(Composite composite) {
         RecordedCommand cmd;
         cmd.kind = RenderCommandKind.EndComposite;
+        cmd.compositePacket = makeCompositeDrawPacket(composite);
         commands ~= cmd;
     }
 }
@@ -283,11 +286,11 @@ unittest {
     auto commands = executeFrame(puppet);
     auto kinds = commands.map!(c => c.kind).array;
     assert(kinds == [
-        RenderCommandKind.BeginComposite,
+        RenderCommandKind.BeginDynamicComposite,
         RenderCommandKind.DrawPart,
-        RenderCommandKind.EndComposite,
-        RenderCommandKind.DrawCompositeQuad
-    ], "Composite should render children into its offscreen target before drawing the quad.");
+        RenderCommandKind.EndDynamicComposite,
+        RenderCommandKind.DrawPart
+    ], "Composite should render children into its offscreen target and then draw itself.");
 }
 
 unittest {
@@ -317,15 +320,15 @@ unittest {
     auto commands = executeFrame(puppet);
     auto kinds = commands.map!(c => c.kind).array;
     assert(kinds == [
-        RenderCommandKind.BeginComposite,
+        RenderCommandKind.BeginDynamicComposite,
         RenderCommandKind.DrawPart,
-        RenderCommandKind.EndComposite,
+        RenderCommandKind.EndDynamicComposite,
         RenderCommandKind.BeginMask,
         RenderCommandKind.ApplyMask,
         RenderCommandKind.BeginMaskContent,
-        RenderCommandKind.DrawCompositeQuad,
+        RenderCommandKind.DrawPart,
         RenderCommandKind.EndMask
-    ], "Composite masks must wrap the transfer step, not child rendering.");
+    ], "Composite masks must wrap the transfer step (self draw), not child rendering.");
 }
 
 unittest {
@@ -349,13 +352,13 @@ unittest {
     auto commands = executeFrame(puppet);
     auto kinds = commands.map!(c => c.kind).array;
     assert(kinds == [
-        RenderCommandKind.BeginComposite,      // outer begin
-        RenderCommandKind.BeginComposite,      // inner begin
-        RenderCommandKind.DrawPart,            // inner child
-        RenderCommandKind.EndComposite,        // inner end
-        RenderCommandKind.DrawCompositeQuad,   // inner transfer to outer FBO
-        RenderCommandKind.EndComposite,        // outer end
-        RenderCommandKind.DrawCompositeQuad    // outer transfer to parent
+        RenderCommandKind.BeginDynamicComposite,      // outer begin
+        RenderCommandKind.BeginDynamicComposite,      // inner begin
+        RenderCommandKind.DrawPart,                   // inner child
+        RenderCommandKind.EndDynamicComposite,        // inner end
+        RenderCommandKind.DrawPart,                   // inner self draw
+        RenderCommandKind.EndDynamicComposite,        // outer end
+        RenderCommandKind.DrawPart                    // outer self draw
     ], "Nested composites should finalize inner scopes before closing the outer scope.");
 }
 
@@ -380,11 +383,11 @@ unittest {
 
     puppet.rescanNodes();
     auto commands = executeFrame(puppet);
-    auto compositeDraws = commands
-        .filter!(c => c.kind == RenderCommandKind.DrawCompositeQuad)
+    auto begins = commands
+        .filter!(c => c.kind == RenderCommandKind.BeginDynamicComposite)
         .array;
-    assert(compositeDraws.length == 2,
-        "Sibling composites should each emit a DrawCompositeQuad command.");
+    assert(begins.length == 2,
+        "Sibling composites should each emit a BeginDynamicComposite command.");
 }
 
 unittest {

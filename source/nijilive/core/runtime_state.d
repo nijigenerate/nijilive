@@ -214,15 +214,9 @@ version(InDoesRender) {
         return backend is null ? 0 : handleOrZero(backend.framebufferHandle());
     }
 
-    RenderResourceHandle inGetCompositeImage() {
-        auto backend = renderBackendOrNull();
-        return backend is null ? 0 : handleOrZero(backend.compositeImageHandle());
-    }
+    RenderResourceHandle inGetCompositeImage() { return 0; }
 
-    RenderResourceHandle inGetCompositeFramebuffer() {
-        auto backend = renderBackendOrNull();
-        return backend is null ? 0 : handleOrZero(backend.compositeFramebufferHandle());
-    }
+    RenderResourceHandle inGetCompositeFramebuffer() { return 0; }
 
     RenderResourceHandle inGetMainAlbedo() {
         auto backend = renderBackendOrNull();
@@ -239,15 +233,9 @@ version(InDoesRender) {
         return backend is null ? 0 : handleOrZero(backend.mainBumpHandle());
     }
 
-    RenderResourceHandle inGetCompositeEmissive() {
-        auto backend = renderBackendOrNull();
-        return backend is null ? 0 : handleOrZero(backend.compositeEmissiveHandle());
-    }
+    RenderResourceHandle inGetCompositeEmissive() { return 0; }
 
-    RenderResourceHandle inGetCompositeBump() {
-        auto backend = renderBackendOrNull();
-        return backend is null ? 0 : handleOrZero(backend.compositeBumpHandle());
-    }
+    RenderResourceHandle inGetCompositeBump() { return 0; }
 
     RenderResourceHandle inGetBlendFramebuffer() {
         auto backend = renderBackendOrNull();

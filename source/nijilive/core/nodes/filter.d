@@ -51,7 +51,7 @@ mixin template NodeFilterMixin() {
                 auto drawable = cast(Deformable)node;
                 auto composite = cast(Composite)node;
                 bool isDeformable = drawable !is null;
-                bool isComposite = composite !is null && composite.propagateMeshGroup;
+                bool isComposite = composite !is null;
                 bool mustPropagate = node.mustPropagate();
                 if (isDeformable) {
                         int xx = x, yy = y;
