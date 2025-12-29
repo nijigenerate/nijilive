@@ -59,22 +59,60 @@ public:
 protected:
     override bool mustPropagate() { return propagateMeshGroup; }
 
-    // Align serialization with legacy Composite (main): do not emit Projectable-specific fields.
+    // Serialize only legacy Composite fields for compatibility.
     override void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
-        // Bypass Projectable.serializeSelfImpl to avoid writing auto_resized, etc.
-        Part.serializeSelfImpl(serializer, recursive, flags);
+        // Serialize base Node/Part state via super.
+        Node.serializeSelfImpl(serializer, recursive, flags);
+
+        if (flags & SerializeNodeFlags.State) {
+            serializer.putKey("blend_mode");
+            serializer.serializeValue(blendingMode);
+
+            serializer.putKey("tint");
+            tint.serialize(serializer);
+
+            serializer.putKey("screenTint");
+            screenTint.serialize(serializer);
+
+            serializer.putKey("mask_threshold");
+            serializer.putValue(threshold);
+
+            serializer.putKey("opacity");
+            serializer.putValue(opacity);
+
+            serializer.putKey("propagate_meshgroup");
+            serializer.serializeValue(propagateMeshGroup);
+        }
+
+        if ((flags & SerializeNodeFlags.Links) && masks.length > 0) {
+            serializer.putKey("masks");
+            auto state = serializer.listBegin();
+            foreach (m; masks) {
+                serializer.elemBegin;
+                serializer.serializeValue(m);
+            }
+            serializer.listEnd(state);
+        }
     }
 
     override SerdeException deserializeFromFghj(Fghj data) {
-        // Bypass Projectable.deserializeFromFghj to avoid reading extra fields; keep legacy keys.
-        auto result = Part.deserializeFromFghj(data);
-        if (!data["propagate_meshgroup"].isEmpty) {
+        // Legacy keys only
+        if (!data["opacity"].isEmpty) data["opacity"].deserializeValue(this.opacity);
+        if (!data["mask_threshold"].isEmpty) data["mask_threshold"].deserializeValue(this.threshold);
+        if (!data["tint"].isEmpty) deserialize(this.tint, data["tint"]);
+        if (!data["screenTint"].isEmpty) deserialize(this.screenTint, data["screenTint"]);
+        if (!data["blend_mode"].isEmpty) data["blend_mode"].deserializeValue(this.blendingMode);
+        if (!data["masks"].isEmpty) data["masks"].deserializeValue(this.masks);
+        if (!data["propagate_meshgroup"].isEmpty)
             data["propagate_meshgroup"].deserializeValue(propagateMeshGroup);
-        }
-        // Composite defaults to auto-resized behavior.
+        else
+            propagateMeshGroup = false;
+
+        // Default legacy behavior: auto-resized meshes and no textures.
         autoResizedMesh = true;
         textures = [null, null, null];
-        return result;
+
+        return Node.deserializeFromFghj(data);
     }
 
     override void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
