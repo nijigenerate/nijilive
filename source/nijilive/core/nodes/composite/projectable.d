@@ -229,7 +229,8 @@ protected:
 
         texWidth = cast(uint)(ceil(size.x)) + 1;
         texHeight = cast(uint)(ceil(size.y)) + 1;
-        textureOffset = (worldBounds.xy + worldBounds.zw) / 2 - transform.translation.xy;
+        vec2 deformOffset = deformationTranslationOffset();
+        textureOffset = (worldBounds.xy + worldBounds.zw) / 2 + deformOffset - transform.translation.xy;
 
         textures = [new Texture(texWidth, texHeight, 4, false, false), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true, false);
@@ -441,6 +442,19 @@ protected:
         return bounds;
     }
 
+    // Detects uniform deformation translation so we can shift offscreen rendering accordingly.
+    private vec2 deformationTranslationOffset() const {
+        if (deformation.length == 0) return vec2(0);
+        vec2 base = deformation[0];
+        enum float eps = 0.0001f;
+        foreach (off; deformation) {
+            if (abs(off.x - base.x) > eps || abs(off.y - base.y) > eps) {
+                return vec2(0);
+            }
+        }
+        return base;
+    }
+
     void enableMaxChildrenBounds(Node target = null) {
         Drawable targetDrawable = cast(Drawable)target;
         if (targetDrawable !is null && (!autoResizedMesh)) {
@@ -481,6 +495,7 @@ protected:
             return false;
         }
 
+        auto deformOffset = deformationTranslationOffset();
         vec2 origSize = shouldUpdateVertices
             ? autoResizedSize
             : (textures.length > 0 && textures[0] !is null)
@@ -508,12 +523,12 @@ protected:
         }
 
 
-        auto originOffset = transform.translation.xy;
+        auto originOffset = transform.translation.xy + deformOffset;
         Vec2Array vertexArray = Vec2Array([
-            vec2(bounds.x, bounds.y) - originOffset,
-            vec2(bounds.x, bounds.w) - originOffset,
-            vec2(bounds.z, bounds.y) - originOffset,
-            vec2(bounds.z, bounds.w) - originOffset
+            vec2(bounds.x, bounds.y) + deformOffset - originOffset,
+            vec2(bounds.x, bounds.w) + deformOffset - originOffset,
+            vec2(bounds.z, bounds.y) + deformOffset - originOffset,
+            vec2(bounds.z, bounds.w) + deformOffset - originOffset
         ]);
 
         if (resizing) {
@@ -534,9 +549,9 @@ protected:
             super.rebuffer(newData);
             shouldUpdateVertices = true;
             autoResizedSize = bounds.zw - bounds.xy;
-            textureOffset = (bounds.xy + bounds.zw) / 2 - originOffset;
+            textureOffset = (bounds.xy + bounds.zw) / 2 + deformOffset - originOffset;
         } else {
-            auto newTextureOffset = (bounds.xy + bounds.zw) / 2 - originOffset;
+            auto newTextureOffset = (bounds.xy + bounds.zw) / 2 + deformOffset - originOffset;
             enum float TextureOffsetEpsilon = 0.001f;
             bool offsetChanged = abs(newTextureOffset.x - textureOffset.x) > TextureOffsetEpsilon ||
                 abs(newTextureOffset.y - textureOffset.y) > TextureOffsetEpsilon;
@@ -1083,6 +1098,13 @@ public:
             loggedFirstRenderAttempt = false;
             invalidateChildrenBounds();
             boundsDirty = true;
+        } else if (reason == NotifyReason.Transformed) {
+            // Composite自身の原点移動などの変化に追従するため、キャッシュを無効化して再計算させる
+            textureInvalidated = true;
+            hasValidOffscreenContent = false;
+            loggedFirstRenderAttempt = false;
+            invalidateChildrenBounds();
+            boundsDirty = true;
         }
         if (autoResizedMesh) {
             bool ran = false;
@@ -1091,6 +1113,14 @@ public:
             }
         }
         super.notifyChange(target, reason);
+    }
+
+    override
+    void onDeformPushed(ref Deformation deform) {
+        super.onDeformPushed(deform);
+        textureInvalidated = true;
+        hasValidOffscreenContent = false;
+        loggedFirstRenderAttempt = false;
     }
 
     override
