@@ -5,6 +5,7 @@ version (InDoesRender) {
 import bindbc.opengl;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface;
 import nijilive.core.runtime_state : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
+import nijilive.core.render.backends.opengl.runtime : oglRebindActiveTargets;
 import nijilive.math : mat4, vec2, vec3, vec4;
 import nijilive.core.texture : Texture;
 import nijilive.core.render.backends.opengl.handles : requireGLTexture;
@@ -29,6 +30,7 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
         glGenFramebuffers(1, &newFramebuffer);
         surface.framebuffer = cast(RenderResourceHandle)newFramebuffer;
     }
+
 
     GLint previousFramebuffer;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousFramebuffer);
@@ -84,6 +86,9 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
 
 void oglEndDynamicComposite(DynamicCompositePass pass) {
     if (pass is null || pass.surface is null) return;
+
+    // Rebind active attachments (respecting any swaps that happened while rendering).
+    oglRebindActiveTargets();
 
     glBindFramebuffer(GL_FRAMEBUFFER, cast(GLuint)pass.origBuffer);
     inPopViewport();

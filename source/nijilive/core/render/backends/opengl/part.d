@@ -3,6 +3,7 @@
 version (InDoesRender) {
 
 import bindbc.opengl;
+import std.algorithm : min;
 import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFallbackEnabled,
     inSetBlendMode, inBlendModeBarrier;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
@@ -165,63 +166,131 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
             if (nlIsTripleBufferFallbackEnabled()) {
                 auto blendShader = oglGetBlendShader(packet.blendingMode);
                 if (blendShader) {
-                    GLint previous_draw_fbo;
-                    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw_fbo);
-                    GLint previous_read_fbo;
-                    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read_fbo);
-                    GLfloat[4] previous_clear_color;
-                    glGetFloatv(GL_COLOR_CLEAR_VALUE, previous_clear_color.ptr);
+                    // Save full GL state that we modify in the fallback path.
+                    struct SavedState {
+                        GLint drawFbo;
+                        GLint readFbo;
+                        GLint readBuffer;
+                        GLint[4] viewport;
+                        GLfloat[4] clearColor;
+                        GLint[4] drawBuffers;
+                        GLint drawBufferCount;
+                        GLint blendSrcRGB;
+                        GLint blendDstRGB;
+                        GLint blendSrcA;
+                        GLint blendDstA;
+                        GLint blendEqRGB;
+                        GLint blendEqA;
+                        GLboolean[4] colorMask;
+                        GLboolean depthEnabled;
+                        GLboolean stencilEnabled;
+                    }
+                    SavedState prev;
+                    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev.drawFbo);
+                    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prev.readFbo);
+                    glGetIntegerv(GL_READ_BUFFER, &prev.readBuffer);
+                    glGetIntegerv(GL_VIEWPORT, prev.viewport.ptr);
+                    GLint maxDrawBuffers = 0;
+                    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+                    maxDrawBuffers = min(maxDrawBuffers, cast(int)prev.drawBuffers.length);
+                    int bufCount = 0;
+                    for (int i = 0; i < maxDrawBuffers; ++i) {
+                        GLint buf = 0;
+                        glGetIntegerv(GL_DRAW_BUFFER0 + i, &buf);
+                        prev.drawBuffers[i] = buf;
+                        if (buf != GL_NONE) bufCount = i + 1;
+                    }
+                    if (bufCount == 0) {
+                        prev.drawBufferCount = 3;
+                        prev.drawBuffers[0] = GL_COLOR_ATTACHMENT0;
+                        prev.drawBuffers[1] = GL_COLOR_ATTACHMENT1;
+                        prev.drawBuffers[2] = GL_COLOR_ATTACHMENT2;
+                    } else {
+                        prev.drawBufferCount = bufCount;
+                    }
+                    glGetFloatv(GL_COLOR_CLEAR_VALUE, prev.clearColor.ptr);
+                    glGetIntegerv(GL_BLEND_SRC_RGB, &prev.blendSrcRGB);
+                    glGetIntegerv(GL_BLEND_DST_RGB, &prev.blendDstRGB);
+                    glGetIntegerv(GL_BLEND_SRC_ALPHA, &prev.blendSrcA);
+                    glGetIntegerv(GL_BLEND_DST_ALPHA, &prev.blendDstA);
+                    glGetIntegerv(GL_BLEND_EQUATION_RGB, &prev.blendEqRGB);
+                    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &prev.blendEqA);
+                    glGetBooleanv(GL_COLOR_WRITEMASK, prev.colorMask.ptr);
+                    prev.depthEnabled = glIsEnabled(GL_DEPTH_TEST);
+                    prev.stencilEnabled = glIsEnabled(GL_STENCIL_TEST);
 
-                    bool drawingMainBuffer = previous_draw_fbo == oglGetFramebuffer();
-                    bool drawingCompositeBuffer = previous_draw_fbo == oglGetCompositeFramebuffer();
+                    bool drawingMainBuffer = prev.drawFbo == oglGetFramebuffer();
+                    bool drawingCompositeBuffer = prev.drawFbo == oglGetCompositeFramebuffer();
 
                     if (!drawingMainBuffer && !drawingCompositeBuffer) {
                         setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
                         renderStage(packet, false);
-                        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previous_draw_fbo);
-                        glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
-                        glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
+                        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev.drawFbo);
+                        glBindFramebuffer(GL_READ_FRAMEBUFFER, prev.readFbo);
+                        glReadBuffer(prev.readBuffer);
+                        glDrawBuffers(prev.drawBufferCount, cast(const(GLenum)*)prev.drawBuffers.ptr);
+                        glViewport(prev.viewport[0], prev.viewport[1], prev.viewport[2], prev.viewport[3]);
+                        glClearColor(prev.clearColor[0], prev.clearColor[1], prev.clearColor[2], prev.clearColor[3]);
+                        glBlendEquationSeparate(prev.blendEqRGB, prev.blendEqA);
+                        glBlendFuncSeparate(prev.blendSrcRGB, prev.blendDstRGB, prev.blendSrcA, prev.blendDstA);
+                        glColorMask(prev.colorMask[0], prev.colorMask[1], prev.colorMask[2], prev.colorMask[3]);
+                        if (prev.depthEnabled) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+                        if (prev.stencilEnabled) glEnable(GL_STENCIL_TEST); else glDisable(GL_STENCIL_TEST);
+                        // Ensure downstream draws target standard MRT attachments.
+                        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
                         return;
                     }
 
                     int viewportWidth, viewportHeight;
                     inGetViewport(viewportWidth, viewportHeight);
-                    GLint[4] previousViewport;
-                    glGetIntegerv(GL_VIEWPORT, previousViewport.ptr);
 
                     GLuint blendFramebuffer = oglGetBlendFramebuffer();
+                    // Copy current target into blend buffer as a backup.
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, prev.drawFbo);
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
+                    foreach(att; 0 .. 3) {
+                        GLenum buf = GL_COLOR_ATTACHMENT0 + att;
+                        glReadBuffer(buf);
+                        glDrawBuffer(buf);
+                        glBlitFramebuffer(0, 0, viewportWidth, viewportHeight,
+                            0, 0, viewportWidth, viewportHeight,
+                            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                    }
+
+                    // Draw the part into the blend buffer.
                     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
                     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
                     glViewport(0, 0, viewportWidth, viewportHeight);
-                    glClearColor(0f, 0f, 0f, 0f);
-                    glClear(GL_COLOR_BUFFER_BIT);
                     setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
                     renderStage(packet, false);
 
-                    GLuint bgAlbedo = drawingMainBuffer ? oglGetMainAlbedo() : oglGetCompositeImage();
-                    GLuint bgEmissive = drawingMainBuffer ? oglGetMainEmissive() : oglGetCompositeEmissive();
-                    GLuint bgBump = drawingMainBuffer ? oglGetMainBump() : oglGetCompositeBump();
+                    // Copy result back to original target.
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, blendFramebuffer);
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev.drawFbo);
+                    foreach(att; 0 .. 3) {
+                        GLenum buf = GL_COLOR_ATTACHMENT0 + att;
+                        glReadBuffer(buf);
+                        glDrawBuffer(buf);
+                        glBlitFramebuffer(0, 0, viewportWidth, viewportHeight,
+                            0, 0, viewportWidth, viewportHeight,
+                            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                    }
 
-                    GLuint fgAlbedo = oglGetBlendAlbedo();
-                    GLuint fgEmissive = oglGetBlendEmissive();
-                    GLuint fgBump = oglGetBlendBump();
-
-                    GLuint destinationFBO = drawingMainBuffer ? oglGetCompositeFramebuffer() : oglGetFramebuffer();
-                    oglBlendToBuffer(
-                        blendShader,
-                        packet.blendingMode,
-                        destinationFBO,
-                        bgAlbedo, bgEmissive, bgBump,
-                        fgAlbedo, fgEmissive, fgBump
-                    );
-
-                    oglSwapMainCompositeBuffers();
-
-                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawingMainBuffer ? oglGetFramebuffer() : oglGetCompositeFramebuffer());
+                    // Restore original state after blending.
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev.drawFbo);
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, prev.readFbo);
+                    glReadBuffer(prev.readBuffer);
+                    glDrawBuffers(prev.drawBufferCount, cast(const(GLenum)*)prev.drawBuffers.ptr);
+                    glViewport(prev.viewport[0], prev.viewport[1], prev.viewport[2], prev.viewport[3]);
+                    glClearColor(prev.clearColor[0], prev.clearColor[1], prev.clearColor[2], prev.clearColor[3]);
+                    glBlendEquationSeparate(prev.blendEqRGB, prev.blendEqA);
+                    glBlendFuncSeparate(prev.blendSrcRGB, prev.blendDstRGB, prev.blendSrcA, prev.blendDstA);
+                    glColorMask(prev.colorMask[0], prev.colorMask[1], prev.colorMask[2], prev.colorMask[3]);
+                    if (prev.depthEnabled) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+                    if (prev.stencilEnabled) glEnable(GL_STENCIL_TEST); else glDisable(GL_STENCIL_TEST);
+                    // Ensure downstream draws target standard MRT attachments.
                     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
-                    glBindFramebuffer(GL_READ_FRAMEBUFFER, previous_read_fbo);
-                    glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
-                    glClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
+                    boundAlbedo = null; // force texture rebind after fallback path
                     return;
                 }
             }
@@ -354,5 +423,3 @@ void oglDrawPartPacket(ref PartDrawPacket) {}
 void oglExecutePartPacket(ref PartDrawPacket) {}
 
 }
-
-

@@ -8,6 +8,7 @@ import core.stdc.string : memcpy;
 import nijilive.math;
 import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.core.dbg : inInitDebug;
+import nijilive.core.render.backends.opengl.part : boundAlbedo;
 // Composite backend removed; no-op imports.
 import nijilive.core.runtime_state :
     inSetViewport,
@@ -216,6 +217,7 @@ package(nijilive) {
     Begins rendering to the framebuffer
 */
 void oglBeginScene() {
+    boundAlbedo = null; // force texture rebind at start of frame
     glBindVertexArray(sceneVAO);
     glEnable(GL_BLEND);
     glEnablei(GL_BLEND, 0);
@@ -226,6 +228,19 @@ void oglBeginScene() {
 
     // Make sure to reset our viewport if someone has messed with it
     glViewport(0, 0, inViewportWidth[$-1], inViewportHeight[$-1]);
+
+    // Ensure framebuffer attachments are bound in case external code modified FBO state.
+    glBindFramebuffer(GL_FRAMEBUFFER, fBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fAlbedo, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, fEmissive, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, fBump, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, fStencil, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, cfBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, cfAlbedo, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, cfEmissive, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, cfBump, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, cfStencil, 0);
 
     // Bind and clear composite framebuffer
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cfBuffer);
@@ -493,26 +508,10 @@ package(nijilive) GLuint oglGetBlendBump() {
     return blendBump;
 }
 
-/**
-    Gets the nijilive main albedo render image
-
-    DO NOT MODIFY THIS IMAGE!
-*/
-GLuint oglGetMainAlbedo() {
-    return fAlbedo;
-}
-
-/**
-    Gets the blend shader for the specified mode
-*/
-package(nijilive) void oglSwapMainCompositeBuffers() {
-    swap(fAlbedo, cfAlbedo);
-    swap(fEmissive, cfEmissive);
-    swap(fBump, cfBump);
-    swap(fStencil, cfStencil);
-
-    GLint previous_fbo;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previous_fbo);
+// Reattach the currently active main/composite textures to their FBOs.
+package(nijilive) void oglRebindActiveTargets() {
+    GLint prev;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev);
 
     glBindFramebuffer(GL_FRAMEBUFFER, fBuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fAlbedo, 0);
@@ -526,7 +525,23 @@ package(nijilive) void oglSwapMainCompositeBuffers() {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, cfBump, 0);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, cfStencil, 0);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, previous_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, prev);
+}
+
+/**
+    Gets the nijilive main albedo render image
+
+    DO NOT MODIFY THIS IMAGE!
+*/
+GLuint oglGetMainAlbedo() {
+    return fAlbedo;
+}
+
+/**
+    Gets the blend shader for the specified mode
+*/
+package(nijilive) void oglSwapMainCompositeBuffers() {
+    // No-op swap: we avoid ping-pong to keep attachments stable.
 }
 package(nijilive)
 void oglResizeViewport(int width, int height) {
@@ -555,7 +570,6 @@ void oglResizeViewport(int width, int height) {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, fEmissive, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, fBump, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, fStencil, 0);
-        
 
         // Composite framebuffer
         glBindTexture(GL_TEXTURE_2D, cfAlbedo);
