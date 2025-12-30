@@ -7,10 +7,8 @@ import std.exception : enforce;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.commands : DynamicCompositePass;
 import nijilive.core.render.passes : RenderPassKind, RenderScopeHint;
-import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite, advanceDynamicCompositeFrame;
-import nijilive.core.nodes.common : MaskBinding, MaskingMode;
 
 alias RenderCommandBuilder = void delegate(RenderCommandEmitter emitter);
 
@@ -24,11 +22,8 @@ private struct RenderPass {
     RenderPassKind kind;
     size_t token;
     float scopeZSort;
-    Composite composite;
     Projectable projectable;
     DynamicCompositePass dynamicPass;
-    bool maskUsesStencil;
-    MaskBinding[] maskBindings;
     RenderItem[] items;
     size_t nextSequence;
     RenderCommandBuilder dynamicPostCommands;
@@ -86,54 +81,6 @@ private:
         pass.items ~= item;
     }
 
-    void finalizeCompositePass(bool autoClose) {
-        enforce(passStack.length > 1, "RenderQueue: cannot finalize composite scope without active pass. " ~ stackDebugString());
-        auto pass = passStack[$ - 1];
-        enforce(pass.kind == RenderPassKind.Composite, "RenderQueue: top scope is not composite. " ~ stackDebugString());
-        size_t parentIndex = parentPassIndexForComposite(pass.composite);
-        passStack.length -= 1;
-
-        auto childItems = collectPassItems(pass);
-        auto compositeNode = pass.composite;
-        auto maskBindings = pass.maskBindings.dup;
-        bool maskUsesStencil = pass.maskUsesStencil;
-        bool hasMasks = maskBindings.length > 0 || maskUsesStencil;
-        debug (UnityDLLLog) {
-            import std.stdio : writefln;
-            debug (UnityDLLLog) writefln("[nijilive] finalizeCompositePass masks=%s stencil=%s composite=%s", maskBindings.length, maskUsesStencil, compositeNode is null ? 0 : compositeNode.uuid);
-        }
-
-        RenderCommandBuilder builder = (RenderCommandEmitter emitter) {
-            emitter.beginComposite(compositeNode);
-            playbackItems(childItems, emitter);
-            emitter.endComposite(compositeNode);
-
-            if (hasMasks) {
-                emitter.beginMask(maskUsesStencil);
-                foreach (binding; maskBindings) {
-                    if (binding.maskSrc is null) continue;
-                    bool isDodge = binding.mode == MaskingMode.DodgeMask;
-                    import std.stdio : writefln;
-                    debug (UnityDLLLog) writefln("[nijilive] applyMask composite=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
-                        compositeNode is null ? "" : compositeNode.name,
-                        compositeNode is null ? 0 : compositeNode.uuid,
-                        binding.maskSrc.name, binding.maskSrc.uuid,
-                        binding.mode, isDodge);
-                    emitter.applyMask(binding.maskSrc, isDodge);
-                }
-                emitter.beginMaskContent();
-            }
-
-            emitter.drawCompositeQuad(compositeNode);
-
-            if (hasMasks) {
-                emitter.endMask();
-            }
-        };
-
-        addItemToPass(passStack[parentIndex], pass.scopeZSort, builder);
-    }
-
     void finalizeDynamicCompositePass(bool autoClose, RenderCommandBuilder postCommands = null) {
         enforce(passStack.length > 1, "RenderQueue: cannot finalize dynamic composite scope without active pass. " ~ stackDebugString());
         auto pass = passStack[$ - 1];
@@ -177,9 +124,6 @@ private:
         enforce(passStack.length > 1, "RenderQueue: no scope available to finalize. " ~ stackDebugString());
         auto pass = passStack[$ - 1];
         final switch (pass.kind) {
-            case RenderPassKind.Composite:
-                finalizeCompositePass(autoClose);
-                break;
             case RenderPassKind.DynamicComposite:
                 finalizeDynamicCompositePass(autoClose, null);
                 break;
@@ -213,22 +157,6 @@ private:
         return 0;
     }
 
-    size_t parentPassIndexForComposite(Composite composite) const {
-        if (composite is null || passStack.length == 0) return 0;
-        auto ancestor = composite.parent;
-        while (ancestor !is null) {
-            if (auto proj = cast(Projectable)ancestor) {
-                auto token = proj.dynamicScopeTokenValue();
-                auto idx = findPassIndex(token, RenderPassKind.Composite);
-                if (idx > 0) return idx;
-                idx = findPassIndex(token, RenderPassKind.DynamicComposite);
-                if (idx > 0) return idx;
-            }
-            ancestor = ancestor.parent;
-        }
-        return 0;
-    }
-
     size_t parentPassIndexForDynamic(Projectable composite) const {
         if (composite is null || passStack.length == 0) return 0;
         auto ancestor = composite.parent;
@@ -236,8 +164,6 @@ private:
             if (auto proj = cast(Projectable)ancestor) {
                 auto token = proj.dynamicScopeTokenValue();
                 auto idx = findPassIndex(token, RenderPassKind.DynamicComposite);
-                if (idx > 0) return idx;
-                idx = findPassIndex(token, RenderPassKind.Composite);
                 if (idx > 0) return idx;
             }
             ancestor = ancestor.parent;
@@ -276,10 +202,6 @@ public:
             case RenderPassKind.Root:
                 index = 0;
                 break;
-            case RenderPassKind.Composite:
-                index = findPassIndex(hint.token, RenderPassKind.Composite);
-                enforce(index > 0, "RenderQueue: composite scope not active for enqueue. " ~ stackDebugString());
-                break;
             case RenderPassKind.DynamicComposite:
                 index = findPassIndex(hint.token, RenderPassKind.DynamicComposite);
                 enforce(index > 0, "RenderQueue: dynamic composite scope not active for enqueue. " ~ stackDebugString());
@@ -296,36 +218,6 @@ public:
         if (builder is null) return;
         auto ref pass = resolvePass(hint);
         addItemToPass(pass, zSort, builder);
-    }
-
-    size_t pushComposite(Composite composite, float zSort, bool maskUsesStencil, MaskBinding[] maskBindings) {
-        ensureRootPass();
-        RenderPass pass;
-        pass.kind = RenderPassKind.Composite;
-        pass.composite = composite;
-        pass.scopeZSort = zSort;
-        pass.maskUsesStencil = maskUsesStencil;
-        pass.maskBindings = maskBindings.dup;
-        pass.token = ++nextToken;
-        pass.nextSequence = 0;
-        pass.dynamicPostCommands = null;
-        passStack ~= pass;
-        return pass.token;
-    }
-
-    void popComposite(size_t token) {
-        enforce(passStack.length > 1, "RenderQueue.popComposite called without matching push. " ~ stackDebugString());
-        auto targetIndex = findPassIndex(token, RenderPassKind.Composite);
-        enforce(targetIndex > 0, "RenderQueue.popComposite scope mismatch (token=" ~ token.to!string ~ ") " ~ stackDebugString());
-
-        while (passStack.length - 1 > targetIndex) {
-            finalizeTopPass(true);
-        }
-
-        auto pass = passStack[$ - 1];
-        enforce(pass.token == token, "RenderQueue.popComposite scope mismatch (token=" ~ token.to!string ~ ") " ~ stackDebugString());
-
-        finalizeCompositePass(false);
     }
 
     size_t pushDynamicComposite(Projectable composite, DynamicCompositePass passData, float zSort) {

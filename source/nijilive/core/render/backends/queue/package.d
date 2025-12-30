@@ -9,10 +9,8 @@ import nijilive.core.render.commands;
 import nijilive.core.render.backends : RenderGpuState, RenderResourceHandle,
     RenderTextureHandle, RenderShaderHandle, BackendEnum;
 import nijilive.core.nodes.part : Part;
-import nijilive.core.nodes.mask : Mask;
 import nijilive.core.nodes.drawable : Drawable;
 import nijilive.core.nodes.composite.projectable : Projectable;
-import nijilive.core.nodes.composite : Composite;
 import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.texture : Texture;
@@ -28,9 +26,7 @@ struct QueuedCommand {
     RenderCommandKind kind;
     union Payload {
         PartDrawPacket partPacket;
-        MaskDrawPacket maskPacket;
         MaskApplyPacket maskApplyPacket;
-        CompositeDrawPacket compositePacket;
         DynamicCompositePass dynamicPass;
     }
     Payload payload;
@@ -60,14 +56,6 @@ public:
         auto packet = makePartDrawPacket(part, isMask);
         record(RenderCommandKind.DrawPart, (ref QueuedCommand cmd) {
             cmd.payload.partPacket = packet;
-        });
-    }
-
-    void drawMask(Mask mask) {
-        if (mask is null) return;
-        auto packet = makeMaskDrawPacket(mask);
-        record(RenderCommandKind.DrawMask, (ref QueuedCommand cmd) {
-            cmd.payload.maskPacket = packet;
         });
     }
 
@@ -119,21 +107,6 @@ public:
             return;
         }
         record(RenderCommandKind.EndMask, (ref QueuedCommand) {});
-    }
-
-    void beginComposite(Composite composite) {
-        record(RenderCommandKind.BeginComposite, (ref QueuedCommand) {});
-    }
-
-    void drawCompositeQuad(Composite composite) {
-        auto packet = makeCompositeDrawPacket(composite);
-        record(RenderCommandKind.DrawCompositeQuad, (ref QueuedCommand cmd) {
-            cmd.payload.compositePacket = packet;
-        });
-    }
-
-    void endComposite(Composite composite) {
-        record(RenderCommandKind.EndComposite, (ref QueuedCommand) {});
     }
 
     void endFrame(RenderBackend backend, ref RenderGpuState state) {
@@ -259,7 +232,6 @@ public:
     void drawDebugLines(vec4, mat4) {}
 
     void drawPartPacket(ref PartDrawPacket) {}
-    void drawMaskPacket(ref MaskDrawPacket) {}
     void beginDynamicComposite(DynamicCompositePass) {}
     void endDynamicComposite(DynamicCompositePass) {}
     void destroyDynamicComposite(DynamicCompositeSurface) {}
@@ -267,9 +239,6 @@ public:
     void applyMask(ref MaskApplyPacket) {}
     void beginMaskContent() {}
     void endMask() {}
-    void beginComposite() {}
-    void drawCompositeQuad(ref CompositeDrawPacket) {}
-    void endComposite() {}
     void drawTextureAtPart(Texture, Part) {}
     void drawTextureAtPosition(Texture, vec2, float, vec3, vec3) {}
     void drawTextureAtRect(Texture, rect, rect, float, vec3, vec3, Shader, Camera) {}
