@@ -24,7 +24,6 @@ public import nijilive.core.meshdata;
 import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind,
     makeMaskDrawPacket, PartDrawPacket;
 import nijilive.core.render.scheduler : RenderContext;
-import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.fmt.serialize;
 
 package(nijilive) {
@@ -74,6 +73,14 @@ public:
         super(data, uuid, parent);
     }
 
+    // Maskは画面に描かない：通常描画パケットは非レンダリングにする
+    override
+    void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
+        super.fillDrawPacket(packet, isMask);
+        packet.renderable = false;
+        packet.textures.length = 0;
+    }
+
     // Serialize/Deserialize is kept identical to legacy (Drawable) behavior.
     override
     void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
@@ -98,12 +105,7 @@ public:
         }
     }
 
-    // 自分自身は描画しない: renderタスクを無効化する
-    override
-    protected void runRenderTask(ref RenderContext ctx) {
-        return;
-    }
-
+    // 自分自身は描画しない: renderタスクは登録しない（他タスクはNodeに任せる）
     package(nijilive)
     void fillMaskDrawPacket(ref MaskDrawPacket packet) {
         mat4 modelMatrix = immediateModelMatrix();
@@ -120,6 +122,11 @@ public:
         packet.indexBuffer = ibo;
         packet.indexCount = cast(uint)data.indices.length;
         packet.vertexCount = cast(uint)data.vertices.length;
+    }
+
+    override
+    protected void runRenderTask(ref RenderContext ctx) {
+        // Masks never render their own color; they are only used as mask sources.
     }
 
     override
