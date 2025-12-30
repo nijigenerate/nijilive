@@ -9,22 +9,22 @@
     Authors: Luna Nielsen
 */
 module nijilive.core.nodes.mask;
-import nijilive.core.nodes.drawable;
+import nijilive.core.nodes.part;
 import nijilive.core;
 import nijilive.math;
 import nijilive.core.render.shared_deform_buffer :
     sharedVertexAtlasStride,
-    sharedDeformAtlasStride;
-import nijilive.core.render.shared_deform_buffer : sharedDeformAtlasStride;
+    sharedDeformAtlasStride,
+    sharedUvAtlasStride;
 import std.exception;
 import std.algorithm.mutation : copy;
 
 public import nijilive.core.meshdata;
 
 import nijilive.core.render.commands : MaskDrawPacket, MaskApplyPacket, MaskDrawableKind,
-    makeMaskDrawPacket;
+    makeMaskDrawPacket, PartDrawPacket;
 import nijilive.core.render.scheduler : RenderContext;
-import nijilive.core.render.command_emitter : RenderCommandEmitter;
+import nijilive.fmt.serialize;
 
 package(nijilive) {
     void inInitMask() {
@@ -36,24 +36,14 @@ package(nijilive) {
     Dynamic Mask Part
 */
 @TypeId("Mask")
-class Mask : Drawable {
+class Mask : Part {
 private:
     this() { }
-
-    bool hasOffscreenModelMatrix = false;
-    mat4 offscreenModelMatrix;
 
     /*
         RENDERING
     */
-    void drawSelf() {
-        version (InDoesRender) {
-            auto backend = puppet ? puppet.renderBackend : null;
-            if (backend is null) return;
-            auto packet = makeMaskDrawPacket(this);
-            backend.drawMaskPacket(packet);
-        }
-    }
+    void drawSelf() { }
 
 protected:
 
@@ -82,6 +72,25 @@ public:
     this(MeshData data, uint uuid, Node parent = null) {
         super(data, uuid, parent);
     }
+
+    // Maskは画面に描かない：通常描画パケットは非レンダリングにする
+    override
+    void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
+        super.fillDrawPacket(packet, isMask);
+        packet.renderable = false;
+        packet.textures.length = 0;
+    }
+
+    // Serialize/Deserialize is kept identical to legacy (Drawable) behavior.
+    override
+    void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
+        Drawable.serializeSelfImpl(serializer, recursive, flags);
+    }
+
+    override
+    SerdeException deserializeFromFghj(Fghj data) {
+        return Drawable.deserializeFromFghj(data);
+    }
     
     override
     void renderMask(bool dodge = false) {
@@ -96,41 +105,10 @@ public:
         }
     }
 
-    override
-    void rebuffer(ref MeshData data) {
-        super.rebuffer(data);
-    }
-
-    override
-    void drawOne() {
-        super.drawOne();
-    }
-
-    override
-    void drawOneDirect(bool forMasking) {
-        version (InDoesRender) {
-            this.drawSelf();
-        }
-    }
-
-    package(nijilive)
-    void enqueueRenderCommands(RenderContext ctx) {
-        if (!renderEnabled() || ctx.renderGraph is null) return;
-        auto scopeHint = determineRenderScopeHint();
-        if (scopeHint.skip) return;
-        auto maskNode = this;
-        ctx.renderGraph.enqueueItem(zSort(), scopeHint, (RenderCommandEmitter emitter) {
-            emitter.drawMask(maskNode);
-        });
-    }
-
+    // 自分自身は描画しない: renderタスクは登録しない（他タスクはNodeに任せる）
     package(nijilive)
     void fillMaskDrawPacket(ref MaskDrawPacket packet) {
-        mat4 modelMatrix = hasOffscreenModelMatrix ? offscreenModelMatrix : transform.matrix();
-        if (overrideTransformMatrix !is null)
-            modelMatrix = overrideTransformMatrix.matrix;
-        if (oneTimeTransform !is null)
-            modelMatrix = (*oneTimeTransform) * modelMatrix;
+        mat4 modelMatrix = immediateModelMatrix();
         packet.modelMatrix = modelMatrix;
 
         mat4 puppetMatrix = puppet ? puppet.transform.matrix : mat4.identity;
@@ -144,13 +122,11 @@ public:
         packet.indexBuffer = ibo;
         packet.indexCount = cast(uint)data.indices.length;
         packet.vertexCount = cast(uint)data.vertices.length;
-        debug (UnityDLLLog) {
-            import std.stdio : writefln;
-            debug (UnityDLLLog) writefln("[nijilive] fillMaskDrawPacket ibo=%s vCount=%s iCount=%s vOff/Stride=%s/%s deformOff/Stride=%s/%s",
-                ibo, packet.vertexCount, packet.indexCount,
-                packet.vertexOffset, packet.vertexAtlasStride,
-                packet.deformOffset, packet.deformAtlasStride);
-        }
+    }
+
+    override
+    protected void runRenderTask(ref RenderContext ctx) {
+        // Masks never render their own color; they are only used as mask sources.
     }
 
     override
@@ -159,16 +135,6 @@ public:
         foreach(child; children) {
             child.draw();
         }
-    }
-
-package(nijilive):
-    void setOffscreenModelMatrix(const mat4 matrix) {
-        offscreenModelMatrix = matrix;
-        hasOffscreenModelMatrix = true;
-    }
-
-    void clearOffscreenModelMatrix() {
-        hasOffscreenModelMatrix = false;
     }
 
 }
