@@ -10,10 +10,9 @@ and to visualise how TaskScheduler, RenderQueue, and the Node tree interact.
 
 - `Puppet.update()` drives a frame and registers the entire node tree into the TaskScheduler.
 - The TaskScheduler executes a fixed `TaskOrder` sequence and, during render phases, accumulates GPU commands in the RenderQueue.
-- RenderQueue keeps separate `RenderPass` entries for Root / Composite / DynamicComposite targets, then sorts commands
+- RenderQueue keeps separate `RenderPass` entries for Root / DynamicComposite targets, then sorts commands
   by `zSort` (descending) and submission order before forwarding them to the backend.
-- Composite / DynamicComposite nodes declare scopes via `push*/pop*`, confining child drawing into their own FBOs
-  before blitting to the parent target. Masking and DynamicComposite re-render decisions are also resolved inside those scopes.
+- DynamicComposite nodes declare scopes via `pushDynamicComposite/popDynamicComposite`, confining child drawing into their own FBOs before handing them to the parent target. MaskingとDynamicComposite再描画判定もこのスコープで処理する。
 
 ```mermaid
 graph TD
@@ -23,7 +22,7 @@ graph TD
     D --> E["TaskScheduler.execute(ctx)"]
     E --> F["Node runRender* handlers"]
     F --> G["RenderQueue enqueue / push-pop"]
-    G --> H["RenderPass stack (Root / Composite / Dynamic)"]
+    G --> H["RenderPass stack (Root / Dynamic)"]
     H --> I["RenderQueue.flush()"]
     I --> J["RenderBackend draws"]
 ```
@@ -45,8 +44,7 @@ graph TD
 
 - Every `Node` exposes `registerRenderTasks` and registers itself plus its children via DFS.
   - The child list is duplicated and **stable-sorted by `zSort` descending**, so tasks always register back-to-front.
-  - Each node pushes one task per order from Init through Final. `Composite` / `DynamicComposite` override the
-    render-phase entries to manage RenderQueue scopes.
+  - Each node pushes one task per order from Init through Final. DynamicComposite overrides the render-phase entries to manage RenderQueue scopes.
   - Subtrees beneath a `DynamicComposite` ancestor may skip their own Render tasks (`allowRenderTasks=false`)
     because the parent DynamicComposite renders or reuses them offscreen.
 - `Puppet.update()` orchestrates:
@@ -66,17 +64,17 @@ graph TD
 
 ### 2.4 Example Order Produced by DFS
 
-- `registerRenderTasks` adds `TaskOrder.Init..Final` in **pre-order (parent ↁEchildren)** and appends
-  `TaskOrder.RenderEnd` only after all descendants finished, making RenderEnd a **post-order (children ↁEparent)** entry.
+- `registerRenderTasks` adds `TaskOrder.Init..Final` in **pre-order (parent →children)** and appends
+  `TaskOrder.RenderEnd` only after all descendants finished, making RenderEnd a **post-order (children →parent)** entry.
 - Because children are `zSort`-sorted, the queues inherit the same back-to-front order.
 - Nodes directly under a DynamicComposite skip their own `RenderBegin/Render/RenderEnd` when `allowRenderTasks=false`.
 
 | TaskOrder                                                      | Parent/Child order | Notes |
 |----------------------------------------------------------------|--------------------|-------|
-| Init / PreProcess / Dynamic / Post0-2 / RenderBegin / Render / Final | Parent ↁEchild (pre-order) | Parent task goes first, followed by children sorted by `zSort` |
-| RenderEnd                                                      | Child ↁEparent (post-order) | Registered after the parent finishes registering its children |
+| Init / PreProcess / Dynamic / Post0-2 / RenderBegin / Render / Final | Parent →child (pre-order) | Parent task goes first, followed by children sorted by `zSort` |
+| RenderEnd                                                      | Child →parent (post-order) | Registered after the parent finishes registering its children |
 
-Example: Root ↁEComposite ↁEPartA/B (B has higher `zSort`):
+Example: Root →Composite →PartA/B (B has higher `zSort`):
 
 ```mermaid
 graph TD
@@ -97,12 +95,12 @@ This queue order is exactly how `TaskScheduler.execute` invokes the handlers, wh
 ### 3.1 Layered RenderPasses
 
 - Implementation: `source/nijilive/core/render/queue.d`
-- `RenderQueue` keeps a `passStack`; `RenderPassKind` is `Root / Composite / DynamicComposite`.
+- `RenderQueue` keeps a `passStack`; `RenderPassKind` is `Root / DynamicComposite`.
 - Each pass stores `RenderItem[] items` with `(zSort, sequence, RenderCommandBuilder builder)`.  
   The builder is a closure that accepts a `RenderCommandEmitter` and issues the required calls.
   `sequence` increments monotonically per pass to maintain stability when `zSort` ties.
 - `RenderScopeHint` chooses which pass receives an item. Nodes walk ancestors to find active
-  Composite / DynamicComposite scopes. DynamicComposites that reuse cached textures return `skipHint`
+  DynamicComposite scopes. DynamicComposites that reuse cached textures return `skipHint`
   so their children do not enqueue new commands.
 
 ### 3.2 Enqueue and Sorting
@@ -111,25 +109,14 @@ This queue order is exactly how `TaskScheduler.execute` invokes the handlers, wh
 - `collectPassItems` sorts each pass by `zSort` descending then by `sequence` ascending and returns
   the ordered list of builders.
 
-### 3.3 Composite Scopes
-
-- `pushComposite(Composite comp, bool maskUsesStencil, MaskBinding[] maskBindings)` pushes a new pass;
-  `popComposite(token, comp)` finalises it.
-- `finalizeCompositePass`:
-  1. Collect child builders.
-  2. Wrap them with `beginComposite` / `endComposite` emitter calls.
-  3. If masks exist, surround the final quad with `beginMask / applyMask* / beginMaskContent / endMask`.
-  4. Emit `drawCompositeQuad` to the parent pass and notify the Composite that the scope closed.
-- `parentPassIndexForComposite` climbs the node tree to find the parent Composite/DynamicComposite pass.
-
-### 3.4 DynamicComposite Scopes
+### 3.3 DynamicComposite Scopes
 
 - `dynamicRenderBegin` decides whether the DynamicComposite needs a redraw. If yes:
   - call `pushDynamicComposite`
   - rewrite child parts Emodel matrices for the offscreen basis
   - enqueue each child (nested DynamicComposite may recurse)
 - `dynamicRenderEnd`:
-  - `popDynamicComposite(token, this, postCommands)` to emit `BeginDynamicComposite ↁEchild ↁEEndDynamicComposite`
+  - `popDynamicComposite(token, this, postCommands)` to emit `BeginDynamicComposite →child →EndDynamicComposite`
   - `postCommands` typically draw the DynamicComposite as a Part, including masks
   - if no redraw happened, fall back to `enqueueRenderCommands`
 - After closing, it resets `dynamicScopeActive` / `dynamicScopeToken` and updates cache flags (`textureInvalidated`, `deferred`, etc.).
@@ -137,21 +124,21 @@ This queue order is exactly how `TaskScheduler.execute` invokes the handlers, wh
 ### 3.5 flush and Backend Handoff
 
 - `flush(RenderBackend backend, ref RenderGpuState state)` ensures only the Root pass remains, flattens its commands,
-  and dispatches them via the backend’s API (`drawPartPacket`, `beginMask`, `beginComposite`, ...).
+  and dispatches them via the backend’s API (e.g., `drawPartPacket`, `beginMask`, `applyMask`).
 - After flush it calls `clear()` to drop all passes, ready for the next `beginFrame()`.
 
 ```mermaid
 sequenceDiagram
-    participant Scope as "push*/pop* API"
+    participant Scope as "pushDynamicComposite/popDynamicComposite API"
     participant Pass as "RenderPass stack"
     participant Sort as "zSort sorter"
     participant Backend as "RenderBackend"
-    Scope->>Pass: pushComposite / pushDynamicComposite
+    Scope->>Pass: pushDynamicComposite
     Pass->>Pass: accumulate child RenderItems
-    Scope->>Pass: popComposite / popDynamicComposite
-    Pass->>Sort: finalize*Pass ↁEflatten child commands
+    Scope->>Pass: popDynamicComposite
+    Pass->>Sort: finalize*Pass →flatten child commands
     Sort->>Pass: merge into parent pass (zSort desc + sequence)
-    Pass->>Backend: flush() ↁEissue RenderCommandKind sequence
+    Pass->>Backend: flush() →issue RenderCommandKind sequence
 ```
 
 ---
@@ -163,11 +150,11 @@ sequenceDiagram
 1. **Scheduling (TaskScheduler)**  
    - DFS over the node tree enqueues handlers into `TaskQueue[TaskOrder]`.  
      Only the execution order is decided at this point; no GPU commands exist yet.
-2. **Execution ↁERenderQueue updates**  
+2. **Execution →RenderQueue updates**  
    - `TaskScheduler.execute` walks each `TaskQueue`.  
-     During Render phases the handlers call `push*/pop*` and `enqueueItem`, using the `RenderQueue*` provided via `RenderContext`.
+     During Render phases the handlers call `pushDynamicComposite/popDynamicComposite` and `enqueueItem`, using the `RenderQueue*` provided via `RenderContext`.
    - RenderQueue accumulates `RenderPass` stacks and `RenderItem`s while keeping the original `zSort` ordering.
-3. **RenderQueue flush ↁEBackend**  
+3. **RenderQueue flush →Backend**  
    - Once every TaskOrder finished and only the Root pass remains, `flush()` emits the final `RenderCommandKind[]`
      to the backend, which performs the actual GPU work.
 
@@ -189,10 +176,10 @@ sequenceDiagram
 
 ### 4.2 Step-by-Step Recap
 
-1. **Tree Scan & Preparation**  E`scanParts` gathers drivers/parts; Composite / DynamicComposite prepare local ordering and offscreen transforms.
+1. **Tree Scan & Preparation**  E`scanParts` gathers drivers/parts; DynamicComposite prepares local ordering and offscreen transforms.
 2. **TaskScheduler Enqueue**  E`registerRenderTasks` pushes handlers into queues (`RenderEnd` in post-order).
-3. **TaskOrder Execution**  E`TaskScheduler.execute` runs `runBeginTask ↁE... ↁErunFinalTask`, computing `RenderScopeHint` for each renderable node.
-4. **RenderQueue Stack Ops**  E`pushComposite/pushDynamicComposite` open scopes; `enqueueItem` appends commands to the active pass; `pop*` finalises and hands off to the parent pass.
+3. **TaskOrder Execution**  E`TaskScheduler.execute` runs `runBeginTask →... →runFinalTask`, computing `RenderScopeHint` for each renderable node.
+4. **RenderQueue Stack Ops**  E`pushDynamicComposite` opens scopes; `enqueueItem` appends commands to the active pass; `pop*` finalises and hands off to the parent pass.
 5. **flush & GPU Calls**  E`renderQueue.flush()` flattens the Root pass and invokes the backend for actual drawing, then resets the queue for the following frame.
 
 ---
@@ -201,7 +188,7 @@ sequenceDiagram
 
 - **Scope integrity**  EEvery `push*` must pair with a `pop*`; flush enforces `passStack.length == 1`.
 - **Consistent zSort**  EBoth task registration and RenderQueue sorting respect `zSort` descending, preserving DFS relationships while ensuring back-to-front rendering.
-- **Localised masks**  E`MaskApplyPacket` usage is confined to Composite / DynamicComposite transfers so child rendering remains unaffected.
+- **Localised masks**  E`MaskApplyPacket` usage is confined to DynamicComposite transfers so child rendering remains unaffected.
 - **DynamicComposite cache discipline**  EFlags like `reuseCachedTextureThisFrame` / `textureInvalidated` avoid unnecessary redraws and scope churn.
 - **Backend abstraction**  ERenderQueue only emits `RenderCommandKind` data; OpenGL-specific operations live entirely within the backend implementation.
 
@@ -222,7 +209,7 @@ These guarantees allow the current TaskScheduler and RenderQueue implementation 
 | Initialization / viewport | `initializeRenderer`, `resizeViewportTargets`, `beginScene`, `endScene`, `postProcessScene` | Renderer setup and per-frame boundaries |
 | Drawable / Part resources | `initializeDrawableResources`, `createDrawableBuffers`, `uploadDrawableIndices`, `uploadSharedVertexBuffer`, `uploadSharedUvBuffer`, `uploadSharedDeformBuffer`, `drawDrawableElements` | Mesh / vertex buffer allocation and updates |
 | Blending / debug | `supportsAdvancedBlend`, `setAdvancedBlendEquation`, `issueBlendBarrier`, `initDebugRenderer`, `drawDebugLines` | Advanced blend equations and debug drawing |
-| RenderQueue-derived drawing | `drawPartPacket`, `drawMaskPacket`, `beginComposite`, `drawCompositeQuad`, `endComposite`, `beginMask`, `applyMask`, `beginMaskContent`, `endMask` | Almost 1:1 mapping from RenderCommandKind |
+| RenderQueue-derived drawing | `drawPartPacket`, `beginMask`, `applyMask`, `beginMaskContent`, `endMask` | RenderCommandKind → backend API |
 | DynamicComposite | `beginDynamicComposite`, `endDynamicComposite`, `destroyDynamicComposite` | Offscreen FBO lifecycle for dynamic composites |
 | Utility drawing | `drawTextureAtPart`, `drawTextureAtPosition`, `drawTextureAtRect` | Direct drawing helpers for UI/debug |
 | Framebuffer / texture handles | `framebufferHandle`, `renderImageHandle`, `compositeFramebufferHandle`, ... | Allow external tooling/post-processors to access GPU resources |
@@ -238,7 +225,7 @@ From the RenderQueue’s perspective, **flush simply calls these methods in sequ
   - `RenderQueue.flush()` resets it via `state = RenderGpuState.init;`; the backend updates the fields as it switches GPU resources.
   - Serves as a shared, API-agnostic state block so future backends (OpenGL, Vulkan, etc.) can reuse the same interface.
 
-With this addition, the documentation now covers the RenderQueue ↁERenderBackend handoff and the shared state management that underpins it.
+With this addition, the documentation now covers the RenderQueue →RenderBackend handoff and the shared state management that underpins it.
 
 ---
 
@@ -250,8 +237,8 @@ The runtime now has a reuse layer that keeps TaskScheduler/RenderQueue behaviour
 
 - Every `Node.notifyChange` also calls `puppet.recordNodeChange(reason)`.
 - `Puppet` tracks two booleans per frame:  
-  - `structureDirty` ↁEtriggered by `NotifyReason.StructureChanged` or forced rebuilds  
-  - `attributeDirty` ↁEtriggered by `AttributeChanged`, `Transformed`, `Initialized`
+  - `structureDirty` →triggered by `NotifyReason.StructureChanged` or forced rebuilds  
+  - `attributeDirty` →triggered by `AttributeChanged`, `Transformed`, `Initialized`
 - `consumeFrameChanges()` returns the accumulated flags and clears them for the next frame.
 
 ### 7.2 TaskScheduler Cache
@@ -302,8 +289,8 @@ Earlier versions uploaded a separate VBO per Part/Deformable whenever vertices, 
   2. The atlas rebuilds a single contiguous storage block sized to the sum of all registered lengths, copies existing data into the new layout (SoA lane copy), and calls `bindExternalStorage` so every node’s array views the shared memory.
   3. Whenever vertices/UVs/deforms change length, `shared*Resize` triggers another rebuild. Destructors invoke `shared*Unregister` to remove the entry.
 - The atlas emits:
-  - `shared*BufferData()` ↁEthe packed `Vec2Array` storage for the backend.
-  - `shared*AtlasStride()` ↁEtotal element count (used during packet construction).
+  - `shared*BufferData()` →the packed `Vec2Array` storage for the backend.
+  - `shared*AtlasStride()` →total element count (used during packet construction).
   - Dirty flags (`shared*BufferDirty`, `shared*MarkDirty`, `shared*MarkUploaded`) to gate GPU uploads.
 
 ### 8.3 PartDrawPacket Offsets
