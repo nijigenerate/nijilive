@@ -20,9 +20,7 @@ import nijilive.core.render.commands :
     RenderCommandKind,
     MaskDrawableKind,
     PartDrawPacket,
-    MaskDrawPacket,
     MaskApplyPacket,
-    CompositeDrawPacket,
     DynamicCompositePass;
 import nijilive.core.puppet : Puppet;
 import nijilive.core.texture : Texture;
@@ -40,16 +38,12 @@ extern(C) enum NjgResult {
 
 extern(C) enum NjgRenderCommandKind : uint {
     DrawPart,
-    DrawMask,
     BeginDynamicComposite,
     EndDynamicComposite,
     BeginMask,
     ApplyMask,
     BeginMaskContent,
     EndMask,
-    BeginComposite,
-    DrawCompositeQuad,
-    EndComposite,
 }
 
 extern(C) struct UnityRendererConfig {
@@ -152,9 +146,7 @@ extern(C) struct NjgDynamicCompositePass {
 extern(C) struct NjgQueuedCommand {
     NjgRenderCommandKind kind;
     NjgPartDrawPacket partPacket;
-    NjgMaskDrawPacket maskPacket;
     NjgMaskApplyPacket maskApplyPacket;
-    NjgCompositeDrawPacket compositePacket;
     NjgDynamicCompositePass dynamicPass;
     bool usesStencil;
 }
@@ -188,7 +180,6 @@ alias QueueBackend = RenderingBackend!(BackendEnum.OpenGL);
 
 __gshared int logSnapshotCount;
 __gshared int logPartPacketCount;
-__gshared int logMaskPacketCount;
 __gshared int logApplyMaskCount;
 __gshared int logMaskFlowCount;
 
@@ -415,9 +406,6 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         case RenderCommandKind.DrawPart:
             outCmd.partPacket = serializePartPacket(backend, renderer, cmd.payload.partPacket);
             break;
-        case RenderCommandKind.DrawMask:
-            outCmd.maskPacket = serializeMaskPacket(backend, renderer, cmd.payload.maskPacket);
-            break;
         case RenderCommandKind.BeginDynamicComposite:
         case RenderCommandKind.EndDynamicComposite:
             outCmd.dynamicPass = serializeDynamicPass(backend, renderer, cmd.payload.dynamicPass);
@@ -440,21 +428,7 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
             }
             logMaskFlowCount++;
             break;
-        case RenderCommandKind.BeginComposite:
-        case RenderCommandKind.DrawCompositeQuad:
-        case RenderCommandKind.EndComposite:
-            if (cmd.kind == RenderCommandKind.DrawCompositeQuad) {
-                auto packet = cmd.payload.compositePacket;
-                NjgCompositeDrawPacket composite;
-                composite.valid = packet.valid;
-                composite.opacity = packet.opacity;
-                composite.tint = packet.tint;
-                composite.screenTint = packet.screenTint;
-                composite.blendingMode = packet.blendingMode;
-                outCmd.compositePacket = composite;
-            }
-            break;
-    case RenderCommandKind.ApplyMask:
+        case RenderCommandKind.ApplyMask:
         NjgMaskApplyPacket apply;
         apply.kind = cmd.payload.maskApplyPacket.kind;
         apply.isDodge = cmd.payload.maskApplyPacket.isDodge;
@@ -648,10 +622,6 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
             case NjgRenderCommandKind.DrawPart:
                 formattedWrite(app, "  part.v=%s/%s isMask=%s\n",
                     cmd.partPacket.vertexCount, cmd.partPacket.indexCount, cmd.partPacket.isMask);
-                break;
-            case NjgRenderCommandKind.DrawMask:
-                formattedWrite(app, "  mask.v=%s/%s\n",
-                    cmd.maskPacket.vertexCount, cmd.maskPacket.indexCount);
                 break;
             default:
                 break;

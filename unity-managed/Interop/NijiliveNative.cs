@@ -30,16 +30,12 @@ public static class NijiliveNative
     public enum NjgRenderCommandKind : uint
     {
         DrawPart,
-        DrawMask,
         BeginDynamicComposite,
         EndDynamicComposite,
         BeginMask,
         ApplyMask,
         BeginMaskContent,
         EndMask,
-        BeginComposite,
-        DrawCompositeQuad,
-        EndComposite,
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -164,16 +160,6 @@ public static class NijiliveNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct NjgCompositeDrawPacket
-    {
-        [MarshalAs(UnmanagedType.I1)] public bool Valid;
-        public float Opacity;
-        public Vec3 Tint;
-        public Vec3 ScreenTint;
-        public int BlendingMode;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
     public struct NjgDynamicCompositePass
     {
         public nuint Texture0;
@@ -213,9 +199,7 @@ public static class NijiliveNative
     {
         public NjgRenderCommandKind Kind;
         public NjgPartDrawPacket PartPacket;
-        public NjgMaskDrawPacket MaskPacket;
         public NjgMaskApplyPacket MaskApplyPacket;
-        public NjgCompositeDrawPacket CompositePacket;
         public NjgDynamicCompositePass DynamicPass;
         [MarshalAs(UnmanagedType.I1)] public bool UsesStencil;
     }

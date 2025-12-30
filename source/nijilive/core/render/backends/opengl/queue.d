@@ -1,18 +1,14 @@
 module nijilive.core.render.backends.opengl.queue;
 
 import nijilive.core.nodes.part : Part;
-import nijilive.core.nodes.mask : Mask;
 import nijilive.core.nodes.drawable : Drawable;
 import nijilive.core.nodes.composite.projectable : Projectable;
-import nijilive.core.nodes.composite : Composite;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.commands :
     makePartDrawPacket,
-    makeMaskDrawPacket,
     tryMakeMaskApplyPacket,
     DynamicCompositePass,
-    MaskApplyPacket,
-    makeCompositeDrawPacket;
+    MaskApplyPacket;
 import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 import nijilive.core.render.shared_deform_buffer :
     sharedDeformBufferDirty,
@@ -90,12 +86,6 @@ public:
         activeBackend.drawPartPacket(packet);
     }
 
-    void drawMask(Mask mask) {
-        if (!ready() || mask is null) return;
-        auto packet = makeMaskDrawPacket(mask);
-        activeBackend.drawMaskPacket(packet);
-    }
-
     void beginDynamicComposite(Projectable, DynamicCompositePass passData) {
         if (!ready() || passData is null) return;
         activeBackend.beginDynamicComposite(passData);
@@ -104,22 +94,6 @@ public:
     void endDynamicComposite(Projectable, DynamicCompositePass passData) {
         if (!ready() || passData is null) return;
         activeBackend.endDynamicComposite(passData);
-    }
-
-    void beginComposite(Composite composite) {
-        if (!ready() || composite is null) return;
-        activeBackend.beginComposite();
-    }
-
-    void drawCompositeQuad(Composite composite) {
-        if (!ready() || composite is null) return;
-        auto packet = makeCompositeDrawPacket(composite);
-        activeBackend.drawCompositeQuad(packet);
-    }
-
-    void endComposite(Composite composite) {
-        if (!ready() || composite is null) return;
-        activeBackend.endComposite();
     }
 
     void beginMask(bool useStencil) {
@@ -153,12 +127,8 @@ public:
 final class RenderQueue : RenderCommandEmitter {
     void beginFrame(RenderBackend, ref RenderGpuState) {}
     void drawPart(Part, bool) {}
-    void drawMask(Mask) {}
     void beginDynamicComposite(Projectable, DynamicCompositePass) {}
     void endDynamicComposite(Projectable, DynamicCompositePass) {}
-    void beginComposite(Composite) {}
-    void drawCompositeQuad(Composite) {}
-    void endComposite(Composite) {}
     void beginMask(bool) {}
     void applyMask(Drawable, bool) {}
     void beginMaskContent() {}

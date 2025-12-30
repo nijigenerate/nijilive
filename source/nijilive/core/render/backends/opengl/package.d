@@ -4,7 +4,7 @@ version (InDoesRender) {
 
 import nijilive.core.render.backends;
 import nijilive.core.render.commands : PartDrawPacket, MaskApplyPacket,
-    MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface, CompositeDrawPacket;
+    MaskDrawPacket, DynamicCompositePass, DynamicCompositeSurface;
 import nijilive.core.nodes.part : Part;
 import nijilive.core.nodes.common : BlendMode;
 import nijilive.core.render.backends.opengl.runtime :
@@ -238,11 +238,6 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
         oglDrawPartPacket(packet);
     }
 
-    void drawMaskPacket(ref MaskDrawPacket packet) {
-        auto profile = profileScope("DrawMask");
-        oglExecuteMaskPacket(packet);
-    }
-
     void beginDynamicComposite(DynamicCompositePass pass) {
         oglBeginDynamicComposite(pass);
     }
@@ -273,21 +268,6 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     void endMask() {
         auto profile = profileScope("EndMask");
         oglEndMask();
-    }
-
-    void beginComposite() {
-        auto profile = profileScope("BeginComposite");
-        oglBeginComposite();
-    }
-
-    void drawCompositeQuad(ref CompositeDrawPacket packet) {
-        auto profile = profileScope("DrawCompositeQuad");
-        oglDrawCompositeQuad(packet);
-    }
-
-    void endComposite() {
-        auto profile = profileScope("EndComposite");
-        oglEndComposite();
     }
 
     void drawTextureAtPart(Texture texture, Part part) {

@@ -14,16 +14,12 @@ namespace Nijilive.Unity.Managed
         public abstract record Command(NijiliveNative.NjgRenderCommandKind Kind);
 
         public sealed record DrawPart(DrawPacket Part) : Command(NijiliveNative.NjgRenderCommandKind.DrawPart);
-    public sealed record DrawMask(MaskPacket Mask) : Command(NijiliveNative.NjgRenderCommandKind.DrawMask);
     public sealed record ApplyMask(MaskApplyPacket Apply) : Command(NijiliveNative.NjgRenderCommandKind.ApplyMask);
     public sealed record BeginDynamicComposite(DynamicCompositePass Pass) : Command(NijiliveNative.NjgRenderCommandKind.BeginDynamicComposite);
     public sealed record EndDynamicComposite(DynamicCompositePass Pass) : Command(NijiliveNative.NjgRenderCommandKind.EndDynamicComposite);
     public sealed record BeginMask(bool UsesStencil) : Command(NijiliveNative.NjgRenderCommandKind.BeginMask);
     public sealed record BeginMaskContent() : Command(NijiliveNative.NjgRenderCommandKind.BeginMaskContent);
     public sealed record EndMask() : Command(NijiliveNative.NjgRenderCommandKind.EndMask);
-    public sealed record BeginComposite() : Command(NijiliveNative.NjgRenderCommandKind.BeginComposite);
-        public sealed record DrawCompositeQuad(CompositePacket Composite) : Command(NijiliveNative.NjgRenderCommandKind.DrawCompositeQuad);
-        public sealed record EndComposite() : Command(NijiliveNative.NjgRenderCommandKind.EndComposite);
 
         public sealed record DrawPacket(
         bool IsMask,
@@ -68,13 +64,6 @@ namespace Nijilive.Unity.Managed
         DrawPacket Part,
         MaskPacket Mask);
 
-        public sealed record CompositePacket(
-        bool Valid,
-        float Opacity,
-        NijiliveNative.Vec3 Tint,
-        NijiliveNative.Vec3 ScreenTint,
-        int BlendingMode);
-
         public sealed record DynamicCompositePass(
         ReadOnlyMemory<nuint> Textures,
         nuint Stencil,
@@ -92,9 +81,6 @@ namespace Nijilive.Unity.Managed
             {
                 case NijiliveNative.NjgRenderCommandKind.DrawPart:
                     list.Add(new DrawPart(ToDrawPacket(cmd.PartPacket)));
-                    break;
-                case NijiliveNative.NjgRenderCommandKind.DrawMask:
-                    list.Add(new DrawMask(ToMaskPacket(cmd.MaskPacket)));
                     break;
                 case NijiliveNative.NjgRenderCommandKind.ApplyMask:
                     list.Add(new ApplyMask(new MaskApplyPacket(
@@ -118,21 +104,6 @@ namespace Nijilive.Unity.Managed
                     break;
                 case NijiliveNative.NjgRenderCommandKind.EndMask:
                     list.Add(new EndMask());
-                    break;
-                case NijiliveNative.NjgRenderCommandKind.BeginComposite:
-                    list.Add(new BeginComposite());
-                    break;
-                case NijiliveNative.NjgRenderCommandKind.DrawCompositeQuad:
-                    list.Add(new DrawCompositeQuad(new CompositePacket(
-                        cmd.CompositePacket.Valid,
-                        cmd.CompositePacket.Opacity,
-                        cmd.CompositePacket.Tint,
-                        cmd.CompositePacket.ScreenTint,
-                        cmd.CompositePacket.BlendingMode
-                    )));
-                    break;
-                case NijiliveNative.NjgRenderCommandKind.EndComposite:
-                    list.Add(new EndComposite());
                     break;
                 default:
                     break;

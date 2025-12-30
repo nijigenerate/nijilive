@@ -3,7 +3,6 @@ module nijilive.core.render.passes;
 /// Render target scope kinds.
 enum RenderPassKind {
     Root,
-    Composite,
     DynamicComposite,
 }
 
@@ -17,15 +16,6 @@ struct RenderScopeHint {
         RenderScopeHint hint;
         hint.kind = RenderPassKind.Root;
         hint.token = 0;
-        hint.skip = false;
-        return hint;
-    }
-
-    static RenderScopeHint forComposite(size_t token) {
-        if (token == 0 || token == size_t.max) return root();
-        RenderScopeHint hint;
-        hint.kind = RenderPassKind.Composite;
-        hint.token = token;
         hint.skip = false;
         return hint;
     }

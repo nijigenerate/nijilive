@@ -30,9 +30,6 @@ namespace Nijilive.Unity.Managed
                     case CommandStream.DrawPart part:
                         sink.DrawPart(part.Part);
                         break;
-                    case CommandStream.DrawMask mask:
-                        sink.DrawMask(mask.Mask);
-                        break;
                     case CommandStream.ApplyMask apply:
                         sink.ApplyMask(apply.Apply);
                         break;
@@ -50,15 +47,6 @@ namespace Nijilive.Unity.Managed
                         break;
                     case CommandStream.EndMask:
                         sink.EndMask();
-                        break;
-                    case CommandStream.BeginComposite:
-                        sink.BeginComposite();
-                        break;
-                    case CommandStream.DrawCompositeQuad composite:
-                        sink.DrawCompositeQuad(composite.Composite);
-                        break;
-                    case CommandStream.EndComposite:
-                        sink.EndComposite();
                         break;
                     default:
                         sink.Unknown(cmd);
@@ -82,9 +70,6 @@ namespace Nijilive.Unity.Managed
                     {
                         case CommandStream.DrawPart p:
                             lines.Add($"{i} kind=DrawPart isMask={p.Part.IsMask} v={p.Part.VertexCount}/{p.Part.IndexCount}");
-                            break;
-                        case CommandStream.DrawMask m:
-                            lines.Add($"{i} kind=DrawMask v={m.Mask.VertexCount}/{m.Mask.IndexCount}");
                             break;
                         case CommandStream.ApplyMask a:
                             lines.Add($"{i} kind=ApplyMask apply.kind={a.Apply.Kind} dodge={a.Apply.IsDodge} part.v={a.Apply.Part.VertexCount}/{a.Apply.Part.IndexCount} mask.v={a.Apply.Mask.VertexCount}/{a.Apply.Mask.IndexCount}");
@@ -114,10 +99,6 @@ namespace Nijilive.Unity.Managed
                         maxV = Math.Max(maxV, (int)p.Part.VertexCount);
                         maxI = Math.Max(maxI, (int)p.Part.IndexCount);
                         break;
-                    case CommandStream.DrawMask m:
-                        maxV = Math.Max(maxV, (int)m.Mask.VertexCount);
-                        maxI = Math.Max(maxI, (int)m.Mask.IndexCount);
-                        break;
                     case CommandStream.ApplyMask a:
                         maxV = Math.Max(maxV, (int)a.Apply.Part.VertexCount);
                         maxI = Math.Max(maxI, (int)a.Apply.Part.IndexCount);
@@ -134,16 +115,12 @@ namespace Nijilive.Unity.Managed
         void Begin(NijiliveNative.SharedBufferSnapshot sharedBuffers, int viewportWidth, int viewportHeight, float pixelsPerUnit);
         void End();
         void DrawPart(CommandStream.DrawPacket part);
-        void DrawMask(CommandStream.MaskPacket mask);
         void ApplyMask(CommandStream.MaskApplyPacket apply);
         void BeginDynamicComposite(CommandStream.DynamicCompositePass pass);
         void EndDynamicComposite(CommandStream.DynamicCompositePass pass);
         void BeginMask(bool usesStencil);
         void BeginMaskContent();
         void EndMask();
-        void BeginComposite();
-        void DrawCompositeQuad(CommandStream.CompositePacket composite);
-        void EndComposite();
         void Unknown(CommandStream.Command cmd);
     }
     public sealed class RecordingSink : IRenderCommandSink
@@ -162,16 +139,12 @@ namespace Nijilive.Unity.Managed
         }
         public void End() { }
         public void DrawPart(CommandStream.DrawPacket part) => Recorded.Add(new CommandStream.DrawPart(part));
-        public void DrawMask(CommandStream.MaskPacket mask) => Recorded.Add(new CommandStream.DrawMask(mask));
         public void ApplyMask(CommandStream.MaskApplyPacket apply) => Recorded.Add(new CommandStream.ApplyMask(apply));
         public void BeginDynamicComposite(CommandStream.DynamicCompositePass pass) => Recorded.Add(new CommandStream.BeginDynamicComposite(pass));
         public void EndDynamicComposite(CommandStream.DynamicCompositePass pass) => Recorded.Add(new CommandStream.EndDynamicComposite(pass));
         public void BeginMask(bool usesStencil) => Recorded.Add(new CommandStream.BeginMask(usesStencil));
         public void BeginMaskContent() => Recorded.Add(new CommandStream.BeginMaskContent());
         public void EndMask() => Recorded.Add(new CommandStream.EndMask());
-        public void BeginComposite() => Recorded.Add(new CommandStream.BeginComposite());
-        public void DrawCompositeQuad(CommandStream.CompositePacket composite) => Recorded.Add(new CommandStream.DrawCompositeQuad(composite));
-        public void EndComposite() => Recorded.Add(new CommandStream.EndComposite());
         public void Unknown(CommandStream.Command cmd) => Recorded.Add(cmd);
     }
 #if UNITY_5_3_OR_NEWER
@@ -216,14 +189,11 @@ namespace Nijilive.Unity.Managed
         private readonly int _deformProp;
         private readonly Dictionary<int, Material> _materialCache = new();
         private readonly Stack<RenderTargetIdentifier> _targetStack = new();
-        private readonly Stack<CompositeContext> _composites = new();
-        private readonly Stack<bool> _compositeDrawn = new();
         private readonly Stack<float> _ppuStack = new();
         private readonly Stack<ProjectionState> _projectionStack = new();
         private readonly List<Mesh> _meshPool = new();
         private readonly List<RenderTexture> _rtReleaseQueue = new();
         private int _frameId;
-        private RenderTexture _sharedCompositeRt;
         private static Mesh BuildMeshSkipped(string reason)
         {
             LogWarning($"[Nijilive] BuildMesh skipped: {reason}");
@@ -246,14 +216,6 @@ namespace Nijilive.Unity.Managed
         private int _viewportH;
         private float _pixelsPerUnit;
         private ProjectionState _currentProjection;
-        private int _nextCompositeId;
-        private struct CompositeContext
-        {
-            public RenderTexture Rt;
-            public int Id;
-            public RenderTargetIdentifier ParentTarget;
-            public ProjectionState ParentProjection;
-        }
         private struct ProjectionState
         {
             public int Width;
@@ -293,16 +255,13 @@ namespace Nijilive.Unity.Managed
             _viewportH = viewportHeight;
             _pixelsPerUnit = Mathf.Max(0.001f, pixelsPerUnit);
             _targetStack.Clear();
-            _composites.Clear();
-            _ppuStack.Clear();
+                        _ppuStack.Clear();
             _projectionStack.Clear();
             _rtReleaseQueue.Clear();
-            ReleaseSharedCompositeRt();
             _meshPoolCursor = 0;
             _dynRtWidth = 0;
             _dynRtHeight = 0;
             _currentTarget = BuiltinRenderTextureType.CameraTarget;
-            _nextCompositeId = 0;
             _maskDepthCounter = 0;
             _currentProjection = new ProjectionState
             {
@@ -407,329 +366,9 @@ namespace Nijilive.Unity.Managed
             _maskActive = false;
             _cb.SetRenderTarget(_currentTarget);
         }
-        public void BeginComposite()
-        {
-            if (_composites.Count > 0)
-            {
-                LogWarning($"[Nijilive] BeginComposite ignored: composite already active (nesting unsupported) frame={_frameId}");
-                return;
-            }
-            // Render composite contents into a shared temporary RenderTexture,
-            // then DrawCompositeQuad will blit it back to the parent target.
-            var compositeId = ++_nextCompositeId;
-            var previous = _currentTarget;
-            var width = Mathf.Max(1, _viewportW);
-            var height = Mathf.Max(1, _viewportH);
-            if (_sharedCompositeRt != null && (_sharedCompositeRt.width != width || _sharedCompositeRt.height != height))
-            {
-                Log($"[Nijilive] Resize shared Composite RT {_sharedCompositeRt.width}x{_sharedCompositeRt.height} -> {width}x{height} frame={_frameId}");
-                ReleaseSharedCompositeRt();
-            }
-            if (_sharedCompositeRt == null)
-            {
-                _sharedCompositeRt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
-                _sharedCompositeRt.name = "Nijilive/CompositeRT";
-                Log($"[Nijilive] Allocate shared Composite RT size={width}x{height} frame={_frameId}");
-            }
-            _composites.Push(new CompositeContext
-            {
-                Rt = _sharedCompositeRt,
-                Id = compositeId,
-                ParentTarget = previous,
-                ParentProjection = _currentProjection
-            });
-            _currentTarget = new RenderTargetIdentifier(_sharedCompositeRt);
-            _currentProjection = new ProjectionState
-            {
-                Width = width,
-                Height = height,
-                PixelsPerUnit = _pixelsPerUnit,
-                RenderToTexture = true
-            };
-            ApplyProjectionState(_currentProjection);
-            _cb.SetRenderTarget(_sharedCompositeRt);
-            _cb.ClearRenderTarget(true, true, Color.clear);
-            Log($"[Nijilive] BeginComposite#{compositeId} -> RT {_sharedCompositeRt.name} size={width}x{height} frame={_frameId}");
-        }
-        public void EndComposite()
-        {
-            // 陝・腸・ｿ・ｽE隰蜀怜愛驍ｨ繧・ｽｺ繝ｻ繝ｻ・ｽ繝ｻ・ｽ髫包ｽｪ邵ｺ・ｫ隰鯉ｽｻ邵ｺ蜷ｶ窶ｲRT邵ｺ・ｯ闖ｫ譎・亜邵ｺ蜉ｱ笳・ｸｺ・ｾ邵ｺ・ｾDrawCompositeQuad邵ｺ・ｧ雎ｸ驛・ｽｲ・ｻ邵ｺ蜷ｶ・狗ｸｲ繝ｻ
-            if (_composites.Count > 0)
-            {
-                var ctx = _composites.Peek();
-                _currentTarget = ctx.ParentTarget;
-                _currentProjection = ctx.ParentProjection;
-                _pixelsPerUnit = _currentProjection.PixelsPerUnit;
-                ApplyProjectionState(_currentProjection);
-                _cb.SetRenderTarget(_currentTarget);
-            }
-            else
-            {
-                _currentTarget = BuiltinRenderTextureType.CameraTarget;
-                _cb.SetRenderTarget(_currentTarget);
-            }
-        }
-        public void BeginDynamicComposite(CommandStream.DynamicCompositePass pass)
-        {
-            // Route subsequent draws into the first dynamic composite texture if available.
-            var previous = _currentTarget;
-            _targetStack.Push(previous);
-            _ppuStack.Push(_pixelsPerUnit);
-            _projectionStack.Push(_currentProjection);
-            RenderTexture target = null;
-            var texSpan = pass.Textures.Span;
-            if (texSpan.Length > 0)
-            {
-                var handle = texSpan[0];
-                if (handle != 0 && _textures.TryGet(handle, out var binding) && binding.NativeObject is RenderTexture rt)
-                {
-                    target = rt;
-                }
-            }
-            if (target == null)
-            {
-                LogWarning($"[Nijilive] BeginDynamicComposite: no target texture (frame={_frameId})");
-                _currentTarget = previous;
-                if (_ppuStack.Count > 0)
-                    _pixelsPerUnit = _ppuStack.Pop(); // restore immediately
-                if (_projectionStack.Count > 0)
-                {
-                    _currentProjection = _projectionStack.Pop();
-                    ApplyProjectionState(_currentProjection);
-                }
-                _inDynamicComposite = false;
-                _cb.SetRenderTarget(_currentTarget);
-                // Ensure alpha from prior work does not bleed into the reference for Clip/Slice.
-                _cb.ClearRenderTarget(true, true, Color.clear);
-                return;
-            }
-            Log($"[Nijilive] BeginDynamicComposite target={target.name} size={target.width}x{target.height} frame={_frameId}");
-            _currentTarget = new RenderTargetIdentifier(target);
-            _dynRtWidth = Mathf.Max(1, target.width);
-            _dynRtHeight = Mathf.Max(1, target.height);
-            // Use RT pixel space where (w, h) maps to (w, h) after transform.
-            _pixelsPerUnit = 1f;
-            _currentProjection = new ProjectionState
-            {
-                Width = _dynRtWidth,
-                Height = _dynRtHeight,
-                PixelsPerUnit = _pixelsPerUnit,
-                RenderToTexture = true
-            };
-            _inDynamicComposite = true;
-            ApplyProjectionState(_currentProjection);
-            _cb.SetRenderTarget(target);
-            _cb.ClearRenderTarget(true, true, Color.clear);
-        }
-        public void EndDynamicComposite(CommandStream.DynamicCompositePass pass)
-        {
-            Log($"[Nijilive] EndDynamicComposite frame={_frameId}");
-            if (_targetStack.Count > 0)
-            {
-                _currentTarget = _targetStack.Pop();
-            }
-            else
-            {
-                _currentTarget = BuiltinRenderTextureType.CameraTarget;
-            }
-            if (_ppuStack.Count > 0)
-            {
-                _pixelsPerUnit = _ppuStack.Pop();
-            }
-            if (_projectionStack.Count > 0)
-            {
-                _currentProjection = _projectionStack.Pop();
-                _pixelsPerUnit = _currentProjection.PixelsPerUnit;
-                ApplyProjectionState(_currentProjection);
-            }
-            _inDynamicComposite = false;
-            _dynRtWidth = 0;
-            _dynRtHeight = 0;
-            _cb.SetRenderTarget(_currentTarget);
-        }
-        public void DrawPart(CommandStream.DrawPacket part)
-        {
-            var matrix = Matrix4x4.identity;
-            _mpb.Clear();
-            BindTextures(_mpb, part.TextureHandles);
-            var blendingMode = part.BlendingMode;
-            var opacity = part.Opacity;
-            // ClipToLower should rely solely on destination alpha; force src alpha to 1.
-            if (blendingMode == 17) opacity = 1f;
-            _mpb.SetFloat(_props.Opacity, opacity);
-            _mpb.SetColor(_props.Tint, new Color(part.ClampedTint.X, part.ClampedTint.Y, part.ClampedTint.Z, 1));
-            _mpb.SetColor(_props.ScreenTint, new Color(part.ClampedScreen.X, part.ClampedScreen.Y, part.ClampedScreen.Z, 1));
-            _mpb.SetColor(_props.Emission, new Color(part.EmissionStrength, part.EmissionStrength, part.EmissionStrength, 1));
-            _mpb.SetFloat(_props.MaskThreshold, part.MaskThreshold);
-            _mpb.SetInt(_props.BlendMode, blendingMode);
-            _mpb.SetInt(_props.UseMultistageBlend, part.UseMultistageBlend ? 1 : 0);
-            _mpb.SetInt(_props.UsesStencil, _stencilActive ? 1 : 0);
-            var material = ResolveMaterial(blendingMode, false);
-            ApplyBlendToMaterial(material, blendingMode);
-            ApplyStencil(_mpb, _stencilActive ? StencilMode.TestEqual : StencilMode.Off);
-            var mesh = BuildMesh(
-                part.ModelMatrix,
-                part.PuppetMatrix,
-                part.Origin,
-                part.VertexOffset, part.VertexAtlasStride,
-                part.UvOffset, part.UvAtlasStride,
-                part.DeformOffset, part.DeformAtlasStride,
-                part.VertexCount, part.IndexCount, part.Indices);
-            if (mesh == null)
-            {
-                LogWarning(
-                    $"[Nijilive] DrawPart mesh null vtx={part.VertexCount} idx={part.IndexCount} " +
-                    $"vo={part.VertexOffset}/{part.VertexAtlasStride} uo={part.UvOffset}/{part.UvAtlasStride} do={part.DeformOffset}/{part.DeformAtlasStride} " +
-                    $"bufLens V={_snapshot.Vertices.Length} U={_snapshot.Uvs.Length} D={_snapshot.Deform.Length}");
-                return;
-            }
-            _cb.DrawMesh(mesh, matrix, material, 0, 0, _mpb);
-        }
-        public void DrawMask(CommandStream.MaskPacket mask)
-        {
-            var matrix = Matrix4x4.identity;
-            var mesh = BuildMesh(
-                mask.ModelMatrix,
-                default,
-                mask.Origin,
-                mask.VertexOffset, mask.VertexAtlasStride,
-                0, 0,
-                mask.DeformOffset, mask.DeformAtlasStride,
-                mask.VertexCount, mask.IndexCount, mask.Indices);
-            _mpb.Clear();
-            if (mesh == null)
-            {
-                LogWarning(
-                    $"[Nijilive] DrawMask mesh null vtx={mask.VertexCount} idx={mask.IndexCount} " +
-                    $"vo={mask.VertexOffset}/{mask.VertexAtlasStride} do={mask.DeformOffset}/{mask.DeformAtlasStride} " +
-                    $"bufLens V={_snapshot.Vertices.Length} U={_snapshot.Uvs.Length} D={_snapshot.Deform.Length}");
-                return;
-            }
-            _mpb.SetFloat(_props.Opacity, 1f);
-            _mpb.SetFloat(_props.MaskThreshold, 0f);
-            // Masks use geometry only; bind placeholders to avoid stale bindings.
-            BindTextures(_mpb, ReadOnlyMemory<nuint>.Empty);
-            _mpb.SetInt(_props.UsesStencil, 1);
-            ApplyStencil(_mpb, StencilMode.WriteReplace);
-            var material = ResolveMaterial(0, false);
-            ApplyBlendToMaterial(material, 0);
-            _cb.DrawMesh(mesh, matrix, material, 0, 0, _mpb);
-        }
-        public void ApplyMask(CommandStream.MaskApplyPacket apply)
-        {
-            _mpb.Clear();
-            var threshold = apply.Kind == NijiliveNative.MaskDrawableKind.Part
-                ? apply.Part.MaskThreshold
-                : 0f;
-            var handles = apply.Kind == NijiliveNative.MaskDrawableKind.Part
-                ? apply.Part.TextureHandles
-                : ReadOnlyMemory<nuint>.Empty;
-            _mpb.SetFloat(_props.MaskThreshold, threshold);
-            if (!_maskActive) return;
-            if (_maskDepthCounter <= 0)
-            {
-                LogWarning("[Nijilive] ApplyMask issued without BeginMask");
-            }
-            var indexCount = apply.Kind == NijiliveNative.MaskDrawableKind.Part
-                ? checked((int)apply.Part.IndexCount)
-                : checked((int)apply.Mask.IndexCount);
-            var vertexCount = apply.Kind == NijiliveNative.MaskDrawableKind.Part
-                ? checked((int)apply.Part.VertexCount)
-                : checked((int)apply.Mask.VertexCount);
-            if (indexCount == 0 || vertexCount == 0)
-            {
-                LogWarning("[Nijilive] ApplyMask skipped: empty mask geometry");
-                _maskActive = false;
-                _stencilActive = false;
-                return;
-            }
-            var refValue = apply.IsDodge ? 0 : 1;
-            _maskWriteMaterial.SetInt(_props.SrcBlend, (int)UnityEngine.Rendering.BlendMode.Zero);
-            _maskWriteMaterial.SetInt(_props.DstBlend, (int)UnityEngine.Rendering.BlendMode.One);
-            _maskWriteMaterial.SetInt(_props.BlendOp, (int)UnityEngine.Rendering.BlendOp.Add);
-            _maskWriteMaterial.SetInt(_props.ZWrite, 0);
-            _maskWriteMaterial.SetInt(_props.UsesStencil, 1);
-            _mpb.SetInt(_props.StencilRef, refValue);
-            _mpb.SetInt(_props.StencilComp, (int)CompareFunction.Always);
-            _mpb.SetInt(_props.StencilPass, (int)StencilOp.Replace);
-            _mpb.SetInt(_props.UsesStencil, 1);
-            BindTextures(_mpb, handles);
-            Mesh mesh = null;
-            var matrix = Matrix4x4.identity;
-            if (apply.Kind == NijiliveNative.MaskDrawableKind.Part)
-            {
-                var part = apply.Part;
-                mesh = BuildMesh(
-                    part.ModelMatrix,
-                    part.PuppetMatrix,
-                    part.Origin,
-                    part.VertexOffset, part.VertexAtlasStride,
-                    part.UvOffset, part.UvAtlasStride,
-                    part.DeformOffset, part.DeformAtlasStride,
-                    part.VertexCount, part.IndexCount, part.Indices);
-            }
-            else
-            {
-                var mask = apply.Mask;
-                mesh = BuildMesh(
-                    mask.ModelMatrix,
-                    default,
-                    mask.Origin,
-                    mask.VertexOffset, mask.VertexAtlasStride,
-                    0, 0,
-                    mask.DeformOffset, mask.DeformAtlasStride,
-                    mask.VertexCount, mask.IndexCount, mask.Indices);
-            }
-            if (mesh == null)
-            {
-                LogWarning(
-                    $"[Nijilive] ApplyMask mesh null kind={apply.Kind} vtx={vertexCount} idx={indexCount} " +
-                    $"bufLens V={_snapshot.Vertices.Length} U={_snapshot.Uvs.Length} D={_snapshot.Deform.Length}");
-                return;
-            }
-            _cb.DrawMesh(mesh, matrix, _maskWriteMaterial, 0, 0, _mpb);
-        }
-        public void DrawCompositeQuad(CommandStream.CompositePacket composite)
-        {
-            if (_composites.Count == 0)
-            {
-                LogWarning("[Nijilive] DrawCompositeQuad called with no pending composite RT");
-                return;
-            }
-            var ctx = _composites.Pop();
-            var rt = ctx.Rt;
-            var compositeId = ctx.Id;
-            if (!composite.Valid)
-            {
-                Log($"[Nijilive] DrawCompositeQuad#{compositeId} skipped: invalid packet frame={_frameId}");
-                return;
-            }
-            Log($"[Nijilive] DrawCompositeQuad#{compositeId} srcRT={rt.name} size={rt.width}x{rt.height} target={_currentTarget} frame={_frameId}");
-            _mpb.Clear();
-            _mpb.SetTexture(_props.MainTex, rt);
-            _mpb.SetTexture(_props.MaskTex, PlaceholderWhite());
-            _mpb.SetTexture(_props.ExtraTex, PlaceholderBlack());
-            _mpb.SetFloat(_props.Opacity, composite.Opacity);
-            _mpb.SetInt(_props.BlendMode, composite.BlendingMode);
-            _mpb.SetInt(_props.UseMultistageBlend, 0);
-            _mpb.SetInt(_props.UsesStencil, 0);
-            var material = ResolveMaterial(composite.BlendingMode, true);
-            ApplyBlendToMaterial(material, composite.BlendingMode);
-            ApplyStencil(_mpb, StencilMode.Off);
-            // Blit back to the parent target using clip-space full-screen quad.
-            var parentTarget = ctx.ParentTarget;
-            var parentProj = ctx.ParentProjection;
-            _currentTarget = parentTarget;
-            _currentProjection = parentProj;
-            _cb.SetRenderTarget(parentTarget);
-            _cb.SetViewport(new Rect(0, 0, parentProj.Width, parentProj.Height));
-            _cb.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
-            // Full-screen quad (-1..1) -> scale 2 in clip space. Flip Y to account for RT vertical inversion.
-            var matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(2f, -2f, 1f));
-            _cb.DrawMesh(_quadMesh, matrix, material, 0, 0, _mpb);
-            // 髫包ｽｪ邵ｺ・ｮ陝・・繝ｻ・ｽ繝ｻ・ｽ髫ｪ・ｭ陞ｳ螢ｹ・定墓ｪ趣ｽｶ螢ｽ邱帝包ｽｻ邵ｺ・ｮ邵ｺ貅假ｽ∫ｸｺ・ｫ陟包ｽｩ陷医・繝ｻ・ｽ繝ｻ・ｽ郢ｧ繝ｻ
-            ApplyProjectionState(_currentProjection);
-        }
+        public void BeginComposite() { }
+        public void EndComposite() { }
+        public void DrawCompositeQuad(CommandStream.CompositePacket composite) { }
         public void Unknown(CommandStream.Command cmd)
         {
             LogWarning($"Unknown command: {cmd.Kind}");
@@ -929,15 +568,6 @@ namespace Nijilive.Unity.Managed
                 Log($"[Nijilive] Release MaskDepth RT size={_maskDepth.width}x{_maskDepth.height} frame={_frameId}");
                 RenderTexture.ReleaseTemporary(_maskDepth);
                 _maskDepth = null;
-            }
-        }
-        private void ReleaseSharedCompositeRt()
-        {
-            if (_sharedCompositeRt != null)
-            {
-                Log($"[Nijilive] Release shared Composite RT size={_sharedCompositeRt.width}x{_sharedCompositeRt.height} frame={_frameId}");
-                RenderTexture.ReleaseTemporary(_sharedCompositeRt);
-                _sharedCompositeRt = null;
             }
         }
         private void FillStencil(int refValue)

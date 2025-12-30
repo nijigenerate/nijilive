@@ -38,11 +38,9 @@ final class RecordingEmitter : RenderCommandEmitter {
     struct RecordedCommand {
         RenderCommandKind kind;
         PartDrawPacket partPacket;
-        MaskDrawPacket maskDrawPacket;
         DynamicCompositePass dynamicPass;
         bool maskUsesStencil;
         MaskApplyPacket maskPacket;
-        CompositeDrawPacket compositePacket;
     }
 
     RecordedCommand[] commands;
@@ -57,13 +55,6 @@ final class RecordingEmitter : RenderCommandEmitter {
         RecordedCommand cmd;
         cmd.kind = RenderCommandKind.DrawPart;
         cmd.partPacket = makePartDrawPacket(part, isMask);
-        commands ~= cmd;
-    }
-
-    void drawMask(Mask mask) {
-        RecordedCommand cmd;
-        cmd.kind = RenderCommandKind.DrawMask;
-        cmd.maskDrawPacket = makeMaskDrawPacket(mask);
         commands ~= cmd;
     }
 
@@ -110,26 +101,6 @@ final class RecordingEmitter : RenderCommandEmitter {
         commands ~= cmd;
     }
 
-    void beginComposite(Composite composite) {
-        RecordedCommand cmd;
-        cmd.kind = RenderCommandKind.BeginComposite;
-        cmd.compositePacket = makeCompositeDrawPacket(composite);
-        commands ~= cmd;
-    }
-
-    void drawCompositeQuad(Composite composite) {
-        RecordedCommand cmd;
-        cmd.kind = RenderCommandKind.DrawCompositeQuad;
-        cmd.compositePacket = makeCompositeDrawPacket(composite);
-        commands ~= cmd;
-    }
-
-    void endComposite(Composite composite) {
-        RecordedCommand cmd;
-        cmd.kind = RenderCommandKind.EndComposite;
-        cmd.compositePacket = makeCompositeDrawPacket(composite);
-        commands ~= cmd;
-    }
 }
 
 shared static this() {
