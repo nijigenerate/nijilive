@@ -46,6 +46,10 @@ version (Windows) {
     }
 }
 
+version (UseVulkan) {
+    version = RenderBackendVulkan;
+}
+
 /*
 class RenderingBackend(BackendEnum backendType) if (backendType != BackendEnum.OpenGL){
     private auto backendUnsupported(T = void)(string func) {
@@ -174,6 +178,9 @@ version (InDoesRender) {
         version (RenderBackendDirectX12) {
             public import nijilive.core.render.backends.directx12;
         }
+        version (RenderBackendVulkan) {
+            public import nijilive.core.render.backends.vulkan;
+        }
     }
 }
 
@@ -181,6 +188,12 @@ version (UseQueueBackend) {
     static import nijilive.core.render.backends.queue;
 } else {
     static import nijilive.core.render.backends.opengl;
+    version (RenderBackendVulkan) {
+        static import nijilive.core.render.backends.vulkan;
+    }
+    version (RenderBackendDirectX12) {
+        static import nijilive.core.render.backends.directx12;
+    }
 }
 
 version (UseQueueBackend) {
@@ -192,10 +205,16 @@ version (UseQueueBackend) {
             alias RenderingBackend = nijilive.core.render.backends.opengl.RenderingBackend!(backendType);
         } else static if (backendType == BackendEnum.DirectX12) {
             alias RenderingBackend = nijilive.core.render.backends.directx12.RenderingBackend!(backendType);
+        } else static if (backendType == BackendEnum.Vulkan) {
+            alias RenderingBackend = nijilive.core.render.backends.vulkan.RenderingBackend!(backendType);
         } else {
-            enum msg = "RenderingBackend!("~backendType.stringof~") is not implemented. Available options: BackendEnum.OpenGL, BackendEnum.DirectX12.";
+            enum msg = "RenderingBackend!("~backendType.stringof~") is not implemented. Available options: BackendEnum.OpenGL, BackendEnum.DirectX12, BackendEnum.Vulkan.";
             pragma(msg, msg);
-            static assert(backendType == BackendEnum.OpenGL || backendType == BackendEnum.DirectX12, msg);
+            static assert(
+                backendType == BackendEnum.OpenGL
+                || backendType == BackendEnum.DirectX12
+                || backendType == BackendEnum.Vulkan,
+                msg);
         }
     }
 

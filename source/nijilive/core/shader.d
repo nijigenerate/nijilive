@@ -27,8 +27,18 @@ struct ShaderAsset {
             assert(opengl.vertex.length && opengl.fragment.length,
                 "OpenGL shader source is not provided.");
             return opengl;
+        } else static if (SelectedBackend == BackendEnum.DirectX12) {
+            assert(directx.vertex.length && directx.fragment.length,
+                "DirectX shader source is not provided.");
+            return directx;
+        } else static if (SelectedBackend == BackendEnum.Vulkan) {
+            assert(vulkan.vertex.length && vulkan.fragment.length,
+                "Vulkan shader source is not provided.");
+            return vulkan;
         } else {
-            static assert(SelectedBackend == BackendEnum.OpenGL,
+            static assert(SelectedBackend == BackendEnum.OpenGL
+                || SelectedBackend == BackendEnum.DirectX12
+                || SelectedBackend == BackendEnum.Vulkan,
                 "Selected backend is not supported yet.");
         }
     }
@@ -49,6 +59,39 @@ auto shaderAsset(string vertexPath, string fragmentPath)()
     );
     return asset;
 }
+
+/// Shader asset that provides both OpenGL and Vulkan sources.
+auto shaderAssetVulkan(string glVertexPath, string glFragmentPath,
+                       string vkVertexPath, string vkFragmentPath)()
+{
+    enum ShaderAsset asset = ShaderAsset(
+        ShaderStageSource(import(glVertexPath), import(glFragmentPath)),
+        ShaderStageSource.init,
+        ShaderStageSource(import(vkVertexPath), import(vkFragmentPath)),
+    );
+    return asset;
+}
+
+// Convenience helpers for common shaders
+enum ShaderAsset BasicShaderAsset = shaderAssetVulkan!(
+    "opengl/basic/basic.vert", "opengl/basic/basic.frag",
+    "vulkan/basic/basic.vert", "vulkan/basic/basic.frag"
+)();
+
+enum ShaderAsset CompositeShaderAsset = shaderAssetVulkan!(
+    "opengl/basic/composite.vert", "opengl/basic/composite.frag",
+    "vulkan/basic/composite.vert", "vulkan/basic/composite.frag"
+)();
+
+enum ShaderAsset CompositeMaskShaderAsset = shaderAssetVulkan!(
+    "opengl/basic/composite.vert", "opengl/basic/composite-mask.frag",
+    "vulkan/basic/composite.vert", "vulkan/basic/composite-mask.frag"
+)();
+
+enum ShaderAsset MaskShaderAsset = shaderAssetVulkan!(
+    "opengl/mask.vert", "opengl/mask.frag",
+    "vulkan/mask.vert", "vulkan/mask.frag"
+)();
 
 /**
     A shader
