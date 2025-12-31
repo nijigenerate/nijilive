@@ -7,7 +7,7 @@ dependency "imagefmt" version="~>2.1.0"
 dependency "inmath" version="1.0.6"
 dependency "i2d-opengl" version="~>1.0.0"
 dependency "fghj" version="~>1.0.2"
-dependency "bindbc-vulkan" version="~>1.3.0"
+dependency "erupted" version="~>2.1.98+v1.3.248"
 versions "GL_32" "GL_ARB_gl_spirv" "GL_KHR_blend_equation_advanced" "GL_ARB_texture_filter_anisotropic"
 stringImportPaths "shaders/"
 preBuildCommands "dub run gitver -- --prefix IN --file source/nijilive/ver.d --mod nijilive.ver --appname nijilive"
@@ -30,6 +30,7 @@ configuration "vulkan" {
     dependency "silly" version="~>1.1.1"
     versions "InDoesRender"
     versions "UseVulkan"
+    versions "RenderBackendVulkan"
     versions "VK_KHR_surface" "VK_KHR_swapchain"
 }
 

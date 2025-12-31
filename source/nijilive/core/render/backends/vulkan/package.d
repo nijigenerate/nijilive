@@ -1,13 +1,30 @@
 module nijilive.core.render.backends.vulkan;
 
-version (RenderBackendVulkan) {
-
-version (InDoesRender) {
-
 import std.exception : enforce;
 import std.string : toStringz, strip;
+import std.algorithm : endsWith;
 
-import bindbc.vulkan;
+import erupted;
+import erupted.functions;
+import erupted.vulkan_lib_loader;
+import erupted.types;
+alias VkInstance = erupted.types.VkInstance;
+alias VkPhysicalDevice = erupted.types.VkPhysicalDevice;
+alias VkDevice = erupted.types.VkDevice;
+alias VkQueue = erupted.types.VkQueue;
+alias VkSurfaceKHR = erupted.types.VkSurfaceKHR;
+alias VkSwapchainKHR = erupted.types.VkSwapchainKHR;
+alias VkImage = erupted.types.VkImage;
+alias VkImageView = erupted.types.VkImageView;
+alias VkRenderPass = erupted.types.VkRenderPass;
+alias VkFramebuffer = erupted.types.VkFramebuffer;
+alias VkPipelineLayout = erupted.types.VkPipelineLayout;
+alias VkPipeline = erupted.types.VkPipeline;
+alias VkDescriptorSetLayout = erupted.types.VkDescriptorSetLayout;
+alias VkDescriptorPool = erupted.types.VkDescriptorPool;
+alias VkDescriptorSet = erupted.types.VkDescriptorSet;
+alias VkCommandBuffer = erupted.types.VkCommandBuffer;
+alias VkSampler = erupted.types.VkSampler;
 
 import nijilive.core.render.backends;
 import nijilive.core.nodes.part : Part;
@@ -23,6 +40,16 @@ import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvalua
 import nijilive.core.runtime_state : inGetCamera;
 
 enum maxFramesInFlight = 2;
+
+struct GpuImage {
+    VkImage image;
+    VkDeviceMemory memory;
+    VkImageView view;
+    VkFormat format;
+    uint mipLevels;
+    VkExtent2D extent;
+    VkImageAspectFlags aspect;
+}
 
 /// Simple Vulkan-backed handle placeholders.
 class VkShaderHandle : RenderShaderHandle {
@@ -97,15 +124,6 @@ private:
     bool supportsAnisotropy;
     float maxSupportedAnisotropy;
     string glslcPath;
-    struct GpuImage {
-        VkImage image;
-        VkDeviceMemory memory;
-        VkImageView view;
-        VkFormat format;
-        uint mipLevels;
-        VkExtent2D extent;
-        VkImageAspectFlags aspect;
-    }
     struct DynamicCompositeState {
         VkFramebuffer framebuffer;
         VkExtent2D extent;
@@ -291,7 +309,7 @@ public:
         rpBegin.framebuffer = offscreenFramebuffer;
         rpBegin.renderArea.offset = VkOffset2D(0, 0);
         rpBegin.renderArea.extent = swapExtent;
-        VkClearValue clears[4];
+        VkClearValue[4] clears;
         clears[0] = clearColor;
         clears[1] = clearColor;
         clears[2] = clearColor;
@@ -457,8 +475,8 @@ public:
         if (activeCommand is null || indexCount == 0) return;
         auto entry = ibo in indexBuffers;
         if (entry is null || (*entry).buffer is null) return;
-        VkBuffer vertexBuffers[3];
-        VkDeviceSize offsets[3];
+        VkBuffer[3] vertexBuffers;
+        VkDeviceSize[3] offsets;
         size_t bindingCount = 0;
         if (sharedVertexBuffer.buffer !is null) {
             vertexBuffers[bindingCount] = sharedVertexBuffer.buffer;
@@ -540,7 +558,7 @@ public:
         }
         state.extent = extent;
 
-        VkImageView attachments[4];
+        VkImageView[4] attachments;
         foreach (i; 0 .. 3) {
             attachments[i] = dynamicDummyColor.view;
         }
@@ -621,7 +639,7 @@ public:
 
         foreach (i, tex; packet.textures) {
             if (tex !is null) {
-                bindTextureHandle(tex.handle(), cast(uint)(i + 1));
+                bindTextureHandle(tex.backendHandle(), cast(uint)(i + 1));
             }
         }
 
@@ -667,7 +685,7 @@ public:
             }
         }
 
-        VkClearValue clears[4];
+        VkClearValue[4] clears;
         foreach (i; 0 .. 3) {
             clears[i].color.float32 = [0, 0, 0, 0];
         }
@@ -781,7 +799,7 @@ public:
         vkCmdSetStencilReference(activeCommand, VK_STENCIL_FACE_FRONT_AND_BACK, packet.isDodge ? 0 : 1);
 
         auto cam = inGetCamera();
-        final switch (packet.kind) {
+        switch (packet.kind) {
             case MaskDrawableKind.Part:
                 globalsData.mvp = cam.matrix * packet.partPacket.puppetMatrix * packet.partPacket.modelMatrix;
                 globalsData.offset = packet.partPacket.origin;
@@ -790,14 +808,15 @@ public:
                 globalsData.mvp = packet.maskPacket.mvp;
                 globalsData.offset = packet.maskPacket.origin;
                 break;
+            default: break;
         }
         updateGlobalsUBO(globalsData);
         // Params not used here
 
         // Bind vertex/deform buffers (bindings 0 and 2)
         if (sharedVertexBuffer.buffer is null || sharedDeformBuffer.buffer is null) return;
-        VkBuffer vertexBuffers[3];
-        VkDeviceSize offsets[3];
+        VkBuffer[3] vertexBuffers;
+        VkDeviceSize[3] offsets;
         vertexBuffers[0] = sharedVertexBuffer.buffer;
         offsets[0] = 0;
         vertexBuffers[1] = VkBuffer.init; // unused binding 1
@@ -879,9 +898,9 @@ public:
         paramsData.emissionStrength = 1.0f;
         updateParamsUBO(paramsData);
 
-        bindTextureHandle(texture.handle(), 1);
-        bindTextureHandle(texture.handle(), 2);
-        bindTextureHandle(texture.handle(), 3);
+        bindTextureHandle(texture.backendHandle(), 1);
+        bindTextureHandle(texture.backendHandle(), 2);
+        bindTextureHandle(texture.backendHandle(), 3);
 
         auto pipeline = maskContentActive && basicMaskedPipeline !is null ? basicMaskedPipeline : basicPipeline;
         if (pipeline is null) return;
@@ -894,8 +913,8 @@ public:
             vkCmdSetStencilWriteMask(activeCommand, VK_STENCIL_FACE_FRONT_AND_BACK, 0x00);
             vkCmdSetStencilReference(activeCommand, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
         }
-        VkBuffer vertexBuffers[3] = [compositePosBuffer.buffer, compositeUvBuffer.buffer, quadDeformBuffer.buffer];
-        VkDeviceSize offsets[3] = [0, 0, 0];
+        VkBuffer[3] vertexBuffers = [compositePosBuffer.buffer, compositeUvBuffer.buffer, quadDeformBuffer.buffer];
+        VkDeviceSize[3] offsets = [0, 0, 0];
         vkCmdBindVertexBuffers(activeCommand, 0, 3, vertexBuffers.ptr, offsets.ptr);
         vkCmdDraw(activeCommand, 6, 1, 0, 0);
     }
@@ -1007,7 +1026,7 @@ public:
     }
 
     int getShaderUniformLocation(RenderShaderHandle shader, string name) {
-        final switch (name) {
+        switch (name) {
             case "mvp": return UniformSlot.MVP;
             case "offset": return UniformSlot.Offset;
             case "opacity": return UniformSlot.Opacity;
@@ -1170,7 +1189,7 @@ public:
         }
 
         handle.width = cast(uint)width;
-        handle.height = cast<uint)height;
+        handle.height = cast(uint)height;
         handle.id = handle.id == 0 ? nextHandle++ : handle.id;
     }
 
@@ -1250,7 +1269,7 @@ public:
         uint mipWidth = handle.width;
         uint mipHeight = handle.height;
         for (uint i = 1; i < handle.mipLevels; ++i) {
-            VkImageMemoryBarrier barriers[2];
+            VkImageMemoryBarrier[2] barriers;
             // Transition level i-1 to SRC
             barriers[0] = VkImageMemoryBarrier.init;
             barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1425,8 +1444,7 @@ public:
 
 private:
     void loadLibrary() {
-        auto result = loadVulkan();
-        enforce(result == vkLoadSuccess, "Failed to load Vulkan loader");
+        enforce(loadGlobalLevelFunctions(), "Failed to load Vulkan loader");
     }
 
     void createInstance() {
@@ -1443,7 +1461,7 @@ private:
         enforce(vkCreateInstance(&createInfo, null, &instance) == VK_SUCCESS,
             "Failed to create Vulkan instance");
 
-        enforce(loadInstance(instance) == vkLoadSuccess, "Failed to load instance functions");
+        loadInstanceLevelFunctions(instance);
     }
 
     void pickPhysicalDevice() {
@@ -1483,9 +1501,9 @@ private:
             }
             if (surface !is null && presentIdx == uint.max) {
                 VkBool32 supports = VK_FALSE;
-                vkGetPhysicalDeviceSurfaceSupportKHR(dev, cast<uint)i, surface, &supports);
+                vkGetPhysicalDeviceSurfaceSupportKHR(dev, cast(uint)i, surface, &supports);
                 if (supports) {
-                    presentIdx = cast<uint)i;
+                    presentIdx = cast(uint)i;
                 }
             }
         }
@@ -1527,7 +1545,7 @@ private:
         enforce(vkCreateDevice(physicalDevice, &createInfo, null, &device) == VK_SUCCESS,
             "Failed to create Vulkan device");
 
-        enforce(loadDevice(device) == vkLoadSuccess, "Failed to load device functions");
+        loadDeviceLevelFunctions(device);
         vkGetDeviceQueue(device, graphicsQueueFamily, 0, &graphicsQueue);
         vkGetDeviceQueue(device, presentQueueFamily, 0, &presentQueue);
     }
@@ -1598,7 +1616,7 @@ private:
         ci.imageArrayLayers = 1;
         ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-        uint queueFamilyIndices[2] = [graphicsQueueFamily, presentQueueFamily];
+        uint[2] queueFamilyIndices = [graphicsQueueFamily, presentQueueFamily];
         if (graphicsQueueFamily != presentQueueFamily) {
             ci.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
             ci.queueFamilyIndexCount = 2;
@@ -1844,7 +1862,7 @@ private:
     }
 
     VkRenderPass createOffscreenRenderPass(bool clear) {
-        VkAttachmentDescription attachments[4];
+        VkAttachmentDescription[4] attachments;
         foreach (i; 0 .. 3) {
             attachments[i] = VkAttachmentDescription.init;
             attachments[i].format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -1866,7 +1884,7 @@ private:
         depth.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-        VkAttachmentReference colorRefs[3];
+        VkAttachmentReference[3] colorRefs;
         colorRefs[0] = VkAttachmentReference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         colorRefs[1] = VkAttachmentReference(1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         colorRefs[2] = VkAttachmentReference(2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1886,7 +1904,7 @@ private:
         dep.srcAccessMask = 0;
         dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-        VkAttachmentDescription allAttachments[4] = [attachments[0], attachments[1], attachments[2], depth];
+        VkAttachmentDescription[4] allAttachments = [attachments[0], attachments[1], attachments[2], depth];
         VkRenderPassCreateInfo rp = void;
         rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         rp.attachmentCount = 4;
@@ -1903,7 +1921,7 @@ private:
     }
 
     void createOffscreenFramebuffer() {
-        VkImageView views[4] = [mainAlbedo.view, mainEmissive.view, mainBump.view, mainDepth.view];
+        VkImageView[4] views = [mainAlbedo.view, mainEmissive.view, mainBump.view, mainDepth.view];
         VkFramebufferCreateInfo info = void;
         info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         info.renderPass = offscreenRenderPass;
@@ -1917,7 +1935,7 @@ private:
     }
 
     void createDescriptorPoolAndSet() {
-        VkDescriptorPoolSize pools[2];
+        VkDescriptorPoolSize[2] pools;
         pools[0] = VkDescriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2);
         pools[1] = VkDescriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3);
 
@@ -1958,7 +1976,7 @@ private:
         paramsInfo.offset = 0;
         paramsInfo.range = paramsUbo.size;
 
-        VkWriteDescriptorSet writes[2];
+        VkWriteDescriptorSet[2] writes;
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet = descriptorSet;
         writes[0].dstBinding = 0;
@@ -2236,7 +2254,7 @@ private:
     }
 
     void createDescriptorSetLayout() {
-        VkDescriptorSetLayoutBinding bindings[5];
+        VkDescriptorSetLayoutBinding[5] bindings;
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
@@ -2293,7 +2311,7 @@ private:
             att.srcAlphaBlendFactor = src;
             att.dstAlphaBlendFactor = dst;
         };
-        final switch (currentBlendMode) {
+        switch (currentBlendMode) {
             case BlendMode.Normal:
                 setEq(VK_BLEND_OP_ADD); setFactor(VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA); break;
             case BlendMode.Multiply:
@@ -2324,8 +2342,8 @@ private:
 
     void createBasicPipeline(bool enableStencilTest, ref VkPipeline pipelineTarget) {
         if (offscreenRenderPass is null || pipelineLayout is null) return;
-        enum string basicVertSrc = import("shaders/vulkan/basic/basic.vert");
-        enum string basicFragSrc = import("shaders/vulkan/basic/basic.frag");
+        enum string basicVertSrc = import("vulkan/basic/basic.vert");
+        enum string basicFragSrc = import("vulkan/basic/basic.frag");
         auto vertSpv = compileGlslToSpirv("basic.vert", basicVertSrc, ".vert");
         auto fragSpv = compileGlslToSpirv("basic.frag", basicFragSrc, ".frag");
         auto vertModule = createShaderModule(vertSpv);
@@ -2335,22 +2353,22 @@ private:
             vkDestroyShaderModule(device, fragModule, null);
         }
 
-        VkPipelineShaderStageCreateInfo stages[2];
+        VkPipelineShaderStageCreateInfo[2] stages;
         stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = vertModule;
+        stages[0].module_ = vertModule;
         stages[0].pName = "main".ptr;
         stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = fragModule;
+        stages[1].module_ = fragModule;
         stages[1].pName = "main".ptr;
 
-        VkVertexInputBindingDescription bindings[3];
+        VkVertexInputBindingDescription[3] bindings;
         bindings[0].binding = 0; bindings[0].stride = float.sizeof * 2; bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
         bindings[1].binding = 1; bindings[1].stride = float.sizeof * 2; bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
         bindings[2].binding = 2; bindings[2].stride = float.sizeof * 2; bindings[2].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        VkVertexInputAttributeDescription attrs[6];
+        VkVertexInputAttributeDescription[6] attrs;
         attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32_SFLOAT, 0);
         attrs[1] = VkVertexInputAttributeDescription(1, 0, VK_FORMAT_R32_SFLOAT, 4);
         attrs[2] = VkVertexInputAttributeDescription(2, 1, VK_FORMAT_R32_SFLOAT, 0);
@@ -2375,7 +2393,7 @@ private:
         vp.viewportCount = 1;
         vp.scissorCount = 1;
 
-        VkDynamicState dynStates[5] = [
+        VkDynamicState[5] dynStates = [
             VK_DYNAMIC_STATE_VIEWPORT,
             VK_DYNAMIC_STATE_SCISSOR,
             VK_DYNAMIC_STATE_STENCIL_REFERENCE,
@@ -2400,7 +2418,7 @@ private:
         ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-        VkPipelineColorBlendAttachmentState blendAtt[3];
+        VkPipelineColorBlendAttachmentState[3] blendAtt;
         foreach (i; 0 .. 3) {
             blendAtt[i] = VkPipelineColorBlendAttachmentState.init;
             fillBlendAttachment(blendAtt[i]);
@@ -2448,8 +2466,8 @@ private:
 
     void createMaskPipeline() {
         if (offscreenRenderPass is null || pipelineLayout is null) return;
-        enum string vertSrc = import("shaders/vulkan/mask.vert");
-        enum string fragSrc = import("shaders/vulkan/mask.frag");
+        enum string vertSrc = import("vulkan/mask.vert");
+        enum string fragSrc = import("vulkan/mask.frag");
         auto vertSpv = compileGlslToSpirv("mask.vert", vertSrc, ".vert");
         auto fragSpv = compileGlslToSpirv("mask.frag", fragSrc, ".frag");
         auto vertModule = createShaderModule(vertSpv);
@@ -2459,21 +2477,21 @@ private:
             vkDestroyShaderModule(device, fragModule, null);
         }
 
-        VkPipelineShaderStageCreateInfo stages[2];
+        VkPipelineShaderStageCreateInfo[2] stages;
         stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = vertModule;
+        stages[0].module_ = vertModule;
         stages[0].pName = "main".ptr;
         stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = fragModule;
+        stages[1].module_ = fragModule;
         stages[1].pName = "main".ptr;
 
-        VkVertexInputBindingDescription bindings[2];
+        VkVertexInputBindingDescription[2] bindings;
         bindings[0].binding = 0; bindings[0].stride = float.sizeof * 2; bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
         bindings[1].binding = 2; bindings[1].stride = float.sizeof * 2; bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        VkVertexInputAttributeDescription attrs[4];
+        VkVertexInputAttributeDescription[4] attrs;
         attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32_SFLOAT, 0);
         attrs[1] = VkVertexInputAttributeDescription(1, 0, VK_FORMAT_R32_SFLOAT, 4);
         attrs[2] = VkVertexInputAttributeDescription(2, 2, VK_FORMAT_R32_SFLOAT, 0);
@@ -2496,7 +2514,7 @@ private:
         vp.viewportCount = 1;
         vp.scissorCount = 1;
 
-        VkDynamicState dynStates[5] = [
+        VkDynamicState[5] dynStates = [
             VK_DYNAMIC_STATE_VIEWPORT,
             VK_DYNAMIC_STATE_SCISSOR,
             VK_DYNAMIC_STATE_STENCIL_REFERENCE,
@@ -2518,7 +2536,7 @@ private:
         ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-        VkPipelineColorBlendAttachmentState blendAtt[3];
+        VkPipelineColorBlendAttachmentState[3] blendAtt;
         foreach (i; 0 .. 3) {
             blendAtt[i] = VkPipelineColorBlendAttachmentState.init;
             blendAtt[i].colorWriteMask = 0; // Mask writes only touch stencil
@@ -2565,8 +2583,8 @@ private:
 
     void createCompositePipeline(bool enableStencilTest, ref VkPipeline pipelineTarget) {
         if (offscreenRenderPass is null || pipelineLayout is null) return;
-        enum string vertSrc = import("shaders/vulkan/basic/composite.vert");
-        enum string fragSrc = import("shaders/vulkan/basic/composite.frag");
+        enum string vertSrc = import("vulkan/basic/composite.vert");
+        enum string fragSrc = import("vulkan/basic/composite.frag");
         auto vertSpv = compileGlslToSpirv("composite.vert", vertSrc, ".vert");
         auto fragSpv = compileGlslToSpirv("composite.frag", fragSrc, ".frag");
         auto vertModule = createShaderModule(vertSpv);
@@ -2576,21 +2594,21 @@ private:
             vkDestroyShaderModule(device, fragModule, null);
         }
 
-        VkPipelineShaderStageCreateInfo stages[2];
+        VkPipelineShaderStageCreateInfo[2] stages;
         stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = vertModule;
+        stages[0].module_ = vertModule;
         stages[0].pName = "main".ptr;
         stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = fragModule;
+        stages[1].module_ = fragModule;
         stages[1].pName = "main".ptr;
 
-        VkVertexInputBindingDescription bindings[2];
+        VkVertexInputBindingDescription[2] bindings;
         bindings[0].binding = 0; bindings[0].stride = float.sizeof * 2; bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
         bindings[1].binding = 1; bindings[1].stride = float.sizeof * 2; bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        VkVertexInputAttributeDescription attrs[4];
+        VkVertexInputAttributeDescription[4] attrs;
         attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, 0);
         attrs[1] = VkVertexInputAttributeDescription(1, 1, VK_FORMAT_R32G32_SFLOAT, 0);
 
@@ -2611,7 +2629,7 @@ private:
         vp.viewportCount = 1;
         vp.scissorCount = 1;
 
-        VkDynamicState dynStates[5] = [
+        VkDynamicState[5] dynStates = [
             VK_DYNAMIC_STATE_VIEWPORT,
             VK_DYNAMIC_STATE_SCISSOR,
             VK_DYNAMIC_STATE_STENCIL_REFERENCE,
@@ -2633,7 +2651,7 @@ private:
         ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-        VkPipelineColorBlendAttachmentState blendAtt[3];
+        VkPipelineColorBlendAttachmentState[3] blendAtt;
         foreach (i; 0 .. 3) {
             blendAtt[i] = VkPipelineColorBlendAttachmentState.init;
             fillBlendAttachment(blendAtt[i]);
@@ -2685,7 +2703,7 @@ private:
     }
 
     size_t pixelSizeForFormat(VkFormat format) {
-        final switch (format) {
+        switch (format) {
             case VK_FORMAT_R8_UNORM: return 1;
             case VK_FORMAT_R8G8B8A8_UNORM: return 4;
             case VK_FORMAT_D24_UNORM_S8_UINT: return 4;
@@ -2694,18 +2712,20 @@ private:
     }
 
     VkSamplerAddressMode wrapToAddress(Wrapping wrapping) {
-        final switch (wrapping) {
+        switch (wrapping) {
             case Wrapping.Clamp: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             case Wrapping.Repeat: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
             case Wrapping.Mirror: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+            default: break;
         }
         return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     }
 
     VkFilter filteringToFilter(Filtering filtering) {
-        final switch (filtering) {
+        switch (filtering) {
             case Filtering.Linear: return VK_FILTER_LINEAR;
             case Filtering.Point: return VK_FILTER_NEAREST;
+            default: break;
         }
         return VK_FILTER_LINEAR;
     }
@@ -2791,10 +2811,10 @@ private:
         info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         info.codeSize = spirv.length;
         info.pCode = cast(uint*)spirv.ptr;
-        VkShaderModule module;
-        enforce(vkCreateShaderModule(device, &info, null, &module) == VK_SUCCESS,
+        VkShaderModule handle;
+        enforce(vkCreateShaderModule(device, &info, null, &handle) == VK_SUCCESS,
             "Failed to create shader module");
-        return module;
+        return handle;
     }
 
     const(ubyte)[] compileGlslToSpirv(string logicalName, string source, string stageExt) {
@@ -2823,8 +2843,8 @@ private:
         auto spvPath = buildPath(tempDir(), base ~ stageExt ~ ".spv");
         scope (exit) {
             import std.file : remove;
-            try remove(srcPath); catch (Exception) {}
-            try remove(spvPath); catch (Exception) {}
+            if (exists(srcPath)) remove(srcPath);
+            if (exists(spvPath)) remove(spvPath);
         }
         write(srcPath, source);
         auto result = execute([glslcPath, "-o", spvPath, "-fshader-stage="~(stageExt[1..$]), srcPath]);
@@ -2937,8 +2957,4 @@ private:
         }
         initialized = false;
     }
-}
-
-}
-
 }
