@@ -687,6 +687,7 @@ public:
     }
 
     void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
+        packet.name = this.name;
         packet.isMask = isMask;
         packet.renderable = backendRenderable();
 

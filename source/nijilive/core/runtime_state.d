@@ -36,7 +36,7 @@ private void ensureRenderBackend() {
     }
 }
 
-package(nijilive) void inSetRenderBackend(RenderBackend backend) {
+void inSetRenderBackend(RenderBackend backend) {
     cachedRenderBackend = backend;
 }
 

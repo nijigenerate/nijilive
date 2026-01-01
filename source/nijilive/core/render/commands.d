@@ -31,6 +31,7 @@ enum MaskDrawableKind {
 }
 
 struct PartDrawPacket {
+    string name;
     bool isMask;
     bool renderable;
     mat4 modelMatrix;

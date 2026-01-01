@@ -1,8 +1,10 @@
 module nijilive.core.render.backends.vulkan;
 
 import std.exception : enforce;
-import std.string : toStringz, strip;
-import std.algorithm : endsWith;
+import std.stdio : writeln, writefln;
+import std.math : isFinite;
+import std.string : toStringz, strip, fromStringz;
+import std.algorithm : endsWith, canFind, clamp;
 
 import erupted;
 import erupted.functions;
@@ -38,6 +40,9 @@ import nijilive.math : vec2, vec3, vec4, mat4, Vec2Array, Vec3Array, rect;
 import nijilive.math.camera : Camera;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 import nijilive.core.runtime_state : inGetCamera;
+import nijilive.core.render.shared_deform_buffer : sharedVertexBufferData, sharedUvBufferData, sharedDeformBufferData,
+    sharedVertexBufferDirty, sharedUvBufferDirty, sharedDeformBufferDirty,
+    sharedVertexMarkUploaded, sharedUvMarkUploaded, sharedDeformMarkUploaded;
 
 enum maxFramesInFlight = 2;
 
@@ -85,6 +90,9 @@ private:
     uint graphicsQueueFamily;
     uint presentQueueFamily;
     VkSurfaceKHR surface;
+    bool skipRenderpassFrame = false; // デバッグ用: レンダーパスを飛ばすフレーム
+    bool debugSwapPassFrame = false; // デバッグ用: スワップチェイン直接描画を行ったフレーム
+    bool testMode = false; // --test モード時に簡易検証経路を使う
     VkSwapchainKHR swapchain;
     VkFormat swapFormat;
     VkExtent2D swapExtent;
@@ -101,9 +109,13 @@ private:
     VkPipeline compositePipeline;
     VkPipeline basicMaskedPipeline;
     VkPipeline compositeMaskedPipeline;
+    VkPipelineLayout debugSwapPipelineLayout;
+    VkPipeline debugSwapPipeline;
     VkDescriptorSetLayout descriptorSetLayout;
     VkDescriptorPool descriptorPool;
     VkDescriptorSet descriptorSet;
+    string[] instanceExtensions;
+    string[] deviceExtensions = ["VK_KHR_swapchain"];
     Buffer globalsUbo;
     Buffer paramsUbo;
     struct GlobalsData {
@@ -124,6 +136,12 @@ private:
     bool supportsAnisotropy;
     float maxSupportedAnisotropy;
     string glslcPath;
+    // 1フレーム内でのパケットboundsの統合
+    vec4 frameBoundsUnion;
+    bool frameBoundsUnionValid = false;
+    vec4 frameBoundsUnionClip;
+    bool frameBoundsUnionClipValid = false;
+    Buffer debugReadbackBuffer;
     struct DynamicCompositeState {
         VkFramebuffer framebuffer;
         VkExtent2D extent;
@@ -136,10 +154,22 @@ private:
     Buffer sharedVertexBuffer;
     Buffer sharedUvBuffer;
     Buffer sharedDeformBuffer;
+    VkTextureHandle debugWhiteTex;
+    VkTextureHandle debugBlackTex;
     Buffer[RenderResourceHandle] indexBuffers;
     Buffer compositePosBuffer;
     Buffer compositeUvBuffer;
-    Buffer quadDeformBuffer;
+    // Fullscreen/quad rendering uses SoA buffers to match basic pipeline layout.
+    Buffer quadPosXBuffer;
+    Buffer quadPosYBuffer;
+    Buffer quadUvXBuffer;
+    Buffer quadUvYBuffer;
+    Buffer quadDeformXBuffer;
+    Buffer quadDeformYBuffer;
+    // デバッグ用: バッファ→イメージコピーで矩形を塗るための1ピクセルカラー
+    Buffer debugRectBuffer;
+    bool debugDrawBounds = true;
+    bool imagesInitialized = false; // オフスクリーン画像のレイアウト初期化完了フラグ
     GlobalsData globalsData;
     ParamsData paramsData;
     GpuImage mainAlbedo;
@@ -197,6 +227,26 @@ public:
         shutdown();
     }
 
+    void setInstanceExtensions(string[] exts) {
+        instanceExtensions = exts.dup;
+    }
+
+    void setDeviceExtensions(string[] exts) {
+        deviceExtensions = exts.dup;
+    }
+
+    void setTestMode(bool v) {
+        testMode = v;
+    }
+
+    VkInstance instanceHandle() {
+        return instance;
+    }
+
+    VkDevice deviceHandle() {
+        return device;
+    }
+
     void initializeRenderer() {
         loadLibrary();
         createInstance();
@@ -216,6 +266,11 @@ public:
         }
         createDescriptorPoolAndSet();
         recreatePipelines();
+        createDebugSolidTextures();
+        // 初期状態のサンプラーを白テクスチャで埋めておく
+        bindTextureHandle(debugWhiteTex, 1);
+        bindTextureHandle(debugWhiteTex, 2);
+        bindTextureHandle(debugWhiteTex, 3);
         initialized = true;
         // TODO: create offscreen targets, pipelines, etc.
     }
@@ -246,7 +301,7 @@ public:
         transitionImageLayout(swapImages[currentImageIndex], swapFormat,
             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 
-        VkBufferImageCopy region = void;
+        VkBufferImageCopy region = VkBufferImageCopy.init;
         region.bufferOffset = 0;
         region.bufferRowLength = 0;
         region.bufferImageHeight = 0;
@@ -278,10 +333,19 @@ public:
         auto fence = inFlightFences[currentFrame];
         vkWaitForFences(device, 1, &fence, VK_TRUE, ulong.max);
         vkResetFences(device, 1, &fence);
+        enum bool DEBUG_SKIP_RENDERPASS = false; // レンダーパス経路を飛ばしてコピー経路のみ検証する
+        // コマンドを確実に初期状態に戻す
+        vkResetCommandPool(device, commandPool, 0);
 
         if (swapchain is null) {
             enforce(false, "Swapchain is not created. Call setSurface and resizeViewportTargets first.");
         }
+
+        // フレーム毎のunion初期化
+        frameBoundsUnionValid = false;
+        frameBoundsUnion = vec4(float.nan, float.nan, float.nan, float.nan);
+        frameBoundsUnionClipValid = false;
+        frameBoundsUnionClip = vec4(float.nan, float.nan, float.nan, float.nan);
 
         VkResult acquireRes = vkAcquireNextImageKHR(device, swapchain, ulong.max, imageAvailable, VK_NULL_HANDLE, &currentImageIndex);
         if (acquireRes == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -293,28 +357,281 @@ public:
         swapchainValid = true;
 
         auto cmd = frameCommands[currentFrame];
-        VkCommandBufferBeginInfo beginInfo = void;
+        // 再録画のたびにリセットして内容を確実に消す
+        vkResetCommandBuffer(cmd, 0);
+        VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.init;
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         enforce(vkBeginCommandBuffer(cmd, &beginInfo) == VK_SUCCESS,
             "Failed to begin command buffer");
         activeCommand = cmd;
 
-        VkClearValue clearColor = void;
-        clearColor.color.float32 = [0.0f, 0.0f, 0.0f, 1.0f];
+        // アトラス更新があればこのタイミングでGPUに反映
+        if (sharedVertexBufferDirty()) {
+            uploadSharedVertexBuffer(sharedVertexBufferData());
+            sharedVertexMarkUploaded();
+        }
+        if (sharedUvBufferDirty()) {
+            uploadSharedUvBuffer(sharedUvBufferData());
+            sharedUvMarkUploaded();
+        }
+        if (sharedDeformBufferDirty()) {
+            uploadSharedDeformBuffer(sharedDeformBufferData());
+            sharedDeformMarkUploaded();
+        }
 
-        VkRenderPassBeginInfo rpBegin = void;
+        enum bool DEBUG_SWAP_TRI_PASS = false;
+        bool useDebugSwapPass = DEBUG_SWAP_TRI_PASS || testMode;
+        if (useDebugSwapPass) {
+            writefln("[VK debugSwap] using swap triangle path (testMode=%s)", testMode);
+            // スワップチェインへの最小描画でパイプライン/レンダーパスを検証
+            enforce(debugSwapPipeline !is null, "debug swap pipeline not created");
+            recordTransition(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+
+            VkClearValue dbgClear;
+            dbgClear.color.float32 = [0.0f, 0.0f, 0.0f, 1.0f];
+            VkRenderPassBeginInfo rp = VkRenderPassBeginInfo.init;
+            rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            rp.renderPass = renderPass;
+            rp.framebuffer = swapFramebuffers[currentImageIndex];
+            rp.renderArea = VkRect2D(VkOffset2D(0, 0), swapExtent);
+            rp.clearValueCount = 1;
+            rp.pClearValues = &dbgClear;
+
+            vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+            VkViewport vp = VkViewport(0, 0, cast(float)swapExtent.width, cast(float)swapExtent.height, 0.0f, 1.0f);
+            VkRect2D scissor = VkRect2D(VkOffset2D(0, 0), swapExtent);
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugSwapPipeline);
+            // 頂点なし（三角形）+ 四隅にインスタンス番号で色を分けて可視化
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+            vkCmdEndRenderPass(cmd);
+
+            // プレゼン前にサンプルを取るため TRANSFER_SRC へ遷移
+            recordTransition(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+            const uint sampleW = 64;
+            const uint sampleH = 64;
+            size_t sampleSize = sampleW * sampleH * 4;
+            ensureReadbackBuffer(sampleSize);
+            VkBufferImageCopy copy = VkBufferImageCopy.init;
+            copy.bufferOffset = 0;
+            copy.bufferRowLength = 0;
+            copy.bufferImageHeight = 0;
+            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.imageSubresource.mipLevel = 0;
+            copy.imageSubresource.baseArrayLayer = 0;
+            copy.imageSubresource.layerCount = 1;
+            copy.imageOffset = VkOffset3D(0, 0, 0);
+            copy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+            vkCmdCopyImageToBuffer(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                debugReadbackBuffer.buffer, 1, &copy);
+            // 最終的にプレゼントレイアウトへ戻す
+            recordTransition(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
+
+            enforce(vkEndCommandBuffer(cmd) == VK_SUCCESS, "Failed to end debug swap command buffer");
+            activeCommand = null;
+            debugSwapPassFrame = true;
+            return;
+        }
+
+        if (DEBUG_SKIP_RENDERPASS) {
+            // このフレームはレンダーパスを実行せず、endSceneで単発コマンドを走らせる
+            vkEndCommandBuffer(cmd);
+            activeCommand = null;
+            skipRenderpassFrame = true;
+            return;
+        }
+
+        // 1ショットで pre-pass の書き込み経路を検証する
+        // 追加の単発クリア＋コピー検証をOFFにして干渉をなくす
+        enum bool DEBUG_PREPASS_SINGLESHOT = false;
+        if (DEBUG_PREPASS_SINGLESHOT) {
+            const uint sampleW = 64;
+            const uint sampleH = 64;
+            size_t sampleSize = sampleW * sampleH * 4;
+            ensureReadbackBuffer(sampleSize);
+
+            auto sCmd = beginSingleTimeCommands();
+            // clear 用レイアウトへ遷移
+            recordTransition(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mainAlbedo.aspect);
+            VkClearColorValue dbgPre;
+            dbgPre.float32 = [0.0f, 0.0f, 1.0f, 1.0f]; // blue
+            VkImageSubresourceRange rngPre = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+            vkCmdClearColorImage(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &dbgPre, 1, &rngPre);
+            // copy して読み出し
+            recordTransition(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+            VkBufferImageCopy copy = VkBufferImageCopy.init;
+            copy.bufferOffset = 0;
+            copy.bufferRowLength = 0;
+            copy.bufferImageHeight = 0;
+            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.imageSubresource.mipLevel = 0;
+            copy.imageSubresource.baseArrayLayer = 0;
+            copy.imageSubresource.layerCount = 1;
+            int sx = cast(int)mainAlbedo.extent.width / 2 - sampleW / 2;
+            int sy = cast(int)mainAlbedo.extent.height / 2 - sampleH / 2;
+            if (sx < 0) sx = 0;
+            if (sy < 0) sy = 0;
+            copy.imageOffset = VkOffset3D(sx, sy, 0);
+            copy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+            vkCmdCopyImageToBuffer(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                debugReadbackBuffer.buffer, 1, &copy);
+            // color attachment に戻す
+            recordTransition(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+            endSingleTimeCommands(sCmd);
+
+            // map してログ出力
+            void* ptr;
+            if (vkMapMemory(device, debugReadbackBuffer.memory, 0, sampleSize, 0, &ptr) == VK_SUCCESS) {
+                auto mapped = (cast(ubyte*)ptr)[0 .. sampleSize];
+                ulong sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+                foreach (i; 0 .. sampleSize / 4) {
+                    auto idx = i * 4;
+                    sumR += mapped[idx + 0];
+                    sumG += mapped[idx + 1];
+                    sumB += mapped[idx + 2];
+                    sumA += mapped[idx + 3];
+                }
+                double count = cast(double)(sampleSize / 4);
+                writefln("[VK singleShot] avg=(%.3f, %.3f, %.3f, %.3f) first=[%s]",
+                    sumR / count, sumG / count, sumB / count, sumA / count, mapped[0 .. 4]);
+                vkUnmapMemory(device, debugReadbackBuffer.memory);
+            }
+        }
+
+        // 明瞭な背景色（白）でデバッグしやすくする
+        VkClearValue clearColor = VkClearValue.init;
+        clearColor.color.float32 = [1.0f, 1.0f, 1.0f, 1.0f];
+
+        // パス前に mainAlbedo を明示的にクリアして書き込み経路を検証
+        enum bool DEBUG_PREPASS_CLEAR_IMAGE = true; // 強制クリアで書き込み経路を検証
+        enum bool DEBUG_READBACK_PREPASS = true; // prepass clear後すぐに読んで経路確認
+        if (DEBUG_PREPASS_CLEAR_IMAGE) {
+            recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mainAlbedo.aspect);
+            VkClearColorValue dbgPre;
+            dbgPre.float32 = [0.0f, 0.0f, 1.0f, 1.0f]; // blue
+            VkImageSubresourceRange rngPre = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+            vkCmdClearColorImage(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &dbgPre, 1, &rngPre);
+            if (DEBUG_READBACK_PREPASS) {
+                const int sampleW = 64;
+                const int sampleH = 64;
+                size_t sampleSize = sampleW * sampleH * 4;
+                ensureReadbackBuffer(sampleSize * 2);
+                VkBufferImageCopy copy = VkBufferImageCopy.init;
+                copy.bufferOffset = 0;
+                copy.bufferRowLength = 0;
+                copy.bufferImageHeight = 0;
+                copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.imageSubresource.mipLevel = 0;
+                copy.imageSubresource.baseArrayLayer = 0;
+                copy.imageSubresource.layerCount = 1;
+                int sx = cast(int)mainAlbedo.extent.width / 2 - sampleW / 2;
+                int sy = cast(int)mainAlbedo.extent.height / 2 - sampleH / 2;
+                if (sx < 0) sx = 0;
+                if (sy < 0) sy = 0;
+                copy.imageOffset = VkOffset3D(sx, sy, 0);
+                copy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+                recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+                vkCmdCopyImageToBuffer(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    debugReadbackBuffer.buffer, 1, &copy);
+                recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mainAlbedo.aspect);
+            }
+            recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+        }
+
+        // 一時テスト: LOAD パスで事前クリア保持を確認する（強制ONで最小経路を確認）
+        enum bool USE_LOAD_RENDERPASS = false;
+
+        // ログ: 添付ビュー/フォーマット確認
+        writefln("[VK fb] offscreen views albedo=%s emissive=%s bump=%s depth=%s extent=%sx%s",
+            mainAlbedo.view, mainEmissive.view, mainBump.view, mainDepth.view,
+            mainAlbedo.extent.width, mainAlbedo.extent.height);
+
+        // 事前に緑クリアして LOAD で保持するか検証
+        if (USE_LOAD_RENDERPASS) {
+            auto preCmd = beginSingleTimeCommands();
+            recordTransition(preCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mainAlbedo.aspect);
+            VkClearColorValue preClr; preClr.float32 = [0.0f, 1.0f, 0.0f, 1.0f];
+            VkImageSubresourceRange preRng = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+            vkCmdClearColorImage(preCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &preClr, 1, &preRng);
+            recordTransition(preCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+            endSingleTimeCommands(preCmd);
+        }
+
+        // レンダーパス前に添付レイアウトを明示的にCOLOR_ATTACHMENT/DEPTHへ
+        VkImageLayout baseLayout = imagesInitialized ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+        VkImageLayout baseDepthLayout = imagesInitialized ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+        recordTransition(cmd, mainAlbedo.image, baseLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+        recordTransition(cmd, mainEmissive.image, baseLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainEmissive.aspect);
+        recordTransition(cmd, mainBump.image, baseLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainBump.aspect);
+        recordTransition(cmd, mainDepth.image, baseDepthLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, mainDepth.aspect);
+        imagesInitialized = true;
+
+        // デバッグ: レンダーパスを完全にスキップし、単発経路のみで書込み/ブリットを検証
+        enum bool DEBUG_FORCE_DIRECT_SKIP = false;
+        if (DEBUG_FORCE_DIRECT_SKIP) {
+            vkEndCommandBuffer(cmd);
+            activeCommand = null;
+            skipRenderpassFrame = true;
+            return;
+        }
+
+        // 付加的な単純検証: ミニコマンドバッファでclear+copyのみ行い、render pass抜きで書けるかを見る
+        enum bool DEBUG_MINI_CLEAR_COPY = false;
+        if (DEBUG_MINI_CLEAR_COPY) {
+            const int sampleW = 64;
+            const int sampleH = 64;
+            size_t sampleSize = sampleW * sampleH * 4;
+            ensureReadbackBuffer(sampleSize);
+            auto miniCmd = beginSingleTimeCommands();
+            recordTransition(miniCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mainAlbedo.aspect);
+            VkClearColorValue miniClr; miniClr.float32 = [1.0f, 0.0f, 0.0f, 1.0f]; // red
+            VkImageSubresourceRange miniRng = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+            vkCmdClearColorImage(miniCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &miniClr, 1, &miniRng);
+            recordTransition(miniCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+            VkBufferImageCopy miniCopy = VkBufferImageCopy.init;
+            miniCopy.bufferOffset = 0;
+            miniCopy.bufferRowLength = 0;
+            miniCopy.bufferImageHeight = 0;
+            miniCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            miniCopy.imageSubresource.mipLevel = 0;
+            miniCopy.imageSubresource.baseArrayLayer = 0;
+            miniCopy.imageSubresource.layerCount = 1;
+            miniCopy.imageOffset = VkOffset3D(0, 0, 0);
+            miniCopy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+            vkCmdCopyImageToBuffer(miniCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, debugReadbackBuffer.buffer, 1, &miniCopy);
+            recordTransition(miniCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+            endSingleTimeCommands(miniCmd);
+            // マップして即ログ
+            void* ptrMini;
+            if (vkMapMemory(device, debugReadbackBuffer.memory, 0, sampleSize, 0, &ptrMini) == VK_SUCCESS) {
+                auto mapped = (cast(ubyte*)ptrMini)[0 .. sampleSize];
+                ulong sR=0,sG=0,sB=0,sA=0;
+                foreach(i;0 .. sampleSize/4){
+                    auto idx=i*4; sR+=mapped[idx]; sG+=mapped[idx+1]; sB+=mapped[idx+2]; sA+=mapped[idx+3];
+                }
+                double cnt=cast(double)(sampleSize/4);
+                writefln("[VK miniClear] avg=(%.3f,%.3f,%.3f,%.3f) first=%s", sR/cnt, sG/cnt, sB/cnt, sA/cnt, mapped[0..4]);
+                vkUnmapMemory(device, debugReadbackBuffer.memory);
+            }
+        }
+
+        VkRenderPassBeginInfo rpBegin = VkRenderPassBeginInfo.init;
         rpBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        rpBegin.renderPass = offscreenRenderPass;
+        rpBegin.renderPass = USE_LOAD_RENDERPASS ? offscreenRenderPassLoad : offscreenRenderPass;
         rpBegin.framebuffer = offscreenFramebuffer;
         rpBegin.renderArea.offset = VkOffset2D(0, 0);
         rpBegin.renderArea.extent = swapExtent;
         VkClearValue[4] clears;
-        clears[0] = clearColor;
-        clears[1] = clearColor;
-        clears[2] = clearColor;
+        clears[0] = clearColor;        // albedo
+        clears[1] = clearColor;        // emissive
+        clears[2] = clearColor;        // bump
         clears[3].depthStencil = VkClearDepthStencilValue(1.0f, 0);
-        rpBegin.clearValueCount = 4;
+        rpBegin.clearValueCount = cast(uint)clears.length;
         rpBegin.pClearValues = clears.ptr;
 
         vkCmdBeginRenderPass(cmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
@@ -327,28 +644,220 @@ public:
         globalsData.offset = vec2(0, 0);
         updateGlobalsUBO(globalsData);
         paramsData.opacity = 1.0f;
-        paramsData.multColor = vec3(1, 1, 1);
+        paramsData.multColor = vec3(1, 0, 1); // magenta で目立たせる
         paramsData.screenColor = vec3(0, 0, 0);
         paramsData.emissionStrength = 1.0f;
         updateParamsUBO(paramsData);
         maskContentActive = false;
+        // まず固定三角形を描いてパイプラインの健全性を確認し、さらに矩形を描く
+        drawTestTriangle();
+        // 明示的に矩形を描いて色が乗るか確認（NDC中央0.5四方、黄色）
+        drawClipRectForced(vec4(-0.5f, -0.5f, 0.5f, 0.5f), vec3(1, 1, 0), 1.0f);
+        // レンダーパス内で確実に色を書き込むデバッグ（全体を赤でクリア→すぐコピー）
+        enum bool DEBUG_CLEAR_IN_PASS = false; // 強制塗りでレンダーパス経路を確認する
+        if (DEBUG_CLEAR_IN_PASS) {
+            VkClearAttachment[3] atts;
+            VkClearRect rect;
+            rect.rect.offset = VkOffset2D(0, 0);
+            rect.rect.extent = swapExtent;
+            rect.baseArrayLayer = 0;
+            rect.layerCount = 1;
+            foreach (i; 0 .. 3) {
+                atts[i].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                atts[i].colorAttachment = cast(uint)i;
+                atts[i].clearValue.color.float32 = [1.0f, 0.0f, 0.0f, 1.0f]; // red
+            }
+            vkCmdClearAttachments(activeCommand, cast(uint)atts.length, atts.ptr, 1, &rect);
+
+            // クリア直後に小領域をコピーして即時確認
+            const int sampleW = 64;
+            const int sampleH = 64;
+            size_t sampleSize = sampleW * sampleH * 4;
+            ensureReadbackBuffer(sampleSize);
+            VkBufferImageCopy copy = VkBufferImageCopy.init;
+            copy.bufferOffset = 0;
+            copy.bufferRowLength = 0;
+            copy.bufferImageHeight = 0;
+            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.imageSubresource.mipLevel = 0;
+            copy.imageSubresource.baseArrayLayer = 0;
+            copy.imageSubresource.layerCount = 1;
+            copy.imageOffset = VkOffset3D(0, 0, 0);
+            copy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+            recordTransition(activeCommand, mainAlbedo.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+            vkCmdCopyImageToBuffer(activeCommand, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                debugReadbackBuffer.buffer, 1, &copy);
+            recordTransition(activeCommand, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+            // ここでマップして即ログ
+            void* ptr;
+            if (vkMapMemory(device, debugReadbackBuffer.memory, 0, sampleSize, 0, &ptr) == VK_SUCCESS) {
+                auto mapped = (cast(ubyte*)ptr)[0 .. sampleSize];
+                ulong sR=0,sG=0,sB=0,sA=0;
+                foreach(i;0 .. sampleSize/4){
+                    auto idx=i*4; sR+=mapped[idx]; sG+=mapped[idx+1]; sB+=mapped[idx+2]; sA+=mapped[idx+3];
+                }
+                double cnt=cast(double)(sampleSize/4);
+                writefln("[VK passClear] avg=(%.3f,%.3f,%.3f,%.3f) first=%s", sR/cnt, sG/cnt, sB/cnt, sA/cnt, mapped[0..4]);
+                vkUnmapMemory(device, debugReadbackBuffer.memory);
+            }
+        }
     }
 
     void endScene() {
         enforce(initialized, "Vulkan backend not initialized");
+        if (skipRenderpassFrame) {
+            debugSkipRenderpassBlit();
+            skipRenderpassFrame = false;
+            return;
+        }
         auto cmd = frameCommands[currentFrame];
+        if (debugSwapPassFrame) {
+            VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkSubmitInfo submitInfo = VkSubmitInfo.init;
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = &imageAvailable;
+            submitInfo.pWaitDstStageMask = &waitStage;
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &cmd;
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.pSignalSemaphores = &renderFinished;
+
+            auto subRes = vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]);
+            enforce(subRes == VK_SUCCESS, "Failed to submit debug swap command buffer");
+
+            VkPresentInfoKHR presentInfo = VkPresentInfoKHR.init;
+            presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            presentInfo.waitSemaphoreCount = 1;
+            presentInfo.pWaitSemaphores = &renderFinished;
+            presentInfo.swapchainCount = 1;
+            presentInfo.pSwapchains = &swapchain;
+            presentInfo.pImageIndices = &currentImageIndex;
+            auto presentRes = vkQueuePresentKHR(presentQueue, &presentInfo);
+            if (presentRes == VK_ERROR_OUT_OF_DATE_KHR || presentRes == VK_SUBOPTIMAL_KHR) {
+                recreateSwapchain();
+                swapchainValid = false;
+            }
+            debugSwapPassFrame = false;
+            return;
+        }
+        // フレームunion領域を白塗りして blit 範囲を確認
+        enum bool DEBUG_FILL_FRAME_UNION = true;
+        if (DEBUG_FILL_FRAME_UNION && frameBoundsUnionClipValid) {
+            // 有効な矩形のみ描画する
+            if (frameBoundsUnionClip.x.isFinite && frameBoundsUnionClip.y.isFinite &&
+                frameBoundsUnionClip.z.isFinite && frameBoundsUnionClip.w.isFinite &&
+                frameBoundsUnionClip.z > frameBoundsUnionClip.x &&
+                frameBoundsUnionClip.w > frameBoundsUnionClip.y) {
+                drawClipRectForced(frameBoundsUnionClip, vec3(1, 1, 1), 1.0f);
+            }
+        }
+        // デバッグ: パス末尾にもテスト三角をもう一度描いて、クリア後もパイプラインが動いているか確認
+        drawTestTriangle();
         vkCmdEndRenderPass(cmd);
-        if (swapchainValid) {
+        // レンダーパス直後にオフスクリーン中央を読み出し、パス内書き込みを直接確認
+        // レンダーパス直後のreadbackのみ残し、その他のコピーは抑制
+        enum bool DEBUG_READBACK_AFTER_PASS = true;
+        enum bool DEBUG_COMPARE_AFTER_PASS = false; // 2枚目に強制クリア結果を書き込んで比較
+        const int sampleW = 64;
+        const int sampleH = 64;
+        size_t sampleSizeMain = sampleW * sampleH * 4;
+        if (DEBUG_READBACK_AFTER_PASS) {
+            size_t slots = DEBUG_COMPARE_AFTER_PASS ? 3 : 2; // main, (main cleared), swap
+            ensureReadbackBuffer(sampleSizeMain * slots);
+            VkBufferImageCopy copy = VkBufferImageCopy.init;
+            copy.bufferOffset = 0;
+            copy.bufferRowLength = 0;
+            copy.bufferImageHeight = 0;
+            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.imageSubresource.mipLevel = 0;
+            copy.imageSubresource.baseArrayLayer = 0;
+            copy.imageSubresource.layerCount = 1;
+            int sx = cast(int)mainAlbedo.extent.width / 2 - sampleW / 2;
+            int sy = cast(int)mainAlbedo.extent.height / 2 - sampleH / 2;
+            if (sx < 0) sx = 0;
+            if (sy < 0) sy = 0;
+            copy.imageOffset = VkOffset3D(sx, sy, 0);
+            copy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
             recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+            vkCmdCopyImageToBuffer(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                debugReadbackBuffer.buffer, 1, &copy);
+            if (DEBUG_COMPARE_AFTER_PASS) {
+                // 強制緑クリア後の値を第2スロットに保存
+                VkClearColorValue dbgColor;
+                dbgColor.float32 = [0.0f, 1.0f, 0.0f, 1.0f];
+                VkImageSubresourceRange rng = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+                vkCmdClearColorImage(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, &dbgColor, 1, &rng);
+                VkBufferImageCopy copy2 = copy;
+                copy2.bufferOffset = sampleSizeMain;
+                vkCmdCopyImageToBuffer(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    debugReadbackBuffer.buffer, 1, &copy2);
+            }
+            recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+        }
+        // パス外でも強制書き込みを入れて、カラーバッファ経路を確認
+        enum bool DEBUG_FORCE_CLEAR_AFTER_PASS = false;
+        if (DEBUG_FORCE_CLEAR_AFTER_PASS) {
+            recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mainAlbedo.aspect);
+            VkClearColorValue dbgColor;
+            dbgColor.float32 = [0.0f, 1.0f, 0.0f, 1.0f]; // green
+            VkImageSubresourceRange rng = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+            vkCmdClearColorImage(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &dbgColor, 1, &rng);
+            recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+        } else {
+            writefln("[VK layout] mainAlbedo COLOR_ATTACHMENT_OPTIMAL -> TRANSFER_SRC_OPTIMAL for readback");
+            recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+        }
+        if (swapchainValid) {
+            writefln("[VK layout] swap PRESENT -> TRANSFER_DST for blit");
             recordTransition(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
 
-            VkImageBlit blit = void;
+            // デバッグ: 転送経路が生きているか強制色で確認
+        enum bool DEBUG_FORCE_CLEAR_BEFORE_BLIT = false;
+            if (DEBUG_FORCE_CLEAR_BEFORE_BLIT) {
+                VkClearColorValue dbgColor;
+                dbgColor.float32 = [1.0f, 0.0f, 0.0f, 1.0f]; // 赤
+                VkImageSubresourceRange rng = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+                vkCmdClearColorImage(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, &dbgColor, 1, &rng);
+                VkImageSubresourceRange swapRng = VkImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+                vkCmdClearColorImage(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &dbgColor, 1, &swapRng);
+            }
+
+            // デバッグ: オフスクリーンとスワップの両方を読み出して経路を確認
+            enum bool DEBUG_READBACK = true;
+            VkBufferImageCopy copy = VkBufferImageCopy.init;
+            size_t baseOffset = DEBUG_COMPARE_AFTER_PASS ? sampleSizeMain * 2 : sampleSizeMain; // 先頭は endScene前半で使用済み
+            if (DEBUG_READBACK) {
+                ensureReadbackBuffer(sampleSizeMain * 3); // mainAlbedo(2枚) + swap
+                // mainAlbedo中央付近 (前半スロットに上書き)
+                copy.bufferOffset = 0;
+                copy.bufferRowLength = 0;
+                copy.bufferImageHeight = 0;
+                copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.imageSubresource.mipLevel = 0;
+                copy.imageSubresource.baseArrayLayer = 0;
+                copy.imageSubresource.layerCount = 1;
+                int sx = cast(int)mainAlbedo.extent.width / 2 - sampleW / 2;
+                int sy = cast(int)mainAlbedo.extent.height / 2 - sampleH / 2;
+                if (sx < 0) sx = 0;
+                if (sy < 0) sy = 0;
+                copy.imageOffset = VkOffset3D(sx, sy, 0);
+                copy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+                vkCmdCopyImageToBuffer(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    debugReadbackBuffer.buffer, 1, &copy);
+            }
+
+            VkImageBlit blit = VkImageBlit.init;
+            auto srcExtent = mainAlbedo.extent;
+            if (srcExtent.width == 0 || srcExtent.height == 0) {
+                srcExtent = swapExtent;
+            }
             blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             blit.srcSubresource.mipLevel = 0;
             blit.srcSubresource.baseArrayLayer = 0;
             blit.srcSubresource.layerCount = 1;
             blit.srcOffsets[0] = VkOffset3D(0, 0, 0);
-            blit.srcOffsets[1] = VkOffset3D(cast(int)swapExtent.width, cast(int)swapExtent.height, 1);
+            blit.srcOffsets[1] = VkOffset3D(cast(int)srcExtent.width, cast(int)srcExtent.height, 1);
             blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             blit.dstSubresource.mipLevel = 0;
             blit.dstSubresource.baseArrayLayer = 0;
@@ -359,16 +868,34 @@ public:
             vkCmdBlitImage(cmd,
                 mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                1, &blit, VK_FILTER_LINEAR);
+                1, &blit, VK_FILTER_NEAREST);
 
+            if (DEBUG_READBACK) {
+                // スワップイメージをサンプルして色が来ているか確認（blit後）
+                VkBufferImageCopy copySwap = copy;
+                copySwap.bufferOffset = baseOffset;
+                // 一時的に読み取りレイアウトへ遷移
+                recordTransition(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+                vkCmdCopyImageToBuffer(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    debugReadbackBuffer.buffer, 1, &copySwap);
+                // すぐ戻す
+                recordTransition(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+            }
+
+            writefln("[VK layout] swap TRANSFER_DST -> PRESENT, mainAlbedo back to COLOR_ATTACHMENT");
             recordTransition(cmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
             recordTransition(cmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
         }
-        enforce(vkEndCommandBuffer(cmd) == VK_SUCCESS,
-            "Failed to end command buffer");
+        auto endRes = vkEndCommandBuffer(cmd);
+        if (endRes != VK_SUCCESS) {
+            import std.stdio : writefln;
+            writefln("[VK warn] vkEndCommandBuffer failed res=%s", endRes);
+            activeCommand = null;
+            return;
+        }
 
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submitInfo = void;
+        VkSubmitInfo submitInfo = VkSubmitInfo.init;
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = &imageAvailable;
@@ -378,10 +905,39 @@ public:
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &renderFinished;
 
-        enforce(vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) == VK_SUCCESS,
-            "Failed to submit command buffer");
+        auto subRes = vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]);
+        if (subRes != VK_SUCCESS) {
+            import std.stdio : writefln;
+            writefln("[VK warn] vkQueueSubmit failed res=%s", subRes);
+            activeCommand = null;
+            return;
+        }
 
-        VkPresentInfoKHR presentInfo = void;
+        if (debugSwapPassFrame && debugReadbackBuffer.buffer !is null) {
+            vkQueueWaitIdle(graphicsQueue);
+            const uint sampleWDbg = 64;
+            const uint sampleHDbg = 64;
+            size_t sampleSize = sampleWDbg * sampleHDbg * 4;
+            void* ptr;
+            if (vkMapMemory(device, debugReadbackBuffer.memory, 0, sampleSize, 0, &ptr) == VK_SUCCESS) {
+                auto mapped = (cast(ubyte*)ptr)[0 .. sampleSize];
+                ulong sR=0,sG=0,sB=0,sA=0;
+                foreach (i; 0 .. sampleSize/4) {
+                    auto idx = i*4;
+                    sR+=mapped[idx+0];
+                    sG+=mapped[idx+1];
+                    sB+=mapped[idx+2];
+                    sA+=mapped[idx+3];
+                }
+                double cnt = cast(double)(sampleSize/4);
+                writefln("[VK debugSwap] avg=(%.3f,%.3f,%.3f,%.3f) first=%s",
+                    sR/cnt, sG/cnt, sB/cnt, sA/cnt, mapped[0..4]);
+                writefln("[VK debugSwap] sample (0,0) RGBA=%s", mapped[0 .. 4]);
+                vkUnmapMemory(device, debugReadbackBuffer.memory);
+            }
+        }
+
+        VkPresentInfoKHR presentInfo = VkPresentInfoKHR.init;
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = &renderFinished;
@@ -394,13 +950,183 @@ public:
             recreateSwapchain();
             swapchainValid = false;
         } else {
-            enforce(presentRes == VK_SUCCESS, "Failed to present swapchain image");
+            if (presentRes != VK_SUCCESS) {
+                import std.stdio : writefln;
+                writefln("[VK warn] vkQueuePresentKHR failed res=%s", presentRes);
+                swapchainValid = false;
+            }
+        }
+        // デバッグ読み出し: CPU に戻して平均色を表示（オフスクリーン＋スワップの2枚）
+        enum bool DEBUG_READBACK = true;
+        if (DEBUG_READBACK && debugReadbackBuffer.buffer !is null) {
+            vkQueueWaitIdle(graphicsQueue);
+            // コマンドバッファ内でコピーした mainAlbedo と swap の内容をそのまま読む
+            if (debugReadbackBuffer.size > 0) {
+                void* ptr;
+                if (vkMapMemory(device, debugReadbackBuffer.memory, 0, debugReadbackBuffer.size, 0, &ptr) == VK_SUCCESS) {
+                    auto mapped = (cast(ubyte*)ptr)[0 .. debugReadbackBuffer.size];
+                    auto dumpAvg = (string label, ubyte[] slice) {
+                        ulong sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+                        size_t pixels = slice.length / 4;
+                        foreach (i; 0 .. pixels) {
+                            sumR += slice[i * 4 + 0];
+                            sumG += slice[i * 4 + 1];
+                            sumB += slice[i * 4 + 2];
+                            sumA += slice[i * 4 + 3];
+                        }
+                        float inv = pixels > 0 ? 1.0f / pixels : 0;
+                        writefln("[VK readback %s] %spx avg=(%f,%f,%f,%f) first=%s",
+                            label, pixels, sumR * inv, sumG * inv, sumB * inv, sumA * inv,
+                            pixels > 0 ? slice[0 .. 4] : []);
+                    };
+                    auto sliceSize = sampleSizeMain;
+                    auto totalSlices = sliceSize > 0 ? mapped.length / sliceSize : 0;
+                    if (sliceSize == 0 || totalSlices == 0) {
+                        dumpAvg("buffer", mapped);
+                    } else {
+                        foreach (i; 0 .. totalSlices) {
+                            auto start = i * sliceSize;
+                            auto end = start + sliceSize;
+                            if (end > mapped.length) break;
+                            string label;
+                            if (i == 0) label = "offscreen_before";
+                            else if (i == 1 && DEBUG_COMPARE_AFTER_PASS) label = "offscreen_after_clear";
+                            else label = i == totalSlices - 1 ? "swap" : "slice";
+                            dumpAvg(label, mapped[start .. end]);
+                        }
+                    }
+                    vkUnmapMemory(device, debugReadbackBuffer.memory);
+                }
+            }
         }
 
+        if (frameBoundsUnionValid) {
+            writefln("[VK bounds] frame union screen(px)=%s", frameBoundsUnion);
+        }
         activeCommand = null;
         currentFrame = (currentFrame + 1) % maxFramesInFlight;
     }
     void postProcessScene() { /* TODO: implement post-processing path */ }
+
+    /// レンダーパスをスキップしたフレーム用: 単発コマンドで mainAlbedo を塗り、ブリット経路を検証
+    void debugSkipRenderpassBlit() {
+        const int sampleW = 64;
+        const int sampleH = 64;
+        size_t sampleSize = sampleW * sampleH * 4;
+        // swap 直接のクリア確認 + mainAlbedo 経路で計 2 サンプル必要
+        ensureReadbackBuffer(sampleSize * 2);
+
+        if (!swapchainValid) {
+            writefln("[VK dbg] skipRenderpass: swapchain invalid, abort");
+            return;
+        }
+
+        auto sCmd = beginSingleTimeCommands();
+        const int rectSize = 512;
+        ensureDebugRectBuffer(rectSize, rectSize, 0, 255, 0, 255); // 塗りつぶし矩形
+        // まず swap イメージ単体で TRANSFER 経路と readback が生きているか確認
+        recordTransition(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+        VkClearColorValue swapClr; swapClr.float32 = [0.0f, 0.0f, 0.0f, 1.0f]; // black for contrast
+        VkImageSubresourceRange swapRange = VkImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+        vkCmdClearColorImage(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &swapClr, 1, &swapRange);
+        recordTransition(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+        VkBufferImageCopy swapCopy = VkBufferImageCopy.init;
+        swapCopy.bufferOffset = sampleSize; // 後半に swap を配置
+        swapCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        swapCopy.imageSubresource.mipLevel = 0;
+        swapCopy.imageSubresource.baseArrayLayer = 0;
+        swapCopy.imageSubresource.layerCount = 1;
+        // サンプル位置も中央寄りに揃える
+        swapCopy.imageOffset = VkOffset3D(cast(int)swapExtent.width / 2 - sampleW / 2,
+            cast(int)swapExtent.height / 2 - sampleH / 2, 0);
+        swapCopy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+        vkCmdCopyImageToBuffer(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            debugReadbackBuffer.buffer, 1, &swapCopy);
+        recordTransition(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
+        // mainAlbedo に赤を書き込む
+        recordTransition(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mainAlbedo.aspect);
+        VkClearColorValue clr; clr.float32 = [1.0f, 0.0f, 1.0f, 1.0f]; // magenta base
+        VkImageSubresourceRange rng = VkImageSubresourceRange(mainAlbedo.aspect, 0, 1, 0, 1);
+        vkCmdClearColorImage(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clr, 1, &rng);
+        // 中央付近に rectSize x rectSize の緑矩形を書き込む
+        VkBufferImageCopy rectCopy = VkBufferImageCopy.init;
+        rectCopy.bufferOffset = 0;
+        rectCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        rectCopy.imageSubresource.mipLevel = 0;
+        rectCopy.imageSubresource.baseArrayLayer = 0;
+        rectCopy.imageSubresource.layerCount = 1;
+        int rx = cast(int)mainAlbedo.extent.width / 2 - rectSize / 2;
+        int ry = cast(int)mainAlbedo.extent.height / 2 - rectSize / 2;
+        if (rx < 0) rx = 0;
+        if (ry < 0) ry = 0;
+        rectCopy.imageOffset = VkOffset3D(rx, ry, 0);
+        rectCopy.imageExtent = VkExtent3D(rectSize, rectSize, 1);
+        vkCmdCopyBufferToImage(sCmd, debugRectBuffer.buffer, mainAlbedo.image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &rectCopy);
+        recordTransition(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mainAlbedo.aspect);
+
+        // mainAlbedo → readback (前半)
+        VkBufferImageCopy copy = VkBufferImageCopy.init;
+        copy.bufferOffset = 0; // 前半に mainAlbedo
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.mipLevel = 0;
+        copy.imageSubresource.baseArrayLayer = 0;
+        copy.imageSubresource.layerCount = 1;
+        // 矩形中央を読む
+        copy.imageOffset = VkOffset3D(rx, ry, 0);
+        copy.imageExtent = VkExtent3D(sampleW, sampleH, 1);
+        vkCmdCopyImageToBuffer(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            debugReadbackBuffer.buffer, 1, &copy);
+
+        // mainAlbedo → swap blit
+        recordTransition(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+        VkImageBlit blit = VkImageBlit.init;
+        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel = 0;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount = 1;
+        blit.srcOffsets[0] = VkOffset3D(0, 0, 0);
+        blit.srcOffsets[1] = VkOffset3D(cast(int)mainAlbedo.extent.width, cast(int)mainAlbedo.extent.height, 1);
+        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel = 0;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount = 1;
+        blit.dstOffsets[0] = VkOffset3D(0, 0, 0);
+        blit.dstOffsets[1] = VkOffset3D(cast(int)swapExtent.width, cast(int)swapExtent.height, 1);
+        vkCmdBlitImage(sCmd,
+            mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &blit, VK_FILTER_NEAREST);
+
+        // swap → readback (後半)
+        VkBufferImageCopy copySwap = copy;
+        copySwap.bufferOffset = sampleSize;
+        recordTransition(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+        vkCmdCopyImageToBuffer(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            debugReadbackBuffer.buffer, 1, &copySwap);
+
+        // 戻す
+        recordTransition(sCmd, swapImages[currentImageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
+        recordTransition(sCmd, mainAlbedo.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mainAlbedo.aspect);
+        endSingleTimeCommands(sCmd);
+
+        // 読み出しログ
+        void* ptr;
+        if (vkMapMemory(device, debugReadbackBuffer.memory, 0, debugReadbackBuffer.size, 0, &ptr) == VK_SUCCESS) {
+            auto mapped = (cast(ubyte*)ptr)[0 .. debugReadbackBuffer.size];
+            auto dump = (string label, ubyte[] slice) {
+                ulong r=0,g=0,b=0,a=0; size_t px = slice.length/4;
+                foreach(i;0 .. px){ auto idx=i*4; r+=slice[idx]; g+=slice[idx+1]; b+=slice[idx+2]; a+=slice[idx+3]; }
+                float inv = px? 1.0f/px : 0;
+                writefln("[VK skipPass %s] %spx avg=(%f,%f,%f,%f) first=%s",
+                    label, px, r*inv, g*inv, b*inv, a*inv, px? slice[0..4]:[]);
+            };
+            size_t half = debugReadbackBuffer.size/2;
+            dump("offscreen", mapped[0 .. half]);
+            dump("swap", mapped[half .. debugReadbackBuffer.size]);
+            vkUnmapMemory(device, debugReadbackBuffer.memory);
+        }
+    }
 
     void initializeDrawableResources() {
         destroyBuffer(globalsUbo);
@@ -410,7 +1136,13 @@ public:
         destroyBuffer(sharedDeformBuffer);
         destroyBuffer(compositePosBuffer);
         destroyBuffer(compositeUvBuffer);
-        destroyBuffer(quadDeformBuffer);
+        destroyBuffer(quadPosXBuffer);
+        destroyBuffer(quadPosYBuffer);
+        destroyBuffer(quadUvXBuffer);
+        destroyBuffer(quadUvYBuffer);
+        destroyBuffer(quadDeformXBuffer);
+        destroyBuffer(quadDeformYBuffer);
+        destroyBuffer(debugRectBuffer);
         foreach (ref buf; indexBuffers) {
             destroyBuffer(buf);
         }
@@ -438,79 +1170,29 @@ public:
         copyBuffer(staging, gpu, sz);
         indexBuffers[ibo] = gpu;
     }
-    void uploadSharedVertexBuffer(Vec2Array vertices) {
-        auto arr = vertices.toArray();
-        if (arr.length == 0) return;
-        float[] packed;
-        packed.length = arr.length * 2;
-        foreach (i, v; arr) {
-            packed[i * 2 + 0] = v.x;
-            packed[i * 2 + 1] = v.y;
-        }
-        uploadSharedBuffer(sharedVertexBuffer, packed);
-    }
-    void uploadSharedUvBuffer(Vec2Array uvs) {
-        auto arr = uvs.toArray();
-        if (arr.length == 0) return;
-        float[] packed;
-        packed.length = arr.length * 2;
-        foreach (i, v; arr) {
-            packed[i * 2 + 0] = v.x;
-            packed[i * 2 + 1] = v.y;
-        }
-        uploadSharedBuffer(sharedUvBuffer, packed);
-    }
-    void uploadSharedDeformBuffer(Vec2Array deform) {
-        auto arr = deform.toArray();
-        if (arr.length == 0) return;
-        float[] packed;
-        packed.length = arr.length * 2;
-        foreach (i, v; arr) {
-            packed[i * 2 + 0] = v.x;
-            packed[i * 2 + 1] = v.y;
-        }
-        uploadSharedBuffer(sharedDeformBuffer, packed);
-    }
+    void uploadSharedVertexBuffer(Vec2Array vertices) { uploadSharedVecBuffer(sharedVertexBuffer, vertices); }
+    void uploadSharedUvBuffer(Vec2Array uvs) { uploadSharedVecBuffer(sharedUvBuffer, uvs); }
+    void uploadSharedDeformBuffer(Vec2Array deform) { uploadSharedVecBuffer(sharedDeformBuffer, deform); }
     void drawDrawableElements(RenderResourceHandle ibo, size_t indexCount) {
         if (activeCommand is null || indexCount == 0) return;
         auto entry = ibo in indexBuffers;
         if (entry is null || (*entry).buffer is null) return;
-        VkBuffer[3] vertexBuffers;
-        VkDeviceSize[3] offsets;
-        size_t bindingCount = 0;
-        if (sharedVertexBuffer.buffer !is null) {
-            vertexBuffers[bindingCount] = sharedVertexBuffer.buffer;
-            offsets[bindingCount] = 0;
-            ++bindingCount;
-        }
-        if (sharedUvBuffer.buffer !is null) {
-            vertexBuffers[bindingCount] = sharedUvBuffer.buffer;
-            offsets[bindingCount] = 0;
-            ++bindingCount;
-        }
-        if (sharedDeformBuffer.buffer !is null) {
-            vertexBuffers[bindingCount] = sharedDeformBuffer.buffer;
-            offsets[bindingCount] = 0;
-            ++bindingCount;
-        }
-        if (bindingCount > 0) {
-            vkCmdBindVertexBuffers(activeCommand, 0, cast(uint)bindingCount, vertexBuffers.ptr, offsets.ptr);
-        }
         vkCmdBindIndexBuffer(activeCommand, (*entry).buffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(activeCommand, cast(uint)indexCount, 1, 0, 0, 0);
     }
 
-    void uploadSharedBuffer(ref Buffer target, float[] data) {
+    void uploadSharedVecBuffer(ref Buffer target, Vec2Array data) {
         destroyBuffer(target);
-        if (data.length == 0) return;
-        size_t sz = data.length * float.sizeof;
+        auto raw = data.rawStorage();
+        if (raw.length == 0) return;
+        size_t sz = raw.length * float.sizeof;
         Buffer staging = createBuffer(sz, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         scope (exit) destroyBuffer(staging);
         void* mapped;
         vkMapMemory(device, staging.memory, 0, staging.size, 0, &mapped);
         auto dst = cast(float*)mapped;
-        dst[0 .. data.length] = data[];
+        dst[0 .. raw.length] = raw[];
         vkUnmapMemory(device, staging.memory);
 
         Buffer gpu = createBuffer(sz, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -534,8 +1216,8 @@ public:
         }
         if (dynamicDummyDepth.image is null || dynamicDummyDepth.extent != extent) {
             destroyImage(dynamicDummyDepth);
-            dynamicDummyDepth = createImage(extent, VK_FORMAT_D24_UNORM_S8_UINT,
-                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 1);
+            dynamicDummyDepth = createImage(extent, selectDepthFormat(),
+                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthAspect(selectDepthFormat()), 1);
         }
     }
 
@@ -586,7 +1268,7 @@ public:
             state.framebuffer = null;
         }
 
-        VkFramebufferCreateInfo fb = void;
+        VkFramebufferCreateInfo fb = VkFramebufferCreateInfo.init;
         fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fb.renderPass = offscreenRenderPass;
         fb.attachmentCount = 4;
@@ -626,22 +1308,167 @@ public:
     void drawPartPacket(ref PartDrawPacket packet) {
         if (!packet.renderable || packet.textures.length == 0) return;
         if (activeCommand is null) return;
+        // Debug: log first few part packets to catch NaN/zero data issues.
+        // Verbose dbg logsは抑制
+        // 追加: 実頂点とMVP適用後の簡易boundsをログ（常に）
+        enum size_t BOUNDS_LIMIT = size_t.max;
+        enum bool DEBUG_ATTRS = true; // 頂点/UV/変形の入力確認用（少量に制限）
+        enum size_t ATTRS_LIMIT = 8;
+        static size_t boundsLogged = 0;
+        static size_t attrsLogged = 0;
+        vec4 clipBounds = vec4(float.nan, float.nan, float.nan, float.nan);
+        if (boundsLogged < BOUNDS_LIMIT || (DEBUG_ATTRS && attrsLogged < ATTRS_LIMIT)) {
+            auto vdata = sharedVertexBufferData();
+            auto laneX = vdata.lane(0);
+            auto laneY = vdata.lane(1);
+            auto uvdata = sharedUvBufferData();
+            auto laneUX = uvdata.lane(0);
+            auto laneUY = uvdata.lane(1);
+            auto ddef = sharedDeformBufferData();
+            auto laneDX = ddef.lane(0);
+            auto laneDY = ddef.lane(1);
+            size_t start = packet.vertexOffset;
+            size_t count = packet.vertexCount;
+            if (start + count > vdata.length) {
+                count = vdata.length > start ? vdata.length - start : 0;
+            }
+            vec4 screenBounds = vec4(float.nan, float.nan, float.nan, float.nan);
+            auto mvp = inGetCamera().matrix * packet.puppetMatrix * packet.modelMatrix;
+            auto vpW = cast(float)swapExtent.width;
+            auto vpH = cast(float)swapExtent.height;
+            foreach (i; 0 .. count) {
+                auto idx = start + i;
+                auto x = laneX[idx];
+                auto y = laneY[idx];
+                if (!isFinite(x) || !isFinite(y)) continue;
+                // 実際のシェーダと同じく origin を引いて MVP 適用
+                vec4 local = vec4(x - packet.origin.x, y - packet.origin.y, 0, 1);
+                auto clip = mvp * local;
+                float w = clip.w == 0 ? 1 : clip.w;
+                float cx = clip.x / w;
+                float cy = clip.y / w;
+                if (!isFinite(cx) || !isFinite(cy)) continue;
+                if (!isFinite(clipBounds.x)) {
+                    clipBounds = vec4(cx, cy, cx, cy);
+                } else {
+                    if (cx < clipBounds.x) clipBounds.x = cx;
+                    if (cy < clipBounds.y) clipBounds.y = cy;
+                    if (cx > clipBounds.z) clipBounds.z = cx;
+                    if (cy > clipBounds.w) clipBounds.w = cy;
+                }
+                // screen-space bounds (NDC -> viewport pixels)
+                float sx = (cx * 0.5f + 0.5f) * vpW;
+                float sy = (cy * 0.5f + 0.5f) * vpH;
+            if (!isFinite(sx) || !isFinite(sy)) continue;
+            if (!isFinite(screenBounds.x)) {
+                screenBounds = vec4(sx, sy, sx, sy);
+            } else {
+                if (sx < screenBounds.x) screenBounds.x = sx;
+                    if (sy < screenBounds.y) screenBounds.y = sy;
+                if (sx > screenBounds.z) screenBounds.z = sx;
+                if (sy > screenBounds.w) screenBounds.w = sy;
+                }
+            }
+            writefln("[VK bounds] part \"%s\" screen(px)=%s count=%s",
+                packet.name, screenBounds, count);
+            if (DEBUG_ATTRS && attrsLogged < ATTRS_LIMIT) {
+                size_t dumpN = count < 4 ? count : 4;
+                writefln("[VK verts] part \"%s\" first %s verts (raw):", packet.name, dumpN);
+                foreach (i; 0 .. dumpN) {
+                    auto idx = start + i;
+                    auto vx = laneX[idx];
+                    auto vy = laneY[idx];
+                    auto ux = laneUX[idx];
+                    auto uy = laneUY[idx];
+                    auto dx = laneDX[idx];
+                    auto dy = laneDY[idx];
+                    writefln("  idx=%s pos=(%f,%f) deform=(%f,%f) uv=(%f,%f)", idx, vx, vy, dx, dy, ux, uy);
+                }
+                writefln("[VK verts] shader input uses vec2(vert - origin + deform); origin=%s", packet.origin);
+                ++attrsLogged;
+            }
+            // フレーム内unionを更新
+            if (screenBounds.x.isFinite && screenBounds.y.isFinite && screenBounds.z.isFinite && screenBounds.w.isFinite) {
+                if (!frameBoundsUnionValid) {
+                    frameBoundsUnion = screenBounds;
+                    frameBoundsUnionValid = true;
+                } else {
+                    if (screenBounds.x < frameBoundsUnion.x) frameBoundsUnion.x = screenBounds.x;
+                    if (screenBounds.y < frameBoundsUnion.y) frameBoundsUnion.y = screenBounds.y;
+                    if (screenBounds.z > frameBoundsUnion.z) frameBoundsUnion.z = screenBounds.z;
+                    if (screenBounds.w > frameBoundsUnion.w) frameBoundsUnion.w = screenBounds.w;
+                }
+            }
+            if (clipBounds.x.isFinite && clipBounds.y.isFinite && clipBounds.z.isFinite && clipBounds.w.isFinite) {
+                if (!frameBoundsUnionClipValid) {
+                    frameBoundsUnionClip = clipBounds;
+                    frameBoundsUnionClipValid = true;
+                } else {
+                    if (clipBounds.x < frameBoundsUnionClip.x) frameBoundsUnionClip.x = clipBounds.x;
+                    if (clipBounds.y < frameBoundsUnionClip.y) frameBoundsUnionClip.y = clipBounds.y;
+                    if (clipBounds.z > frameBoundsUnionClip.z) frameBoundsUnionClip.z = clipBounds.z;
+                    if (clipBounds.w > frameBoundsUnionClip.w) frameBoundsUnionClip.w = clipBounds.w;
+                }
+            }
+            ++boundsLogged;
+        }
+        enum bool DEBUG_DRAW_BOUNDS = true;
+        // 画面上にバウンズ矩形を描画（デバッグ）
+        if (DEBUG_DRAW_BOUNDS &&
+            clipBounds.x.isFinite && clipBounds.y.isFinite && clipBounds.z.isFinite && clipBounds.w.isFinite) {
+            drawClipRect(clipBounds, vec3(0, 1, 0), 0.15f);
+        }
         auto cam = inGetCamera();
         globalsData.mvp = cam.matrix * packet.puppetMatrix * packet.modelMatrix;
         globalsData.offset = packet.origin;
         updateGlobalsUBO(globalsData);
 
-        paramsData.opacity = packet.opacity;
-        paramsData.multColor = packet.clampedTint;
-        paramsData.screenColor = packet.clampedScreen;
-        paramsData.emissionStrength = packet.emissionStrength;
+        // デバッグ: シェーダ入力の色/不透明度を強制して描画確認
+        enum bool DEBUG_FORCE_COLOR = true;
+        if (DEBUG_FORCE_COLOR) {
+            paramsData.opacity = 1.0f;
+            paramsData.multColor = vec3(1, 1, 1);
+            paramsData.screenColor = vec3(0, 0, 0);
+            paramsData.emissionStrength = 0.0f;
+        } else {
+            paramsData.opacity = packet.opacity;
+            paramsData.multColor = packet.clampedTint;
+            paramsData.screenColor = packet.clampedScreen;
+            paramsData.emissionStrength = packet.emissionStrength;
+        }
         updateParamsUBO(paramsData);
 
-        foreach (i, tex; packet.textures) {
-            if (tex !is null) {
-                bindTextureHandle(tex.backendHandle(), cast(uint)(i + 1));
+        enum bool DEBUG_FORCE_WHITE = true; // パーツ形状確認のため白テクスチャを強制
+        if (DEBUG_FORCE_WHITE) {
+            bindTextureHandle(debugWhiteTex, 1);
+            bindTextureHandle(debugWhiteTex, 2);
+            bindTextureHandle(debugWhiteTex, 3);
+        } else {
+            foreach (i, tex; packet.textures) {
+                if (tex !is null) {
+                    bindTextureHandle(tex.backendHandle(), cast(uint)(i + 1));
+                }
             }
         }
+
+        // Bind SoA vertex buffers: X/Y, UV X/Y, Deform X/Y
+        if (sharedVertexBuffer.buffer is null || sharedUvBuffer.buffer is null || sharedDeformBuffer.buffer is null) return;
+        auto vStride = packet.vertexAtlasStride * float.sizeof;
+        auto uvStride = packet.uvAtlasStride * float.sizeof;
+        auto dStride = packet.deformAtlasStride * float.sizeof;
+        VkBuffer[6] bufs;
+        VkDeviceSize[6] offs;
+        uint bindCount = 0;
+        // position X / Y
+        bufs[bindCount] = sharedVertexBuffer.buffer; offs[bindCount] = packet.vertexOffset * float.sizeof; ++bindCount;
+        bufs[bindCount] = sharedVertexBuffer.buffer; offs[bindCount] = (packet.vertexAtlasStride + packet.vertexOffset) * float.sizeof; ++bindCount;
+        // uv X / Y
+        bufs[bindCount] = sharedUvBuffer.buffer; offs[bindCount] = packet.uvOffset * float.sizeof; ++bindCount;
+        bufs[bindCount] = sharedUvBuffer.buffer; offs[bindCount] = (packet.uvAtlasStride + packet.uvOffset) * float.sizeof; ++bindCount;
+        // deform X / Y
+        bufs[bindCount] = sharedDeformBuffer.buffer; offs[bindCount] = packet.deformOffset * float.sizeof; ++bindCount;
+        bufs[bindCount] = sharedDeformBuffer.buffer; offs[bindCount] = (packet.deformAtlasStride + packet.deformOffset) * float.sizeof; ++bindCount;
+        vkCmdBindVertexBuffers(activeCommand, 0, bindCount, bufs.ptr, offs.ptr);
 
         useShader(null);
         drawDrawableElements(packet.indexBuffer, packet.indexCount);
@@ -651,7 +1478,7 @@ public:
         auto state = createDynamicCompositeFramebuffer(pass.surface);
         if (state is null) return;
         // Allocate a transient command buffer for this composite pass.
-        VkCommandBufferAllocateInfo alloc = void;
+        VkCommandBufferAllocateInfo alloc = VkCommandBufferAllocateInfo.init;
         alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         alloc.commandPool = commandPool;
         alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -660,7 +1487,7 @@ public:
         enforce(vkAllocateCommandBuffers(device, &alloc, &cmd) == VK_SUCCESS,
             "Failed to allocate dynamic composite command buffer");
 
-        VkCommandBufferBeginInfo beginInfo = void;
+        VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.init;
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         enforce(vkBeginCommandBuffer(cmd, &beginInfo) == VK_SUCCESS,
@@ -691,7 +1518,7 @@ public:
         }
         clears[3].depthStencil = VkClearDepthStencilValue(1.0f, 0);
 
-        VkRenderPassBeginInfo rpBegin = void;
+        VkRenderPassBeginInfo rpBegin = VkRenderPassBeginInfo.init;
         rpBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         rpBegin.renderPass = offscreenRenderPass;
         rpBegin.framebuffer = state.framebuffer;
@@ -738,14 +1565,29 @@ public:
             }
         }
 
-        enforce(vkEndCommandBuffer(cmd) == VK_SUCCESS, "Failed to end dynamic composite command buffer");
+        auto endRes = vkEndCommandBuffer(cmd);
+        if (endRes != VK_SUCCESS) {
+            import std.stdio : writefln;
+            writefln("[VK warn] endDynamicComposite vkEndCommandBuffer=%s", endRes);
+            vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+            activeCommand = commandBeforeDynamic;
+            commandBeforeDynamic = null;
+            return;
+        }
 
-        VkSubmitInfo submit = void;
+        VkSubmitInfo submit = VkSubmitInfo.init;
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit.commandBufferCount = 1;
         submit.pCommandBuffers = &cmd;
-        enforce(vkQueueSubmit(graphicsQueue, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS,
-            "Failed to submit dynamic composite");
+        auto subRes = vkQueueSubmit(graphicsQueue, 1, &submit, VK_NULL_HANDLE);
+        if (subRes != VK_SUCCESS) {
+            import std.stdio : writefln;
+            writefln("[VK warn] endDynamicComposite submit failed res=%s", subRes);
+            vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+            activeCommand = commandBeforeDynamic;
+            commandBeforeDynamic = null;
+            return;
+        }
         vkQueueWaitIdle(graphicsQueue);
 
         vkFreeCommandBuffers(device, commandPool, 1, &cmd);
@@ -770,11 +1612,11 @@ public:
     void beginMask(bool useStencil) {
         if (activeCommand is null || maskPipeline is null) return;
         maskContentActive = false;
-        VkClearAttachment clear = void;
+        VkClearAttachment clear = VkClearAttachment.init;
         clear.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
         clear.colorAttachment = 0;
         clear.clearValue.depthStencil = VkClearDepthStencilValue(1.0f, useStencil ? 0 : 1);
-        VkClearRect clearRect = void;
+        VkClearRect clearRect = VkClearRect.init;
         clearRect.rect = VkRect2D(VkOffset2D(0, 0), swapExtent);
         clearRect.baseArrayLayer = 0;
         clearRect.layerCount = 1;
@@ -813,17 +1655,27 @@ public:
         updateGlobalsUBO(globalsData);
         // Params not used here
 
-        // Bind vertex/deform buffers (bindings 0 and 2)
+        // Bind SoA vertex/deform buffers (X/Y each)
         if (sharedVertexBuffer.buffer is null || sharedDeformBuffer.buffer is null) return;
-        VkBuffer[3] vertexBuffers;
-        VkDeviceSize[3] offsets;
+        size_t vertOff = packet.kind == MaskDrawableKind.Part ? packet.partPacket.vertexOffset
+                                                              : packet.maskPacket.vertexOffset;
+        size_t vertStride = packet.kind == MaskDrawableKind.Part ? packet.partPacket.vertexAtlasStride
+                                                                 : packet.maskPacket.vertexAtlasStride;
+        size_t deformOff = packet.kind == MaskDrawableKind.Part ? packet.partPacket.deformOffset
+                                                                : packet.maskPacket.deformOffset;
+        size_t deformStride = packet.kind == MaskDrawableKind.Part ? packet.partPacket.deformAtlasStride
+                                                                   : packet.maskPacket.deformAtlasStride;
+        VkBuffer[4] vertexBuffers;
+        VkDeviceSize[4] offsets;
         vertexBuffers[0] = sharedVertexBuffer.buffer;
-        offsets[0] = 0;
-        vertexBuffers[1] = VkBuffer.init; // unused binding 1
-        offsets[1] = 0;
+        offsets[0] = vertOff * float.sizeof;
+        vertexBuffers[1] = sharedVertexBuffer.buffer;
+        offsets[1] = vertStride * float.sizeof + vertOff * float.sizeof;
         vertexBuffers[2] = sharedDeformBuffer.buffer;
-        offsets[2] = 0;
-        vkCmdBindVertexBuffers(activeCommand, 0, 3, vertexBuffers.ptr, offsets.ptr);
+        offsets[2] = deformOff * float.sizeof;
+        vertexBuffers[3] = sharedDeformBuffer.buffer;
+        offsets[3] = deformStride * float.sizeof + deformOff * float.sizeof;
+        vkCmdBindVertexBuffers(activeCommand, 0, 4, vertexBuffers.ptr, offsets.ptr);
         RenderResourceHandle ibo = packet.maskPacket.indexBuffer;
         uint idxCount = packet.maskPacket.indexCount;
         if (packet.kind == MaskDrawableKind.Part) {
@@ -853,10 +1705,117 @@ public:
     }
 
     void ensureQuadBuffers() {
-        if (quadDeformBuffer.buffer is null) {
-            float[12] zeroDeform = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            uploadBufferData(quadDeformBuffer, zeroDeform[]);
+        // Static zero deform (two lanes, 6 verts)
+        float[6] zeros = [0, 0, 0, 0, 0, 0];
+        if (quadDeformXBuffer.buffer is null || quadDeformYBuffer.buffer is null) {
+            uploadBufferData(quadDeformXBuffer, zeros[]);
+            uploadBufferData(quadDeformYBuffer, zeros[]);
         }
+        // positions/uv buffersも存在しない場合は確保
+        if (quadPosXBuffer.buffer is null) uploadBufferData(quadPosXBuffer, zeros[]);
+        if (quadPosYBuffer.buffer is null) uploadBufferData(quadPosYBuffer, zeros[]);
+        if (quadUvXBuffer.buffer is null) uploadBufferData(quadUvXBuffer, zeros[]);
+        if (quadUvYBuffer.buffer is null) uploadBufferData(quadUvYBuffer, zeros[]);
+    }
+    void drawClipRect(vec4 clipBounds, vec3 color = vec3(1, 1, 1), float opacity = 0.2f) {
+        if (!debugDrawBounds) return;
+        if (activeCommand is null) return;
+        ensureQuadBuffers();
+        // clipBounds: [minX, minY, maxX, maxY] in NDC
+        float x0 = clipBounds.x;
+        float y0 = clipBounds.y;
+        float x1 = clipBounds.z;
+        float y1 = clipBounds.w;
+        float[6] posX = [x0, x1, x0, x1, x0, x1];
+        float[6] posY = [y0, y0, y1, y1, y1, y0];
+        float[6] uvX = [0, 1, 0, 1, 0, 1];
+        float[6] uvY = [0, 0, 1, 1, 1, 0];
+        uploadBufferData(quadPosXBuffer, posX[]);
+        uploadBufferData(quadPosYBuffer, posY[]);
+        uploadBufferData(quadUvXBuffer, uvX[]);
+        uploadBufferData(quadUvYBuffer, uvY[]);
+        // Deform buffers are zero-filled already.
+
+        // Identity MVP, no offset; positions are already clip-space.
+        globalsData.mvp = mat4.identity;
+        globalsData.offset = vec2(0, 0);
+        updateGlobalsUBO(globalsData);
+        paramsData.opacity = opacity;
+        paramsData.multColor = color;
+        paramsData.screenColor = vec3(0, 0, 0);
+        paramsData.emissionStrength = 1.0f;
+        updateParamsUBO(paramsData);
+        bindTextureHandle(debugWhiteTex, 1);
+        bindTextureHandle(debugWhiteTex, 2);
+        bindTextureHandle(debugWhiteTex, 3);
+        auto pipeline = basicPipeline;
+        if (pipeline is null) return;
+        vkCmdBindPipeline(activeCommand, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        if (descriptorSet !is null) {
+            vkCmdBindDescriptorSets(activeCommand, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, null);
+        }
+        VkBuffer[6] vertexBuffers = [quadPosXBuffer.buffer, quadPosYBuffer.buffer, quadUvXBuffer.buffer, quadUvYBuffer.buffer, quadDeformXBuffer.buffer, quadDeformYBuffer.buffer];
+        foreach (buf; vertexBuffers) {
+            if (buf is null) return; // safety: skip if any buffer missing
+        }
+        VkDeviceSize[6] offsets = [0, 0, 0, 0, 0, 0];
+        vkCmdBindVertexBuffers(activeCommand, 0, 6, vertexBuffers.ptr, offsets.ptr);
+        vkCmdDraw(activeCommand, 6, 1, 0, 0);
+    }
+    void drawTestTriangle() {
+        enum bool DEBUG_DRAW_TEST_TRI = true;
+        if (!DEBUG_DRAW_TEST_TRI) return;
+        if (activeCommand is null) return;
+        ensureQuadBuffers();
+        // 三角形をNDC中央付近に配置（-0.5..0.5）
+        float[6] posX = [-0.5f, 0.5f, 0.0f, 0, 0, 0];
+        float[6] posY = [-0.5f, -0.5f, 0.5f, 0, 0, 0];
+        float[6] uvX = [0, 1, 0.5f, 0, 0, 0];
+        float[6] uvY = [0, 0, 1, 0, 0, 0];
+        float[6] zeros = [0, 0, 0, 0, 0, 0];
+        uploadBufferData(quadPosXBuffer, posX[]);
+        uploadBufferData(quadPosYBuffer, posY[]);
+        uploadBufferData(quadUvXBuffer, uvX[]);
+        uploadBufferData(quadUvYBuffer, uvY[]);
+        uploadBufferData(quadDeformXBuffer, zeros[]);
+        uploadBufferData(quadDeformYBuffer, zeros[]);
+
+        globalsData.mvp = mat4.identity;
+        globalsData.offset = vec2(0, 0);
+        updateGlobalsUBO(globalsData);
+        paramsData.opacity = 1.0f;
+        paramsData.multColor = vec3(1, 1, 1);
+        paramsData.screenColor = vec3(0, 0, 0);
+        paramsData.emissionStrength = 1.0f;
+        updateParamsUBO(paramsData);
+        bindTextureHandle(debugWhiteTex, 1);
+        bindTextureHandle(debugWhiteTex, 2);
+        bindTextureHandle(debugWhiteTex, 3);
+
+        auto pipeline = basicPipeline;
+        if (pipeline is null) return;
+        vkCmdBindPipeline(activeCommand, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        if (descriptorSet !is null) {
+            vkCmdBindDescriptorSets(activeCommand, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, null);
+        }
+        VkBuffer[6] vertexBuffers = [quadPosXBuffer.buffer, quadPosYBuffer.buffer, quadUvXBuffer.buffer, quadUvYBuffer.buffer, quadDeformXBuffer.buffer, quadDeformYBuffer.buffer];
+        foreach (buf; vertexBuffers) if (buf is null) return;
+        VkDeviceSize[6] offsets = [0, 0, 0, 0, 0, 0];
+        vkCmdBindVertexBuffers(activeCommand, 0, 6, vertexBuffers.ptr, offsets.ptr);
+        vkCmdDraw(activeCommand, 3, 1, 0, 0);
+    }
+    void drawClipRectForced(vec4 clipBounds, vec3 color = vec3(1, 1, 1), float opacity = 0.2f) {
+        if (activeCommand is null) return;
+        bool prev = debugDrawBounds;
+        debugDrawBounds = true;
+        // clamp to sane NDC to avoid invalid coordinates
+        vec4 clamped = vec4(
+            clamp(clipBounds.x, -1f, 1f),
+            clamp(clipBounds.y, -1f, 1f),
+            clamp(clipBounds.z, -1f, 1f),
+            clamp(clipBounds.w, -1f, 1f));
+        drawClipRect(clamped, color, opacity);
+        debugDrawBounds = prev;
     }
 
     void drawQuadTexture(Texture texture, rect uvs,
@@ -884,8 +1843,21 @@ public:
             u0, v1,
             u1, v0,
         ];
-        uploadBufferData(compositePosBuffer, positions[]);
-        uploadBufferData(compositeUvBuffer, uvData[]);
+        // SoAに分解してアップロード
+        float[6] posX; float[6] posY;
+        foreach (i; 0 .. 6) {
+            posX[i] = positions[i * 2 + 0];
+            posY[i] = positions[i * 2 + 1];
+        }
+        float[6] uvX; float[6] uvY;
+        foreach (i; 0 .. 6) {
+            uvX[i] = uvData[i * 2 + 0];
+            uvY[i] = uvData[i * 2 + 1];
+        }
+        uploadBufferData(quadPosXBuffer, posX[]);
+        uploadBufferData(quadPosYBuffer, posY[]);
+        uploadBufferData(quadUvXBuffer, uvX[]);
+        uploadBufferData(quadUvYBuffer, uvY[]);
 
         auto cameraMatrix = cam is null ? inGetCamera().matrix : cam.matrix;
         globalsData.mvp = cameraMatrix * transform;
@@ -913,9 +1885,9 @@ public:
             vkCmdSetStencilWriteMask(activeCommand, VK_STENCIL_FACE_FRONT_AND_BACK, 0x00);
             vkCmdSetStencilReference(activeCommand, VK_STENCIL_FACE_FRONT_AND_BACK, 1);
         }
-        VkBuffer[3] vertexBuffers = [compositePosBuffer.buffer, compositeUvBuffer.buffer, quadDeformBuffer.buffer];
-        VkDeviceSize[3] offsets = [0, 0, 0];
-        vkCmdBindVertexBuffers(activeCommand, 0, 3, vertexBuffers.ptr, offsets.ptr);
+        VkBuffer[6] vertexBuffers = [quadPosXBuffer.buffer, quadPosYBuffer.buffer, quadUvXBuffer.buffer, quadUvYBuffer.buffer, quadDeformXBuffer.buffer, quadDeformYBuffer.buffer];
+        VkDeviceSize[6] offsets = [0, 0, 0, 0, 0, 0];
+        vkCmdBindVertexBuffers(activeCommand, 0, 6, vertexBuffers.ptr, offsets.ptr);
         vkCmdDraw(activeCommand, 6, 1, 0, 0);
     }
 
@@ -1099,15 +2071,16 @@ public:
     }
 
     void bindTextureHandle(RenderTextureHandle texture, uint unit) {
+        // 通常のハンドルを使用（デバッグ強制はオフ）
         auto handle = cast(VkTextureHandle)texture;
         if (handle is null || descriptorSet is null) return;
         enforce(unit >= 1 && unit <= 3, "Texture unit out of range for basic shader");
-        VkDescriptorImageInfo imageInfo = void;
+        VkDescriptorImageInfo imageInfo = VkDescriptorImageInfo.init;
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo.imageView = handle.image.view;
         imageInfo.sampler = handle.sampler;
 
-        VkWriteDescriptorSet write = void;
+        VkWriteDescriptorSet write = VkWriteDescriptorSet.init;
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet = descriptorSet;
         write.dstBinding = unit;
@@ -1133,7 +2106,7 @@ public:
         VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         size_t pixelSize = 4;
         if (stencil) {
-            format = VK_FORMAT_D24_UNORM_S8_UINT;
+            format = selectDepthFormat();
             aspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
             pixelSize = 4; // data expected packed
         } else if (inChannels == 1 && outChannels == 1) {
@@ -1238,7 +2211,7 @@ public:
         transitionImageLayout(handle.image.image, handle.image.format,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, handle.image.aspect);
 
-        VkBufferImageCopy region = void;
+        VkBufferImageCopy region = VkBufferImageCopy.init;
         region.bufferOffset = 0;
         region.bufferRowLength = 0;
         region.bufferImageHeight = 0;
@@ -1298,7 +2271,7 @@ public:
                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, 0, null, 0, null, 2, barriers.ptr);
 
-            VkImageBlit blit = void;
+            VkImageBlit blit = VkImageBlit.init;
             blit.srcSubresource.aspectMask = aspect;
             blit.srcSubresource.mipLevel = i - 1;
             blit.srcSubresource.baseArrayLayer = 0;
@@ -1403,7 +2376,7 @@ public:
         transitionImageLayout(handle.image.image, handle.image.format,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, handle.image.aspect, handle.mipLevels);
 
-        VkBufferImageCopy region = void;
+        VkBufferImageCopy region = VkBufferImageCopy.init;
         region.bufferOffset = 0;
         region.bufferRowLength = 0;
         region.bufferImageHeight = 0;
@@ -1448,15 +2421,27 @@ private:
     }
 
     void createInstance() {
-        VkApplicationInfo appInfo = void;
+        VkApplicationInfo appInfo = VkApplicationInfo.init;
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         appInfo.pApplicationName = "nijilive".toStringz();
         appInfo.pEngineName = "nijilive".toStringz();
         appInfo.apiVersion = VK_API_VERSION_1_0;
 
-        VkInstanceCreateInfo createInfo = void;
+        VkInstanceCreateInfo createInfo = VkInstanceCreateInfo.init;
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         createInfo.pApplicationInfo = &appInfo;
+        const(char)*[] extPtrs;
+        if (instanceExtensions.length) {
+            extPtrs.length = instanceExtensions.length;
+            foreach (i, ext; instanceExtensions) {
+                extPtrs[i] = ext.toStringz();
+            }
+            createInfo.enabledExtensionCount = cast(uint)extPtrs.length;
+            createInfo.ppEnabledExtensionNames = extPtrs.ptr;
+        }
+        if (instanceExtensions.canFind("VK_KHR_portability_enumeration")) {
+            createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+        }
 
         enforce(vkCreateInstance(&createInfo, null, &instance) == VK_SUCCESS,
             "Failed to create Vulkan instance");
@@ -1513,6 +2498,33 @@ private:
         return true;
     }
 
+    VkFormat selectDepthFormat() {
+        VkFormat[3] candidates = [
+            VK_FORMAT_D24_UNORM_S8_UINT,
+            VK_FORMAT_D32_SFLOAT_S8_UINT,
+            VK_FORMAT_D32_SFLOAT,
+        ];
+        foreach (fmt; candidates) {
+            VkFormatProperties props = VkFormatProperties.init;
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, fmt, &props);
+            if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0) {
+                return fmt;
+            }
+        }
+        enforce(false, "No suitable depth format found");
+        return VK_FORMAT_D32_SFLOAT;
+    }
+
+    VkImageAspectFlags depthAspect(VkFormat fmt) {
+        switch (fmt) {
+            case VK_FORMAT_D24_UNORM_S8_UINT:
+            case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+            default:
+                return VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
+    }
+
     void createDeviceAndQueue() {
         float priority = 1.0f;
         VkDeviceQueueCreateInfo[2] queueInfos;
@@ -1532,11 +2544,36 @@ private:
             queueInfoCount++;
         }
 
-        VkDeviceCreateInfo createInfo = void;
+        VkDeviceCreateInfo createInfo = VkDeviceCreateInfo.init;
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.queueCreateInfoCount = queueInfoCount;
         createInfo.pQueueCreateInfos = queueInfos.ptr;
-        VkPhysicalDeviceFeatures enabledFeatures = void;
+        // Filter and enable only supported device extensions.
+        string[] enabledDevExts;
+        if (deviceExtensions.length) {
+            uint extCount = 0;
+            enforce(vkEnumerateDeviceExtensionProperties(physicalDevice, null, &extCount, null) == VK_SUCCESS,
+                "Failed to enumerate device extensions");
+            VkExtensionProperties[] props;
+            props.length = extCount;
+            enforce(vkEnumerateDeviceExtensionProperties(physicalDevice, null, &extCount, props.ptr) == VK_SUCCESS,
+                "Failed to enumerate device extensions");
+            foreach (ext; deviceExtensions) {
+                bool supported = false;
+                foreach (p; props) {
+                    auto name = fromStringz(p.extensionName.ptr);
+                    if (name == ext) { supported = true; break; }
+                }
+                enforce(supported, "Required device extension not supported: "~ext);
+                enabledDevExts ~= ext;
+            }
+            const(char)*[] devExtPtrs;
+            devExtPtrs.length = enabledDevExts.length;
+            foreach (i, ext; enabledDevExts) devExtPtrs[i] = ext.toStringz();
+            createInfo.enabledExtensionCount = cast(uint)devExtPtrs.length;
+            createInfo.ppEnabledExtensionNames = devExtPtrs.ptr;
+        }
+        VkPhysicalDeviceFeatures enabledFeatures = VkPhysicalDeviceFeatures.init;
         if (supportsAnisotropy) {
             enabledFeatures.samplerAnisotropy = VK_TRUE;
         }
@@ -1551,7 +2588,7 @@ private:
     }
 
     void createCommandPool() {
-        VkCommandPoolCreateInfo info = void;
+        VkCommandPoolCreateInfo info = VkCommandPoolCreateInfo.init;
         info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         info.queueFamilyIndex = graphicsQueueFamily;
         info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -1559,7 +2596,7 @@ private:
             "Failed to create command pool");
 
         frameCommands.length = maxFramesInFlight;
-        VkCommandBufferAllocateInfo allocInfo = void;
+        VkCommandBufferAllocateInfo allocInfo = VkCommandBufferAllocateInfo.init;
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -1569,7 +2606,7 @@ private:
     }
 
     void createSyncObjects() {
-        VkSemaphoreCreateInfo semInfo = void;
+        VkSemaphoreCreateInfo semInfo = VkSemaphoreCreateInfo.init;
         semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         enforce(vkCreateSemaphore(device, &semInfo, null, &imageAvailable) == VK_SUCCESS,
             "Failed to create imageAvailable semaphore");
@@ -1577,7 +2614,7 @@ private:
             "Failed to create renderFinished semaphore");
 
         inFlightFences.length = maxFramesInFlight;
-        VkFenceCreateInfo fenceInfo = void;
+        VkFenceCreateInfo fenceInfo = VkFenceCreateInfo.init;
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         enforce(vkCreateFence(device, &fenceInfo, null, &inFlightFences[0]) == VK_SUCCESS,
@@ -1592,7 +2629,7 @@ private:
         vkDeviceWaitIdle(device);
         destroySwapchainResources();
 
-        VkSurfaceCapabilitiesKHR caps = void;
+        VkSurfaceCapabilitiesKHR caps = VkSurfaceCapabilitiesKHR.init;
         enforce(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &caps) == VK_SUCCESS,
             "Failed to get surface capabilities");
 
@@ -1606,7 +2643,7 @@ private:
             imageCount = caps.maxImageCount;
         }
 
-        VkSwapchainCreateInfoKHR ci = void;
+        VkSwapchainCreateInfoKHR ci = VkSwapchainCreateInfoKHR.init;
         ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         ci.surface = surface;
         ci.minImageCount = imageCount;
@@ -1614,7 +2651,7 @@ private:
         ci.imageColorSpace = format.colorSpace;
         ci.imageExtent = swapExtent;
         ci.imageArrayLayers = 1;
-        ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
         uint[2] queueFamilyIndices = [graphicsQueueFamily, presentQueueFamily];
         if (graphicsQueueFamily != presentQueueFamily) {
@@ -1679,6 +2716,10 @@ private:
             vkDestroyPipeline(device, compositeMaskedPipeline, null);
             compositeMaskedPipeline = null;
         }
+        if (debugSwapPipeline !is null) {
+            vkDestroyPipeline(device, debugSwapPipeline, null);
+            debugSwapPipeline = null;
+        }
         if (descriptorPool !is null) {
             vkDestroyDescriptorPool(device, descriptorPool, null);
             descriptorPool = null;
@@ -1686,6 +2727,10 @@ private:
         if (pipelineLayout !is null) {
             vkDestroyPipelineLayout(device, pipelineLayout, null);
             pipelineLayout = null;
+        }
+        if (debugSwapPipelineLayout !is null) {
+            vkDestroyPipelineLayout(device, debugSwapPipelineLayout, null);
+            debugSwapPipelineLayout = null;
         }
         if (descriptorSetLayout !is null) {
             vkDestroyDescriptorSetLayout(device, descriptorSetLayout, null);
@@ -1783,7 +2828,7 @@ private:
     void createImageViews() {
         swapImageViews.length = swapImages.length;
         for (size_t i = 0; i < swapImages.length; ++i) {
-            VkImageViewCreateInfo info = void;
+            VkImageViewCreateInfo info = VkImageViewCreateInfo.init;
             info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             info.image = swapImages[i];
             info.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -1804,7 +2849,7 @@ private:
     }
 
     void createRenderPass() {
-        VkAttachmentDescription color = void;
+        VkAttachmentDescription color = VkAttachmentDescription.init;
         color.format = swapFormat;
         color.samples = VK_SAMPLE_COUNT_1_BIT;
         color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -1818,12 +2863,12 @@ private:
         colorRef.attachment = 0;
         colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-        VkSubpassDescription subpass = void;
+        VkSubpassDescription subpass = VkSubpassDescription.init;
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &colorRef;
 
-        VkSubpassDependency dep = void;
+        VkSubpassDependency dep = VkSubpassDependency.init;
         dep.srcSubpass = VK_SUBPASS_EXTERNAL;
         dep.dstSubpass = 0;
         dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1831,7 +2876,7 @@ private:
         dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-        VkRenderPassCreateInfo rp = void;
+        VkRenderPassCreateInfo rp = VkRenderPassCreateInfo.init;
         rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         rp.attachmentCount = 1;
         rp.pAttachments = &color;
@@ -1848,7 +2893,7 @@ private:
         swapFramebuffers.length = swapImageViews.length;
         for (size_t i = 0; i < swapImageViews.length; ++i) {
             VkImageView attachment = swapImageViews[i];
-            VkFramebufferCreateInfo info = void;
+            VkFramebufferCreateInfo info = VkFramebufferCreateInfo.init;
             info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             info.renderPass = renderPass;
             info.attachmentCount = 1;
@@ -1865,23 +2910,24 @@ private:
         VkAttachmentDescription[4] attachments;
         foreach (i; 0 .. 3) {
             attachments[i] = VkAttachmentDescription.init;
-            attachments[i].format = VK_FORMAT_R8G8B8A8_UNORM;
+            attachments[i].format = swapFormat; // swapchainと揃える
             attachments[i].samples = VK_SAMPLE_COUNT_1_BIT;
             attachments[i].loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            attachments[i].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            attachments[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             attachments[i].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
-        VkAttachmentDescription depth = void;
-        depth.format = VK_FORMAT_D24_UNORM_S8_UINT;
+        VkAttachmentDescription depth = VkAttachmentDescription.init;
+        auto depthFmt = selectDepthFormat();
+        depth.format = depthFmt;
         depth.samples = VK_SAMPLE_COUNT_1_BIT;
         depth.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depth.stencilLoadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        depth.stencilLoadOp = depthAspect(depthFmt) & VK_IMAGE_ASPECT_STENCIL_BIT ? (clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD) : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depth.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        depth.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         VkAttachmentReference[3] colorRefs;
@@ -1890,13 +2936,13 @@ private:
         colorRefs[2] = VkAttachmentReference(2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkAttachmentReference depthRef = VkAttachmentReference(3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-        VkSubpassDescription subpass = void;
+        VkSubpassDescription subpass = VkSubpassDescription.init;
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 3;
         subpass.pColorAttachments = colorRefs.ptr;
         subpass.pDepthStencilAttachment = &depthRef;
 
-        VkSubpassDependency dep = void;
+        VkSubpassDependency dep = VkSubpassDependency.init;
         dep.srcSubpass = VK_SUBPASS_EXTERNAL;
         dep.dstSubpass = 0;
         dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
@@ -1905,7 +2951,7 @@ private:
         dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
         VkAttachmentDescription[4] allAttachments = [attachments[0], attachments[1], attachments[2], depth];
-        VkRenderPassCreateInfo rp = void;
+        VkRenderPassCreateInfo rp = VkRenderPassCreateInfo.init;
         rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         rp.attachmentCount = 4;
         rp.pAttachments = allAttachments.ptr;
@@ -1922,7 +2968,7 @@ private:
 
     void createOffscreenFramebuffer() {
         VkImageView[4] views = [mainAlbedo.view, mainEmissive.view, mainBump.view, mainDepth.view];
-        VkFramebufferCreateInfo info = void;
+        VkFramebufferCreateInfo info = VkFramebufferCreateInfo.init;
         info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         info.renderPass = offscreenRenderPass;
         info.attachmentCount = 4;
@@ -1939,7 +2985,7 @@ private:
         pools[0] = VkDescriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2);
         pools[1] = VkDescriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3);
 
-        VkDescriptorPoolCreateInfo poolInfo = void;
+        VkDescriptorPoolCreateInfo poolInfo = VkDescriptorPoolCreateInfo.init;
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolInfo.maxSets = 1;
         poolInfo.poolSizeCount = 2;
@@ -1951,7 +2997,7 @@ private:
         enforce(vkCreateDescriptorPool(device, &poolInfo, null, &descriptorPool) == VK_SUCCESS,
             "Failed to create descriptor pool");
 
-        VkDescriptorSetAllocateInfo alloc = void;
+        VkDescriptorSetAllocateInfo alloc = VkDescriptorSetAllocateInfo.init;
         alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc.descriptorPool = descriptorPool;
         alloc.descriptorSetCount = 1;
@@ -1966,17 +3012,18 @@ private:
         paramsUbo = createBuffer(paramsSize(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-        VkDescriptorBufferInfo globalsInfo = void;
+        VkDescriptorBufferInfo globalsInfo = VkDescriptorBufferInfo.init;
         globalsInfo.buffer = globalsUbo.buffer;
         globalsInfo.offset = 0;
         globalsInfo.range = globalsUbo.size;
 
-        VkDescriptorBufferInfo paramsInfo = void;
+        VkDescriptorBufferInfo paramsInfo = VkDescriptorBufferInfo.init;
         paramsInfo.buffer = paramsUbo.buffer;
         paramsInfo.offset = 0;
         paramsInfo.range = paramsUbo.size;
 
         VkWriteDescriptorSet[2] writes;
+        foreach (ref w; writes) w = VkWriteDescriptorSet.init;
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet = descriptorSet;
         writes[0].dstBinding = 0;
@@ -2016,32 +3063,53 @@ private:
         vkUnmapMemory(device, staging.memory);
         copyBuffer(staging, gpu, sz);
     }
+    void ensureReadbackBuffer(size_t sz) {
+        if (debugReadbackBuffer.buffer !is null && debugReadbackBuffer.size >= sz) return;
+        destroyBuffer(debugReadbackBuffer);
+        debugReadbackBuffer = createBuffer(sz,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    }
+
+    /// デバッグ矩形用 1px RGBA をホスト可視バッファに用意
+    void ensureDebugRectBuffer(uint width, uint height, ubyte r, ubyte g, ubyte b, ubyte a) {
+        size_t sz = cast(size_t)width * cast(size_t)height * 4;
+        if (sz == 0) sz = 4;
+        if (debugRectBuffer.buffer is null || debugRectBuffer.size < sz) {
+            destroyBuffer(debugRectBuffer);
+            debugRectBuffer = createBuffer(sz, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        }
+        if (debugRectBuffer.memory !is null) {
+            void* ptr;
+            if (vkMapMemory(device, debugRectBuffer.memory, 0, sz, 0, &ptr) == VK_SUCCESS) {
+                auto dst = (cast(ubyte*)ptr)[0 .. sz];
+                foreach (i; 0 .. width * height) {
+                    auto idx = i * 4;
+                    dst[idx] = r;
+                    dst[idx + 1] = g;
+                    dst[idx + 2] = b;
+                    dst[idx + 3] = a;
+                }
+                vkUnmapMemory(device, debugRectBuffer.memory);
+            }
+        }
+    }
 
     void createCompositeBuffers() {
+        // recreate all transient quad/composite buffers
         destroyBuffer(compositePosBuffer);
         destroyBuffer(compositeUvBuffer);
-        destroyBuffer(quadDeformBuffer);
-        // Fullscreen quad positions (NDC) and UVs
-        float[12] positions = [
-            -1, -1,
-            1, -1,
-            -1, 1,
-            1, 1,
-            -1, 1,
-            1, -1,
-        ];
-        float[12] uvs = [
-            0, 0,
-            1, 0,
-            0, 1,
-            1, 1,
-            0, 1,
-            1, 0,
-        ];
-        float[12] zeroDeform = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        uploadBufferData(compositePosBuffer, positions[]);
-        uploadBufferData(compositeUvBuffer, uvs[]);
-        uploadBufferData(quadDeformBuffer, zeroDeform[]);
+        destroyBuffer(quadPosXBuffer);
+        destroyBuffer(quadPosYBuffer);
+        destroyBuffer(quadUvXBuffer);
+        destroyBuffer(quadUvYBuffer);
+        destroyBuffer(quadDeformXBuffer);
+        destroyBuffer(quadDeformYBuffer);
+
+        float[6] zeros = [0, 0, 0, 0, 0, 0];
+        uploadBufferData(quadDeformXBuffer, zeros[]);
+        uploadBufferData(quadDeformYBuffer, zeros[]);
     }
 
     void createOffscreenTargets() {
@@ -2059,22 +3127,24 @@ private:
         }
 
         auto extent = swapExtent;
-        mainAlbedo = createImage(extent, VK_FORMAT_R8G8B8A8_UNORM,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        mainAlbedo = createImage(extent, swapFormat,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT, 1);
-        mainEmissive = createImage(extent, VK_FORMAT_R8G8B8A8_UNORM,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        mainEmissive = createImage(extent, swapFormat,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT, 1);
-        mainBump = createImage(extent, VK_FORMAT_R8G8B8A8_UNORM,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        mainBump = createImage(extent, swapFormat,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT, 1);
-        mainDepth = createImage(extent, VK_FORMAT_D24_UNORM_S8_UINT,
+        auto depthFmt = selectDepthFormat();
+        mainDepth = createImage(extent, depthFmt,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 1);
+            depthAspect(depthFmt), 1);
 
         offscreenRenderPass = createOffscreenRenderPass(true);
         offscreenRenderPassLoad = createOffscreenRenderPass(false);
         createOffscreenFramebuffer();
+        imagesInitialized = false;
     }
 
     GpuImage createImage(VkExtent2D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, uint mipLevels) {
@@ -2084,7 +3154,7 @@ private:
         img.aspect = aspect;
         img.mipLevels = mipLevels > 0 ? mipLevels : 1;
 
-        VkImageCreateInfo ci = void;
+        VkImageCreateInfo ci = VkImageCreateInfo.init;
         ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         ci.imageType = VK_IMAGE_TYPE_2D;
         ci.extent = VkExtent3D(extent.width, extent.height, 1);
@@ -2100,10 +3170,10 @@ private:
         enforce(vkCreateImage(device, &ci, null, &img.image) == VK_SUCCESS,
             "Failed to create image");
 
-        VkMemoryRequirements req = void;
+        VkMemoryRequirements req = VkMemoryRequirements.init;
         vkGetImageMemoryRequirements(device, img.image, &req);
 
-        VkMemoryAllocateInfo alloc = void;
+        VkMemoryAllocateInfo alloc = VkMemoryAllocateInfo.init;
         alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc.allocationSize = req.size;
         alloc.memoryTypeIndex = findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -2111,7 +3181,7 @@ private:
             "Failed to allocate image memory");
         vkBindImageMemory(device, img.image, img.memory, 0);
 
-        VkImageViewCreateInfo view = void;
+        VkImageViewCreateInfo view = VkImageViewCreateInfo.init;
         view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view.image = img.image;
         view.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -2124,10 +3194,6 @@ private:
         enforce(vkCreateImageView(device, &view, null, &img.view) == VK_SUCCESS,
             "Failed to create image view");
 
-        transitionImageLayout(img.image, format, VK_IMAGE_LAYOUT_UNDEFINED,
-            (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                                                 : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            aspect, img.mipLevels);
         return img;
     }
 
@@ -2147,7 +3213,7 @@ private:
     }
 
     uint findMemoryType(uint typeFilter, VkMemoryPropertyFlags properties) {
-        VkPhysicalDeviceMemoryProperties memProps = void;
+        VkPhysicalDeviceMemoryProperties memProps = VkPhysicalDeviceMemoryProperties.init;
         vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
         foreach (i; 0 .. memProps.memoryTypeCount) {
             if ((typeFilter & (1u << i)) &&
@@ -2162,16 +3228,16 @@ private:
     Buffer createBuffer(size_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
         Buffer buf;
         buf.size = size;
-        VkBufferCreateInfo info = void;
+        VkBufferCreateInfo info = VkBufferCreateInfo.init;
         info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         info.size = size;
         info.usage = usage;
         info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         enforce(vkCreateBuffer(device, &info, null, &buf.buffer) == VK_SUCCESS,
             "Failed to create buffer");
-        VkMemoryRequirements req = void;
+        VkMemoryRequirements req = VkMemoryRequirements.init;
         vkGetBufferMemoryRequirements(device, buf.buffer, &req);
-        VkMemoryAllocateInfo alloc = void;
+        VkMemoryAllocateInfo alloc = VkMemoryAllocateInfo.init;
         alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc.allocationSize = req.size;
         alloc.memoryTypeIndex = findMemoryType(req.memoryTypeBits, properties);
@@ -2183,7 +3249,7 @@ private:
 
     void copyBuffer(Buffer src, Buffer dst, size_t size) {
         auto cmd = beginSingleTimeCommands();
-        VkBufferCopy region = void;
+        VkBufferCopy region = VkBufferCopy.init;
         region.srcOffset = 0;
         region.dstOffset = 0;
         region.size = size;
@@ -2205,7 +3271,7 @@ private:
 
     void copyBufferToImage(Buffer src, VkImage dst, uint width, uint height) {
         auto cmd = beginSingleTimeCommands();
-        VkBufferImageCopy region = void;
+        VkBufferImageCopy region = VkBufferImageCopy.init;
         region.bufferOffset = 0;
         region.bufferRowLength = 0;
         region.bufferImageHeight = 0;
@@ -2219,8 +3285,19 @@ private:
         endSingleTimeCommands(cmd);
     }
 
+    void createDebugSolidTextures() {
+        destroyTextureHandle(debugWhiteTex);
+        destroyTextureHandle(debugBlackTex);
+        debugWhiteTex = cast(VkTextureHandle)createTextureHandle();
+        debugBlackTex = cast(VkTextureHandle)createTextureHandle();
+        ubyte[4] white = [255, 255, 255, 255];
+        ubyte[4] black = [0, 0, 0, 255];
+        uploadTextureData(debugWhiteTex, 1, 1, 4, 4, false, white[]);
+        uploadTextureData(debugBlackTex, 1, 1, 4, 4, false, black[]);
+    }
+
     VkCommandBuffer beginSingleTimeCommands() {
-        VkCommandBufferAllocateInfo alloc = void;
+        VkCommandBufferAllocateInfo alloc = VkCommandBufferAllocateInfo.init;
         alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         alloc.commandPool = commandPool;
         alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -2229,7 +3306,7 @@ private:
         enforce(vkAllocateCommandBuffers(device, &alloc, &cmd) == VK_SUCCESS,
             "Failed to allocate command buffer");
 
-        VkCommandBufferBeginInfo begin = void;
+        VkCommandBufferBeginInfo begin = VkCommandBufferBeginInfo.init;
         begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmd, &begin);
@@ -2238,7 +3315,7 @@ private:
 
     void endSingleTimeCommands(VkCommandBuffer cmd) {
         vkEndCommandBuffer(cmd);
-        VkSubmitInfo submit = void;
+        VkSubmitInfo submit = VkSubmitInfo.init;
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit.commandBufferCount = 1;
         submit.pCommandBuffers = &cmd;
@@ -2255,10 +3332,11 @@ private:
 
     void createDescriptorSetLayout() {
         VkDescriptorSetLayoutBinding[5] bindings;
+        foreach (ref b; bindings) b = VkDescriptorSetLayoutBinding.init;
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
-        bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
         bindings[1].binding = 1;
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -2280,7 +3358,7 @@ private:
         bindings[4].descriptorCount = 1;
         bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        VkDescriptorSetLayoutCreateInfo info = void;
+        VkDescriptorSetLayoutCreateInfo info = VkDescriptorSetLayoutCreateInfo.init;
         info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         info.bindingCount = 5;
         info.pBindings = bindings.ptr;
@@ -2289,7 +3367,7 @@ private:
     }
 
     void createPipelineLayout() {
-        VkPipelineLayoutCreateInfo info = void;
+        VkPipelineLayoutCreateInfo info = VkPipelineLayoutCreateInfo.init;
         info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         info.setLayoutCount = 1;
         info.pSetLayouts = &descriptorSetLayout;
@@ -2363,32 +3441,34 @@ private:
         stages[1].module_ = fragModule;
         stages[1].pName = "main".ptr;
 
-        VkVertexInputBindingDescription[3] bindings;
-        bindings[0].binding = 0; bindings[0].stride = float.sizeof * 2; bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        bindings[1].binding = 1; bindings[1].stride = float.sizeof * 2; bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        bindings[2].binding = 2; bindings[2].stride = float.sizeof * 2; bindings[2].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        VkVertexInputBindingDescription[6] bindings;
+        foreach (i; 0 .. bindings.length) {
+            bindings[i].binding = cast(uint)i;
+            bindings[i].stride = float.sizeof;
+            bindings[i].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        }
 
         VkVertexInputAttributeDescription[6] attrs;
-        attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32_SFLOAT, 0);
-        attrs[1] = VkVertexInputAttributeDescription(1, 0, VK_FORMAT_R32_SFLOAT, 4);
-        attrs[2] = VkVertexInputAttributeDescription(2, 1, VK_FORMAT_R32_SFLOAT, 0);
-        attrs[3] = VkVertexInputAttributeDescription(3, 1, VK_FORMAT_R32_SFLOAT, 4);
-        attrs[4] = VkVertexInputAttributeDescription(4, 2, VK_FORMAT_R32_SFLOAT, 0);
-        attrs[5] = VkVertexInputAttributeDescription(5, 2, VK_FORMAT_R32_SFLOAT, 4);
+        attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32_SFLOAT, 0); // vertX
+        attrs[1] = VkVertexInputAttributeDescription(1, 1, VK_FORMAT_R32_SFLOAT, 0); // vertY
+        attrs[2] = VkVertexInputAttributeDescription(2, 2, VK_FORMAT_R32_SFLOAT, 0); // uvX
+        attrs[3] = VkVertexInputAttributeDescription(3, 3, VK_FORMAT_R32_SFLOAT, 0); // uvY
+        attrs[4] = VkVertexInputAttributeDescription(4, 4, VK_FORMAT_R32_SFLOAT, 0); // deformX
+        attrs[5] = VkVertexInputAttributeDescription(5, 5, VK_FORMAT_R32_SFLOAT, 0); // deformY
 
-        VkPipelineVertexInputStateCreateInfo vi = void;
+        VkPipelineVertexInputStateCreateInfo vi = VkPipelineVertexInputStateCreateInfo.init;
         vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vi.vertexBindingDescriptionCount = 3;
+        vi.vertexBindingDescriptionCount = cast(uint)bindings.length;
         vi.pVertexBindingDescriptions = bindings.ptr;
-        vi.vertexAttributeDescriptionCount = 6;
+        vi.vertexAttributeDescriptionCount = cast(uint)attrs.length;
         vi.pVertexAttributeDescriptions = attrs.ptr;
 
-        VkPipelineInputAssemblyStateCreateInfo ia = void;
+        VkPipelineInputAssemblyStateCreateInfo ia = VkPipelineInputAssemblyStateCreateInfo.init;
         ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
         ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         ia.primitiveRestartEnable = VK_FALSE;
 
-        VkPipelineViewportStateCreateInfo vp = void;
+        VkPipelineViewportStateCreateInfo vp = VkPipelineViewportStateCreateInfo.init;
         vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
         vp.viewportCount = 1;
         vp.scissorCount = 1;
@@ -2400,12 +3480,12 @@ private:
             VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
             VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK
         ];
-        VkPipelineDynamicStateCreateInfo dyn = void;
+        VkPipelineDynamicStateCreateInfo dyn = VkPipelineDynamicStateCreateInfo.init;
         dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
         dyn.dynamicStateCount = dynStates.length;
         dyn.pDynamicStates = dynStates.ptr;
 
-        VkPipelineRasterizationStateCreateInfo rs = void;
+        VkPipelineRasterizationStateCreateInfo rs = VkPipelineRasterizationStateCreateInfo.init;
         rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rs.depthClampEnable = VK_FALSE;
         rs.rasterizerDiscardEnable = VK_FALSE;
@@ -2414,32 +3494,32 @@ private:
         rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rs.depthBiasEnable = VK_FALSE;
 
-        VkPipelineMultisampleStateCreateInfo ms = void;
+        VkPipelineMultisampleStateCreateInfo ms = VkPipelineMultisampleStateCreateInfo.init;
         ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
         VkPipelineColorBlendAttachmentState[3] blendAtt;
         foreach (i; 0 .. 3) {
-            blendAtt[i] = VkPipelineColorBlendAttachmentState.init;
             fillBlendAttachment(blendAtt[i]);
         }
-        VkPipelineColorBlendStateCreateInfo blend = void;
+        VkPipelineColorBlendStateCreateInfo blend = VkPipelineColorBlendStateCreateInfo.init;
         blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        blend.attachmentCount = 3;
+        blend.attachmentCount = cast(uint)blendAtt.length;
         blend.pAttachments = blendAtt.ptr;
 
-        VkPipelineDepthStencilStateCreateInfo ds = void;
+        VkPipelineDepthStencilStateCreateInfo ds = VkPipelineDepthStencilStateCreateInfo.init;
         ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        ds.depthTestEnable = VK_TRUE;
-        ds.depthWriteEnable = VK_TRUE;
-        ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+        // 2D用途のため深度は無効化して描画漏れを防ぐ
+        ds.depthTestEnable = VK_FALSE;
+        ds.depthWriteEnable = VK_FALSE;
+        ds.depthCompareOp = VK_COMPARE_OP_ALWAYS;
         ds.depthBoundsTestEnable = VK_FALSE;
         ds.stencilTestEnable = enableStencilTest ? VK_TRUE : VK_FALSE;
         ds.front = VkStencilOpState(VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP,
             enableStencilTest ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_ALWAYS, 0xFF, 0xFF, 1);
         ds.back = ds.front;
 
-        VkGraphicsPipelineCreateInfo gp = void;
+        VkGraphicsPipelineCreateInfo gp = VkGraphicsPipelineCreateInfo.init;
         gp.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         gp.stageCount = 2;
         gp.pStages = stages.ptr;
@@ -2487,29 +3567,32 @@ private:
         stages[1].module_ = fragModule;
         stages[1].pName = "main".ptr;
 
-        VkVertexInputBindingDescription[2] bindings;
-        bindings[0].binding = 0; bindings[0].stride = float.sizeof * 2; bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        bindings[1].binding = 2; bindings[1].stride = float.sizeof * 2; bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        VkVertexInputBindingDescription[4] bindings;
+        foreach (i; 0 .. bindings.length) {
+            bindings[i].binding = cast(uint)i;
+            bindings[i].stride = float.sizeof;
+            bindings[i].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        }
 
         VkVertexInputAttributeDescription[4] attrs;
-        attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32_SFLOAT, 0);
-        attrs[1] = VkVertexInputAttributeDescription(1, 0, VK_FORMAT_R32_SFLOAT, 4);
-        attrs[2] = VkVertexInputAttributeDescription(2, 2, VK_FORMAT_R32_SFLOAT, 0);
-        attrs[3] = VkVertexInputAttributeDescription(3, 2, VK_FORMAT_R32_SFLOAT, 4);
+        attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32_SFLOAT, 0); // vertX
+        attrs[1] = VkVertexInputAttributeDescription(1, 1, VK_FORMAT_R32_SFLOAT, 0); // vertY
+        attrs[2] = VkVertexInputAttributeDescription(2, 2, VK_FORMAT_R32_SFLOAT, 0); // deformX
+        attrs[3] = VkVertexInputAttributeDescription(3, 3, VK_FORMAT_R32_SFLOAT, 0); // deformY
 
-        VkPipelineVertexInputStateCreateInfo vi = void;
+        VkPipelineVertexInputStateCreateInfo vi = VkPipelineVertexInputStateCreateInfo.init;
         vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vi.vertexBindingDescriptionCount = 2;
+        vi.vertexBindingDescriptionCount = cast(uint)bindings.length;
         vi.pVertexBindingDescriptions = bindings.ptr;
-        vi.vertexAttributeDescriptionCount = 4;
+        vi.vertexAttributeDescriptionCount = cast(uint)attrs.length;
         vi.pVertexAttributeDescriptions = attrs.ptr;
 
-        VkPipelineInputAssemblyStateCreateInfo ia = void;
+        VkPipelineInputAssemblyStateCreateInfo ia = VkPipelineInputAssemblyStateCreateInfo.init;
         ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
         ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         ia.primitiveRestartEnable = VK_FALSE;
 
-        VkPipelineViewportStateCreateInfo vp = void;
+        VkPipelineViewportStateCreateInfo vp = VkPipelineViewportStateCreateInfo.init;
         vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
         vp.viewportCount = 1;
         vp.scissorCount = 1;
@@ -2521,18 +3604,18 @@ private:
             VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
             VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK
         ];
-        VkPipelineDynamicStateCreateInfo dyn = void;
+        VkPipelineDynamicStateCreateInfo dyn = VkPipelineDynamicStateCreateInfo.init;
         dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
         dyn.dynamicStateCount = dynStates.length;
         dyn.pDynamicStates = dynStates.ptr;
 
-        VkPipelineRasterizationStateCreateInfo rs = void;
+        VkPipelineRasterizationStateCreateInfo rs = VkPipelineRasterizationStateCreateInfo.init;
         rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rs.polygonMode = VK_POLYGON_MODE_FILL;
         rs.cullMode = VK_CULL_MODE_NONE;
         rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
-        VkPipelineMultisampleStateCreateInfo ms = void;
+        VkPipelineMultisampleStateCreateInfo ms = VkPipelineMultisampleStateCreateInfo.init;
         ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -2542,12 +3625,12 @@ private:
             blendAtt[i].colorWriteMask = 0; // Mask writes only touch stencil
             blendAtt[i].blendEnable = VK_FALSE;
         }
-        VkPipelineColorBlendStateCreateInfo blend = void;
+        VkPipelineColorBlendStateCreateInfo blend = VkPipelineColorBlendStateCreateInfo.init;
         blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
         blend.attachmentCount = 3;
         blend.pAttachments = blendAtt.ptr;
 
-        VkPipelineDepthStencilStateCreateInfo ds = void;
+        VkPipelineDepthStencilStateCreateInfo ds = VkPipelineDepthStencilStateCreateInfo.init;
         ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
         ds.depthTestEnable = VK_FALSE;
         ds.depthWriteEnable = VK_FALSE;
@@ -2557,7 +3640,7 @@ private:
             VK_COMPARE_OP_ALWAYS, 0xFF, 0xFF, 1);
         ds.back = ds.front;
 
-        VkGraphicsPipelineCreateInfo gp = void;
+        VkGraphicsPipelineCreateInfo gp = VkGraphicsPipelineCreateInfo.init;
         gp.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         gp.stageCount = 2;
         gp.pStages = stages.ptr;
@@ -2612,19 +3695,19 @@ private:
         attrs[0] = VkVertexInputAttributeDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, 0);
         attrs[1] = VkVertexInputAttributeDescription(1, 1, VK_FORMAT_R32G32_SFLOAT, 0);
 
-        VkPipelineVertexInputStateCreateInfo vi = void;
+        VkPipelineVertexInputStateCreateInfo vi = VkPipelineVertexInputStateCreateInfo.init;
         vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vi.vertexBindingDescriptionCount = 2;
         vi.pVertexBindingDescriptions = bindings.ptr;
         vi.vertexAttributeDescriptionCount = 2;
         vi.pVertexAttributeDescriptions = attrs.ptr;
 
-        VkPipelineInputAssemblyStateCreateInfo ia = void;
+        VkPipelineInputAssemblyStateCreateInfo ia = VkPipelineInputAssemblyStateCreateInfo.init;
         ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
         ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         ia.primitiveRestartEnable = VK_FALSE;
 
-        VkPipelineViewportStateCreateInfo vp = void;
+        VkPipelineViewportStateCreateInfo vp = VkPipelineViewportStateCreateInfo.init;
         vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
         vp.viewportCount = 1;
         vp.scissorCount = 1;
@@ -2636,18 +3719,18 @@ private:
             VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
             VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK
         ];
-        VkPipelineDynamicStateCreateInfo dyn = void;
+        VkPipelineDynamicStateCreateInfo dyn = VkPipelineDynamicStateCreateInfo.init;
         dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
         dyn.dynamicStateCount = dynStates.length;
         dyn.pDynamicStates = dynStates.ptr;
 
-        VkPipelineRasterizationStateCreateInfo rs = void;
+        VkPipelineRasterizationStateCreateInfo rs = VkPipelineRasterizationStateCreateInfo.init;
         rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rs.polygonMode = VK_POLYGON_MODE_FILL;
         rs.cullMode = VK_CULL_MODE_NONE;
         rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
-        VkPipelineMultisampleStateCreateInfo ms = void;
+        VkPipelineMultisampleStateCreateInfo ms = VkPipelineMultisampleStateCreateInfo.init;
         ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -2656,21 +3739,22 @@ private:
             blendAtt[i] = VkPipelineColorBlendAttachmentState.init;
             fillBlendAttachment(blendAtt[i]);
         }
-        VkPipelineColorBlendStateCreateInfo blend = void;
+        VkPipelineColorBlendStateCreateInfo blend = VkPipelineColorBlendStateCreateInfo.init;
         blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
         blend.attachmentCount = 3;
         blend.pAttachments = blendAtt.ptr;
 
-        VkPipelineDepthStencilStateCreateInfo ds = void;
+        VkPipelineDepthStencilStateCreateInfo ds = VkPipelineDepthStencilStateCreateInfo.init;
         ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
         ds.depthTestEnable = VK_FALSE;
         ds.depthWriteEnable = VK_FALSE;
+        ds.depthCompareOp = VK_COMPARE_OP_ALWAYS;
         ds.stencilTestEnable = enableStencilTest ? VK_TRUE : VK_FALSE;
         ds.front = VkStencilOpState(VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP, VK_STENCIL_OP_KEEP,
             enableStencilTest ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_ALWAYS, 0xFF, 0xFF, 1);
         ds.back = ds.front;
 
-        VkGraphicsPipelineCreateInfo gp = void;
+        VkGraphicsPipelineCreateInfo gp = VkGraphicsPipelineCreateInfo.init;
         gp.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         gp.stageCount = 2;
         gp.pStages = stages.ptr;
@@ -2694,12 +3778,116 @@ private:
             "Failed to create composite pipeline");
     }
 
+    void createDebugSwapPipeline() {
+        if (renderPass is null) return;
+        if (debugSwapPipeline !is null) {
+            vkDestroyPipeline(device, debugSwapPipeline, null);
+            debugSwapPipeline = null;
+        }
+        if (debugSwapPipelineLayout !is null) {
+            vkDestroyPipelineLayout(device, debugSwapPipelineLayout, null);
+            debugSwapPipelineLayout = null;
+        }
+
+        VkPipelineLayoutCreateInfo layoutInfo = VkPipelineLayoutCreateInfo.init;
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutInfo.setLayoutCount = 0;
+        layoutInfo.pSetLayouts = null;
+        enforce(vkCreatePipelineLayout(device, &layoutInfo, null, &debugSwapPipelineLayout) == VK_SUCCESS,
+            "Failed to create debug swap pipeline layout");
+
+        auto vertSpv = compileGlslToSpirv("debug_swap.vert", "", ".vert");
+        auto fragSpv = compileGlslToSpirv("debug_swap.frag", "", ".frag");
+        auto vertModule = createShaderModule(vertSpv);
+        auto fragModule = createShaderModule(fragSpv);
+        scope (exit) {
+            vkDestroyShaderModule(device, vertModule, null);
+            vkDestroyShaderModule(device, fragModule, null);
+        }
+
+        VkPipelineShaderStageCreateInfo[2] stages;
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module_ = vertModule;
+        stages[0].pName = "main".ptr;
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module_ = fragModule;
+        stages[1].pName = "main".ptr;
+
+        VkPipelineVertexInputStateCreateInfo vi = VkPipelineVertexInputStateCreateInfo.init;
+        vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        VkPipelineInputAssemblyStateCreateInfo ia = VkPipelineInputAssemblyStateCreateInfo.init;
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkViewport viewport = VkViewport(0, 0, cast(float)swapExtent.width, cast(float)swapExtent.height, 0.0f, 1.0f);
+        VkRect2D scissor = VkRect2D(VkOffset2D(0, 0), VkExtent2D(swapExtent.width, swapExtent.height));
+        VkPipelineViewportStateCreateInfo vp = VkPipelineViewportStateCreateInfo.init;
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1;
+        vp.pViewports = &viewport;
+        vp.scissorCount = 1;
+        vp.pScissors = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo rs = VkPipelineRasterizationStateCreateInfo.init;
+        rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rs.polygonMode = VK_POLYGON_MODE_FILL;
+        rs.cullMode = VK_CULL_MODE_NONE;
+        rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+        VkPipelineMultisampleStateCreateInfo ms = VkPipelineMultisampleStateCreateInfo.init;
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAtt = VkPipelineColorBlendAttachmentState.init;
+        blendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blendAtt.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendStateCreateInfo blend = VkPipelineColorBlendStateCreateInfo.init;
+        blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        blend.attachmentCount = 1;
+        blend.pAttachments = &blendAtt;
+
+        VkPipelineDepthStencilStateCreateInfo ds = VkPipelineDepthStencilStateCreateInfo.init;
+        ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        ds.depthTestEnable = VK_FALSE;
+        ds.depthWriteEnable = VK_FALSE;
+
+        VkDynamicState[2] dynStates = [VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR];
+        VkPipelineDynamicStateCreateInfo dyn = VkPipelineDynamicStateCreateInfo.init;
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = dynStates.length;
+        dyn.pDynamicStates = dynStates.ptr;
+
+        VkGraphicsPipelineCreateInfo gp = VkGraphicsPipelineCreateInfo.init;
+        gp.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        gp.stageCount = 2;
+        gp.pStages = stages.ptr;
+        gp.pVertexInputState = &vi;
+        gp.pInputAssemblyState = &ia;
+        gp.pViewportState = &vp;
+        gp.pRasterizationState = &rs;
+        gp.pMultisampleState = &ms;
+        gp.pDepthStencilState = &ds;
+        gp.pColorBlendState = &blend;
+        gp.pDynamicState = &dyn;
+        gp.layout = debugSwapPipelineLayout;
+        gp.renderPass = renderPass;
+        gp.subpass = 0;
+
+        enforce(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gp, null, &debugSwapPipeline) == VK_SUCCESS,
+            "Failed to create debug swap pipeline");
+    }
+
     void recreatePipelines() {
         createBasicPipeline(false, basicPipeline);
         createBasicPipeline(true, basicMaskedPipeline);
         createMaskPipeline();
         createCompositePipeline(false, compositePipeline);
         createCompositePipeline(true, compositeMaskedPipeline);
+        createDebugSwapPipeline();
     }
 
     size_t pixelSizeForFormat(VkFormat format) {
@@ -2707,6 +3895,8 @@ private:
             case VK_FORMAT_R8_UNORM: return 1;
             case VK_FORMAT_R8G8B8A8_UNORM: return 4;
             case VK_FORMAT_D24_UNORM_S8_UINT: return 4;
+            case VK_FORMAT_D32_SFLOAT: return 4;
+            case VK_FORMAT_D32_SFLOAT_S8_UINT: return 8;
             default: enforce(false, "Unsupported format for pixel size"); return 0;
         }
     }
@@ -2735,7 +3925,7 @@ private:
             vkDestroySampler(device, handle.sampler, null);
             handle.sampler = null;
         }
-        VkSamplerCreateInfo samplerInfo = void;
+        VkSamplerCreateInfo samplerInfo = VkSamplerCreateInfo.init;
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         samplerInfo.magFilter = filteringToFilter(handle.filtering);
         samplerInfo.minFilter = filteringToFilter(handle.filtering);
@@ -2758,7 +3948,7 @@ private:
     }
 
     void recordTransition(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspect, uint levelCount = 1) {
-        VkImageMemoryBarrier barrier = void;
+        VkImageMemoryBarrier barrier = VkImageMemoryBarrier.init;
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout = oldLayout;
         barrier.newLayout = newLayout;
@@ -2773,6 +3963,47 @@ private:
 
         VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        // Set access masks based on layouts
+        switch (oldLayout) {
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                break;
+            default:
+                barrier.srcAccessMask = 0;
+                srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                break;
+        }
+        switch (newLayout) {
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+                dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                barrier.dstAccessMask = 0;
+                dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+                break;
+            default:
+                barrier.dstAccessMask = 0;
+                dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+                break;
+        }
         vkCmdPipelineBarrier(
             cmd,
             srcStage, dstStage,
@@ -2807,7 +4038,7 @@ private:
     }
 
     VkShaderModule createShaderModule(const(ubyte)[] spirv) {
-        VkShaderModuleCreateInfo info = void;
+        VkShaderModuleCreateInfo info = VkShaderModuleCreateInfo.init;
         info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         info.codeSize = spirv.length;
         info.pCode = cast(uint*)spirv.ptr;
@@ -2818,39 +4049,22 @@ private:
     }
 
     const(ubyte)[] compileGlslToSpirv(string logicalName, string source, string stageExt) {
-        import std.file : tempDir, exists, read, write;
-        import std.path : buildPath, dirName, absolutePath, baseName;
-        import std.uuid : randomUUID;
-        import std.process : execute;
-
-        // Prefer precompiled .spv if present (no glslc requirement).
-        string[] candidates;
-        candidates ~= buildPath("shaders", "vulkan", "compiled", logicalName ~ ".spv");
-        candidates ~= buildPath("shaders", "vulkan", logicalName ~ ".spv");
-        candidates ~= logicalName.endsWith(".spv") ? logicalName : logicalName ~ ".spv";
-        foreach (path; candidates) {
-            if (exists(path)) {
-                auto bytes = read(path);
-                enforce(bytes.length > 0, "Precompiled SPIR-V is empty: "~path);
-                return cast(const(ubyte)[])bytes;
-            }
+        // Embed known shaders via string imports (shaders/ is on stringImportPaths).
+        switch (logicalName) {
+            case "basic.vert":             return cast(const(ubyte)[])import("vulkan/compiled/basic.vert.spv");
+            case "basic.frag":             return cast(const(ubyte)[])import("vulkan/compiled/basic.frag.spv");
+            case "mask.vert":              return cast(const(ubyte)[])import("vulkan/compiled/mask.vert.spv");
+            case "mask.frag":              return cast(const(ubyte)[])import("vulkan/compiled/mask.frag.spv");
+            case "basic/composite.vert":   return cast(const(ubyte)[])import("vulkan/compiled/composite.vert.spv");
+            case "basic/composite.frag":   return cast(const(ubyte)[])import("vulkan/compiled/composite.frag.spv");
+            case "composite.vert":         return cast(const(ubyte)[])import("vulkan/compiled/composite.vert.spv");
+            case "composite.frag":         return cast(const(ubyte)[])import("vulkan/compiled/composite.frag.spv");
+            case "debug_swap.vert":        return cast(const(ubyte)[])import("vulkan/debug/compiled/debug_swap.vert.spv");
+            case "debug_swap.frag":        return cast(const(ubyte)[])import("vulkan/debug/compiled/debug_swap.frag.spv");
+            default:
+                enforce(false, "Precompiled SPIR-V not embedded for "~logicalName);
         }
-
-        // Fallback to glslc if available.
-        enforce(glslcPath.length > 0, "glslc not found. Provide precompiled SPIR-V at shaders/vulkan/compiled/"~logicalName~".spv");
-        auto base = randomUUID().toString();
-        auto srcPath = buildPath(tempDir(), base ~ stageExt ~ ".glsl");
-        auto spvPath = buildPath(tempDir(), base ~ stageExt ~ ".spv");
-        scope (exit) {
-            import std.file : remove;
-            if (exists(srcPath)) remove(srcPath);
-            if (exists(spvPath)) remove(spvPath);
-        }
-        write(srcPath, source);
-        auto result = execute([glslcPath, "-o", spvPath, "-fshader-stage="~(stageExt[1..$]), srcPath]);
-        enforce(result.status == 0, "glslc failed: "~result.output);
-        auto bytes = read(spvPath);
-        return cast(const(ubyte)[])bytes;
+        assert(0);
     }
 
     void detectGlslc() {
@@ -2904,12 +4118,19 @@ private:
         destroyImage(mainDepth);
         destroyImage(dynamicDummyColor);
         destroyImage(dynamicDummyDepth);
+        destroyTextureHandle(debugWhiteTex);
+        destroyTextureHandle(debugBlackTex);
         destroyBuffer(sharedVertexBuffer);
         destroyBuffer(sharedUvBuffer);
         destroyBuffer(sharedDeformBuffer);
         destroyBuffer(compositePosBuffer);
         destroyBuffer(compositeUvBuffer);
-        destroyBuffer(quadDeformBuffer);
+        destroyBuffer(quadPosXBuffer);
+        destroyBuffer(quadPosYBuffer);
+        destroyBuffer(quadUvXBuffer);
+        destroyBuffer(quadUvYBuffer);
+        destroyBuffer(quadDeformXBuffer);
+        destroyBuffer(quadDeformYBuffer);
         foreach (ref buf; indexBuffers) {
             destroyBuffer(buf);
         }
@@ -2934,6 +4155,10 @@ private:
             vkDestroyPipeline(device, compositeMaskedPipeline, null);
             compositeMaskedPipeline = null;
         }
+        if (debugSwapPipeline !is null) {
+            vkDestroyPipeline(device, debugSwapPipeline, null);
+            debugSwapPipeline = null;
+        }
         if (descriptorPool !is null) {
             vkDestroyDescriptorPool(device, descriptorPool, null);
             descriptorPool = null;
@@ -2941,6 +4166,10 @@ private:
         if (pipelineLayout !is null) {
             vkDestroyPipelineLayout(device, pipelineLayout, null);
             pipelineLayout = null;
+        }
+        if (debugSwapPipelineLayout !is null) {
+            vkDestroyPipelineLayout(device, debugSwapPipelineLayout, null);
+            debugSwapPipelineLayout = null;
         }
         if (descriptorSetLayout !is null) {
             vkDestroyDescriptorSetLayout(device, descriptorSetLayout, null);

@@ -18,11 +18,20 @@ layout(set = 0, binding = 4) uniform Params {
     float emissionStrength;
 } params;
 
+#define DEBUG_FORCE_COLOR 1
+
 vec4 screen(vec3 tcol, float a) {
     return vec4(vec3(1.0) - ((vec3(1.0) - tcol) * (vec3(1.0) - (params.screenColor * a))), a);
 }
 
 void main() {
+#if DEBUG_FORCE_COLOR
+    // テクスチャ経路をバイパスし、純粋にパイプライン書き込みを確認するための強制色（白）
+    outAlbedo = vec4(1.0, 1.0, 1.0, 1.0);
+    outEmissive = vec4(0.0, 0.0, 0.0, 1.0);
+    outBump = vec4(0.5, 0.5, 1.0, 1.0);
+    return;
+#endif
     vec4 texColor = texture(albedo, texUVs);
     vec4 emiColor = texture(emissive, texUVs);
     vec4 bmpColor = texture(bumpmap, texUVs);
