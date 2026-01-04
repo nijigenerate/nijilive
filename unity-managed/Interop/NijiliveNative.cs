@@ -30,12 +30,16 @@ public static class NijiliveNative
     public enum NjgRenderCommandKind : uint
     {
         DrawPart,
+        DrawMask,
         BeginDynamicComposite,
         EndDynamicComposite,
         BeginMask,
         ApplyMask,
         BeginMaskContent,
         EndMask,
+        BeginComposite,
+        DrawCompositeQuad,
+        EndComposite,
     }
 
     [StructLayout(LayoutKind.Sequential)]

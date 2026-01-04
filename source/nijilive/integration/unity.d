@@ -19,6 +19,7 @@ import nijilive.core.texture : ngReleaseExternalHandle;
 import nijilive.core.render.commands :
     RenderCommandKind,
     MaskDrawableKind,
+    MaskDrawPacket,
     PartDrawPacket,
     MaskApplyPacket,
     DynamicCompositePass;
@@ -180,6 +181,7 @@ alias QueueBackend = RenderingBackend!(BackendEnum.OpenGL);
 
 __gshared int logSnapshotCount;
 __gshared int logPartPacketCount;
+__gshared int logMaskPacketCount;
 __gshared int logApplyMaskCount;
 __gshared int logMaskFlowCount;
 
@@ -406,6 +408,9 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         case RenderCommandKind.DrawPart:
             outCmd.partPacket = serializePartPacket(backend, renderer, cmd.payload.partPacket);
             break;
+        case RenderCommandKind.DrawMask:
+            // Queue backend no longer emits DrawMask; keep stub for exhaustive switch.
+            break;
         case RenderCommandKind.BeginDynamicComposite:
         case RenderCommandKind.EndDynamicComposite:
             outCmd.dynamicPass = serializeDynamicPass(backend, renderer, cmd.payload.dynamicPass);
@@ -463,6 +468,11 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         }
         logMaskFlowCount++;
         break;
+        case RenderCommandKind.BeginComposite:
+        case RenderCommandKind.DrawCompositeQuad:
+        case RenderCommandKind.EndComposite:
+            // Composite commands are not emitted in the current queue backend.
+            break;
 }
     return outCmd;
 }

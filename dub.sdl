@@ -47,3 +47,15 @@ configuration "unity-dll" {
     dflags "-link-defaultlib-shared=false" "--dllimport=none"
     excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
 }
+
+configuration "unity-dll-macos" {
+    targetType "dynamicLibrary"
+    platforms "osx"
+    versions "InDoesRender"
+    versions "UseQueueBackend"
+    versions "UnityDLL"
+    targetName "nijilive-unity"
+    // Statically link D runtime for Unity DLL on macOS
+    dflags "-link-defaultlib-shared=false" "--dllimport=none"
+    excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
+}
