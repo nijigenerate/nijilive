@@ -749,6 +749,14 @@ private:
     }
 
     void setupChildNoRecurse(bool prepend = false)(Node node) {
+        // If Composite wants to propagate MeshGroup-like transforms itself,
+        // avoid applying this deformer to its children to prevent double application.
+        if (auto comp = cast(Composite)node) {
+            if (comp.propagateMeshGroup) {
+                releaseChildNoRecurse(node);
+                return;
+            }
+        }
         auto drawable = cast(Deformable)node;
         bool isDrawable = drawable !is null;
         if (isDrawable) {
