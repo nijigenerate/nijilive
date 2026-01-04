@@ -39,6 +39,8 @@ class Composite : Projectable {
 public:
     bool propagateMeshGroup = true;
     alias threshold = maskAlphaThreshold;
+    // Ensure serialization writes correct node type (not Part's typeId).
+    override string typeId() { return "Composite"; }
 
     this(Node parent = null) {
         super(parent);
