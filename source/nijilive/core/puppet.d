@@ -316,6 +316,7 @@ private:
     }
 
     final void scanParts(bool reparent = false)(ref Node node) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Puppet.ScanParts");
 
         // We want rootParts to be cleared so that we
         // don't draw the same part multiple times
@@ -356,6 +357,7 @@ private:
 
     void rebuildRenderTasks(Node rootNode) {
         if (rootNode is null) return;
+        version (NijiliveRenderProfiler) auto __prof = profileScope("TaskScheduler.Rebuild");
         renderScheduler.clearTasks();
         rootNode.registerRenderTasks(renderScheduler);
         auto rootForTasks = rootNode;
@@ -662,6 +664,7 @@ public:
                 return;
             }
 
+            version (NijiliveRenderProfiler) auto __prof = profileScope("CommandEmitter.Frame");
             commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
             renderGraph.playback(commandEmitter);
             commandEmitter.endFrame(renderBackend, renderContext.gpuState);
@@ -675,6 +678,7 @@ public:
                 return;
             }
 
+            version (NijiliveRenderProfiler) auto __prof = profileScope("CommandEmitter.Frame");
             commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
             renderGraph.playback(commandEmitter);
             commandEmitter.endFrame(renderBackend, renderContext.gpuState);
