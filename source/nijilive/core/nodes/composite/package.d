@@ -24,7 +24,6 @@ import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext;
 import std.stdio : writefln;
 import std.math : isFinite;
-import std.algorithm : map;
 import std.algorithm.comparison : min, max;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 
@@ -185,58 +184,54 @@ protected:
             useMaxChildrenBounds = false;
         }
         if (forceUpdate) {
-            foreach (p; subParts) p.updateBounds();
+            foreach (p; subParts) {
+                if (p !is null) p.updateBounds();
+            }
         }
         vec4 bounds;
-        bool useMatrixBounds = autoResizedMesh;
-        if (useMatrixBounds) {
-            bool hasBounds = false;
-            foreach (part; subParts) {
-                auto childMatrix = childCoreMatrix(part);
-                auto childBounds = localBoundsFromMatrix(part, childMatrix);
-                if (!hasBounds) {
-                    bounds = childBounds;
-                    hasBounds = true;
-                } else {
-                    bounds.x = min(bounds.x, childBounds.x);
-                    bounds.y = min(bounds.y, childBounds.y);
-                    bounds.z = max(bounds.z, childBounds.z);
-                    bounds.w = max(bounds.w, childBounds.w);
-                }
+        bool hasBounds = false;
+        foreach (part; subParts) {
+            if (part is null) continue;
+            vec4 childBounds = part.bounds;
+            if (!boundsFinite(childBounds)) {
+                childBounds = localBoundsFromMatrix(part, childCoreMatrix(part));
             }
             if (!hasBounds) {
-                bounds = transform.translation.xyxy;
+                bounds = childBounds;
+                hasBounds = true;
+            } else {
+                bounds.x = min(bounds.x, childBounds.x);
+                bounds.y = min(bounds.y, childBounds.y);
+                bounds.z = max(bounds.z, childBounds.z);
+                bounds.w = max(bounds.w, childBounds.w);
             }
-        } else {
-            bounds = mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
         }
-        if (!useMaxChildrenBounds) {
-            maxChildrenBounds = bounds;
-            useMaxChildrenBounds = true;
-            maxBoundsStartFrame = frameId;
+        if (!hasBounds) {
+            bounds = transform.translation.xyxy;
         }
+        maxChildrenBounds = bounds;
+        useMaxChildrenBounds = true;
+        maxBoundsStartFrame = frameId;
         return bounds;
     }
 
     override void enableMaxChildrenBounds(Node target = null) {
         Drawable targetDrawable = cast(Drawable)target;
-        if (targetDrawable !is null && (!autoResizedMesh)) {
+        if (targetDrawable !is null) {
             targetDrawable.updateBounds();
         }
         auto frameId = currentDynamicCompositeFrame();
-        maxChildrenBounds = getChildrenBounds(true);
+        maxChildrenBounds = getChildrenBounds(false);
         useMaxChildrenBounds = true;
         maxBoundsStartFrame = frameId;
         if (targetDrawable !is null) {
-            vec4 b;
-            if (autoResizedMesh) {
+            vec4 b = targetDrawable.bounds;
+            if (!boundsFinite(b)) {
                 if (auto targetPart = cast(Part)targetDrawable) {
                     b = localBoundsFromMatrix(targetPart, childCoreMatrix(targetPart));
                 } else {
-                    b = targetDrawable.bounds;
+                    return;
                 }
-            } else {
-                b = targetDrawable.bounds;
             }
             maxChildrenBounds.x = min(maxChildrenBounds.x, b.x);
             maxChildrenBounds.y = min(maxChildrenBounds.y, b.y);
