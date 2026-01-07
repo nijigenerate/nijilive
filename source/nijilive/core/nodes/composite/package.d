@@ -26,6 +26,7 @@ import nijilive.core.runtime_state : inGetCamera;
 import std.stdio : writefln;
 import std.math : isFinite;
 import std.algorithm.comparison : min, max;
+import std.algorithm.iteration : map;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 
 package(nijilive) {
