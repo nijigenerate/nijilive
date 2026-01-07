@@ -461,6 +461,7 @@ protected:
 
     /// Compositeは子を素のスケール/回転のまま描き、textureOffsetだけ平行移動してオフスクリーンへ描く。
     protected override void dynamicRenderBegin(ref RenderContext ctx) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:dynamicRenderBegin");
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;

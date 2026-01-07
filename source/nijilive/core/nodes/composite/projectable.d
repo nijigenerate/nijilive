@@ -26,6 +26,7 @@ import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil, abs;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
+version (NijiliveRenderProfiler) import core.time : MonoTime, seconds;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
@@ -33,9 +34,41 @@ import nijilive.core.runtime_state : inGetCamera;
 
 package(nijilive) {
     __gshared size_t projectableFrameCounter;
+    version (NijiliveRenderProfiler) {
+        __gshared size_t projectableTexAllocCount;
+        __gshared double projectableTexAllocArea;
+        __gshared MonoTime projectableTexAllocLast;
+
+        void projectableTexAllocHeartbeat() {
+            auto now = MonoTime.currTime;
+            if (projectableTexAllocLast == MonoTime.init) {
+                projectableTexAllocLast = now;
+                return;
+            }
+            auto elapsed = now - projectableTexAllocLast;
+            if (elapsed >= 1.seconds) {
+                import std.stdio : writeln;
+                import std.format : format;
+                double avgArea = projectableTexAllocCount
+                    ? projectableTexAllocArea / cast(double)projectableTexAllocCount
+                    : 0;
+                writeln(format!"[ProjectableTexture] 1s allocs=%s avgArea=%.1f"(projectableTexAllocCount, avgArea));
+                projectableTexAllocCount = 0;
+                projectableTexAllocArea = 0;
+                projectableTexAllocLast = now;
+            }
+        }
+
+        void projectableRecordTexAlloc(uint w, uint h) {
+            projectableTexAllocCount++;
+            projectableTexAllocArea += cast(double)w * h;
+            projectableTexAllocHeartbeat();
+        }
+    }
 
     void advanceProjectableFrame() {
         projectableFrameCounter++;
+        version (NijiliveRenderProfiler) projectableTexAllocHeartbeat();
     }
 
     size_t currentProjectableFrame() {
@@ -163,6 +196,7 @@ protected:
     }
 
     DynamicCompositePass prepareDynamicCompositePass() {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Projectable:prepareDynamicCompositePass");
         if (textures.length == 0 || textures[0] is null) return null;
         if (offscreenSurface is null) {
             offscreenSurface = new DynamicCompositeSurface();
@@ -188,11 +222,13 @@ protected:
     }
 
     void renderNestedOffscreen(ref RenderContext ctx) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Projectable:renderNestedOffscreen");
         dynamicRenderBegin(ctx);
         dynamicRenderEnd(ctx);
     }
 
     bool initTarget() {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Projectable:initTarget");
         auto prevTexture = textures[0];
         auto prevStencil = stencil;
 
@@ -235,6 +271,7 @@ protected:
 
         textures = [new Texture(texWidth, texHeight, 4, false, false), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true, false);
+        version (NijiliveRenderProfiler) projectableRecordTexAlloc(texWidth, texHeight);
         if (prevTexture !is null) {
             prevTexture.dispose();
         }
@@ -257,6 +294,7 @@ protected:
     }
 
     bool updateDynamicRenderStateFlags() {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Projectable:updateDynamicRenderStateFlags");
         bool resized = false;
         auto frameId = currentProjectableFrame();
         if (autoResizedMesh && detectAncestorTransformChange(frameId)) {
@@ -784,6 +822,7 @@ public:
     }
 
     protected void dynamicRenderBegin(ref RenderContext ctx) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Projectable:dynamicRenderBegin");
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
@@ -840,6 +879,7 @@ public:
     }
 
     protected void dynamicRenderEnd(ref RenderContext ctx) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Projectable:dynamicRenderEnd");
         if (ctx.renderGraph is null) return;
         bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
