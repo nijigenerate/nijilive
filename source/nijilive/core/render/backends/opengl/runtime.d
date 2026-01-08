@@ -160,10 +160,10 @@ package(nijilive) {
 
         version (InDoesRender) {
             
-            // Shader for scene
-            basicSceneShader = PostProcessingShader(new Shader(SceneShaderSource));
-            glGenVertexArrays(1, &sceneVAO);
-            glGenBuffers(1, &sceneVBO);
+        // Shader for scene
+        basicSceneShader = PostProcessingShader(new Shader(SceneShaderSource));
+        glGenVertexArrays(1, &sceneVAO);
+        glGenBuffers(1, &sceneVBO);
 
             // Generate the framebuffer we'll be using to render the model and composites
             glGenFramebuffers(1, &fBuffer);
@@ -308,7 +308,6 @@ void oglEndComposite() {
         isCompositing = false;
     }
 }
-
 /**
     Ends rendering to the framebuffer
 */

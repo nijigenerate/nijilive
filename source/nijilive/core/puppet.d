@@ -23,6 +23,12 @@ import nijilive.utils.snapshot : Snapshot;
 
 import nijilive.core.render.scheduler;
 import nijilive.core.render.profiler : profileScope;
+version (NijiliveRenderProfiler) {
+    import core.time : MonoTime;
+    import nijilive.core.render.profiler : renderProfilerAddSampleUsec;
+    import nijilive.core.render.backends.opengl.dynamic_composite :
+        resetCompositeAccum, compositeCpuAccumUsec;
+}
 import nijilive.core.texture_types : Filtering;
 
 /**
@@ -678,10 +684,23 @@ public:
                 return;
             }
 
-            version (NijiliveRenderProfiler) auto __prof = profileScope("CommandEmitter.Frame");
+            version (NijiliveRenderProfiler) {
+                resetCompositeAccum();
+                auto __prof = profileScope("CommandEmitter.Frame");
+                auto cpuStart = MonoTime.currTime;
+                commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
+                renderGraph.playback(commandEmitter);
+                commandEmitter.endFrame(renderBackend, renderContext.gpuState);
+                auto cpuDur = MonoTime.currTime - cpuStart;
+                ulong frameUsec = cpuDur.total!"usecs";
+                ulong offscreenUsec = compositeCpuAccumUsec();
+                ulong otherUsec = frameUsec > offscreenUsec ? frameUsec - offscreenUsec : 0;
+                renderProfilerAddSampleUsec("Draw.OtherCPU", otherUsec);
+            } else {
             commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
             renderGraph.playback(commandEmitter);
             commandEmitter.endFrame(renderBackend, renderContext.gpuState);
+            }
         } else {
             drawImmediateFallback();
         }

@@ -10,12 +10,43 @@ import nijilive.math : mat4, vec2, vec3, vec4;
 import nijilive.core.texture : Texture;
 import nijilive.core.render.backends.opengl.handles : requireGLTexture;
 import nijilive.core.render.backends : RenderResourceHandle;
+version (NijiliveRenderProfiler) {
+    import nijilive.core.render.profiler : renderProfilerAddSampleUsec;
+    import core.time : MonoTime;
+
+    __gshared ulong gCompositeCpuAccumUsec;
+    __gshared ulong gCompositeGpuAccumUsec;
+
+    void resetCompositeAccum() {
+        gCompositeCpuAccumUsec = 0;
+        gCompositeGpuAccumUsec = 0;
+    }
+
+    ulong compositeCpuAccumUsec() { return gCompositeCpuAccumUsec; }
+    ulong compositeGpuAccumUsec() { return gCompositeGpuAccumUsec; }
+}
 
 private GLuint textureId(Texture texture) {
     if (texture is null) return 0;
     auto handle = texture.backendHandle();
     if (handle is null) return 0;
     return requireGLTexture(handle).id;
+}
+
+private {
+    version (NijiliveRenderProfiler) {
+        GLuint compositeTimeQuery;
+        bool compositeTimerInit;
+        bool compositeTimerActive;
+        MonoTime compositeCpuStart;
+        bool compositeCpuActive;
+
+        void ensureCompositeTimer() {
+            if (compositeTimerInit) return;
+            compositeTimerInit = true;
+            glGenQueries(1, &compositeTimeQuery);
+        }
+    }
 }
 
 void oglBeginDynamicComposite(DynamicCompositePass pass) {
@@ -82,6 +113,18 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
     glClear(GL_COLOR_BUFFER_BIT);
     glActiveTexture(GL_TEXTURE0);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    version (NijiliveRenderProfiler) {
+        if (!compositeCpuActive) {
+            compositeCpuActive = true;
+            compositeCpuStart = MonoTime.currTime;
+        }
+        ensureCompositeTimer();
+        if (!compositeTimerActive && compositeTimeQuery != 0) {
+            glBeginQuery(GL_TIME_ELAPSED, compositeTimeQuery);
+            compositeTimerActive = true;
+        }
+    }
 }
 
 void oglEndDynamicComposite(DynamicCompositePass pass) {
@@ -95,6 +138,22 @@ void oglEndDynamicComposite(DynamicCompositePass pass) {
     glViewport(pass.origViewport[0], pass.origViewport[1],
         pass.origViewport[2], pass.origViewport[3]);
     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+    version (NijiliveRenderProfiler) {
+        if (compositeTimerActive && compositeTimeQuery != 0) {
+            glEndQuery(GL_TIME_ELAPSED);
+            ulong ns = 0;
+            glGetQueryObjectui64v(compositeTimeQuery, GL_QUERY_RESULT, &ns);
+            renderProfilerAddSampleUsec("Composite.Offscreen", ns / 1000);
+            gCompositeGpuAccumUsec += ns / 1000;
+            compositeTimerActive = false;
+        }
+        if (compositeCpuActive) {
+            auto dur = MonoTime.currTime - compositeCpuStart;
+            renderProfilerAddSampleUsec("Composite.Offscreen.CPU", dur.total!"usecs");
+            gCompositeCpuAccumUsec += dur.total!"usecs";
+            compositeCpuActive = false;
+        }
+    }
     glFlush();
 
     auto tex = pass.surface.textureCount > 0 ? pass.surface.textures[0] : null;
