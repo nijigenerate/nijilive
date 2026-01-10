@@ -23,6 +23,12 @@ import nijilive.utils.snapshot : Snapshot;
 
 import nijilive.core.render.scheduler;
 import nijilive.core.render.profiler : profileScope;
+version (NijiliveRenderProfiler) {
+    import core.time : MonoTime;
+    import nijilive.core.render.profiler : renderProfilerAddSampleUsec;
+    import nijilive.core.render.backends.opengl.dynamic_composite :
+        resetCompositeAccum, compositeCpuAccumUsec;
+}
 import nijilive.core.texture_types : Filtering;
 
 /**
@@ -574,7 +580,6 @@ public:
 
         bool pendingStructure = pendingFrameChanges.structureDirty;
         if (forceFullRebuild || !schedulerCacheValid || pendingStructure) {
-            version (NijiliveRenderProfiler) auto __profRebuild = profileScope("Puppet.Update.RebuildRenderTasks.Initial");
             rebuildRenderTasks(rootNode);
         }
 
@@ -583,26 +588,16 @@ public:
             renderScheduler.executeRange(renderContext, TaskOrder.Init, TaskOrder.Parameters);
         }
 
-        FrameChangeState frameChanges;
-        {
-            version (NijiliveRenderProfiler) auto __prof = profileScope("Puppet.Update.ConsumeFrameChanges");
-            frameChanges = consumeFrameChanges();
-        }
+        auto frameChanges = consumeFrameChanges();
         if (frameChanges.structureDirty) {
-            {
-                version (NijiliveRenderProfiler) auto __profRebuild = profileScope("Puppet.Update.RebuildRenderTasks.StructureDirty");
-                rebuildRenderTasks(rootNode);
-            }
+            rebuildRenderTasks(rootNode);
             {
                 auto profilingInit = profileScope("Puppet.Update.InitAndParameters");
                 renderScheduler.executeRange(renderContext, TaskOrder.Init, TaskOrder.Parameters);
             }
-            {
-                version (NijiliveRenderProfiler) auto __prof = profileScope("Puppet.Update.ConsumeFrameChanges.Additional");
-                auto additional = consumeFrameChanges();
-                frameChanges.attributeDirty |= additional.attributeDirty;
-                frameChanges.structureDirty |= additional.structureDirty;
-            }
+            auto additional = consumeFrameChanges();
+            frameChanges.attributeDirty |= additional.attributeDirty;
+            frameChanges.structureDirty |= additional.structureDirty;
         }
 
         auto profilingSetup = profileScope("Puppet.Update.Setup");
@@ -676,18 +671,9 @@ public:
             }
 
             version (NijiliveRenderProfiler) auto __prof = profileScope("CommandEmitter.Frame");
-            {
-                version (NijiliveRenderProfiler) auto __profBegin = profileScope("CommandEmitter.BeginFrame");
-                commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
-            }
-            {
-                version (NijiliveRenderProfiler) auto __profPlayback = profileScope("CommandEmitter.RenderGraphPlayback");
-                renderGraph.playback(commandEmitter);
-            }
-            {
-                version (NijiliveRenderProfiler) auto __profEnd = profileScope("CommandEmitter.EndFrame");
-                commandEmitter.endFrame(renderBackend, renderContext.gpuState);
-            }
+            commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
+            renderGraph.playback(commandEmitter);
+            commandEmitter.endFrame(renderBackend, renderContext.gpuState);
         } else static if (SelectedBackendIsOpenGL) {
             if (commandEmitter is null || renderBackend is null) {
                 drawImmediateFallback();
@@ -698,18 +684,22 @@ public:
                 return;
             }
 
-            version (NijiliveRenderProfiler) auto __prof = profileScope("CommandEmitter.Frame");
-            {
-                version (NijiliveRenderProfiler) auto __profBegin = profileScope("CommandEmitter.BeginFrame");
+            version (NijiliveRenderProfiler) {
+                resetCompositeAccum();
+                auto __prof = profileScope("CommandEmitter.Frame");
+                auto cpuStart = MonoTime.currTime;
                 commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
-            }
-            {
-                version (NijiliveRenderProfiler) auto __profPlayback = profileScope("CommandEmitter.RenderGraphPlayback");
                 renderGraph.playback(commandEmitter);
-            }
-            {
-                version (NijiliveRenderProfiler) auto __profEnd = profileScope("CommandEmitter.EndFrame");
                 commandEmitter.endFrame(renderBackend, renderContext.gpuState);
+                auto cpuDur = MonoTime.currTime - cpuStart;
+                ulong frameUsec = cpuDur.total!"usecs";
+                ulong offscreenUsec = compositeCpuAccumUsec();
+                ulong otherUsec = frameUsec > offscreenUsec ? frameUsec - offscreenUsec : 0;
+                renderProfilerAddSampleUsec("Draw.OtherCPU", otherUsec);
+            } else {
+            commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
+            renderGraph.playback(commandEmitter);
+            commandEmitter.endFrame(renderBackend, renderContext.gpuState);
             }
         } else {
             drawImmediateFallback();

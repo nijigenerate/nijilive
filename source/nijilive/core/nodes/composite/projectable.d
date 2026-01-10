@@ -132,6 +132,9 @@ public:
         Mask mask = cast(Mask)node;
         if (part !is null && node != this) {
             subParts ~= part;
+            if (mask !is null) {
+                maskParts ~= mask;
+            }
             if (proj is null) {
                 foreach(child; part.children) {
                     scanPartsRecurse(child);
@@ -738,6 +741,9 @@ public:
         setOneTimeTransform(&tmp);
         auto correction = fullTransformMatrix() * transform.matrix.inverse;
         foreach (Part child; subParts) {
+            if (cast(Mask)child !is null) {
+                continue;
+            }
             auto childMatrix = correction * child.transform.matrix;
             child.setOffscreenModelMatrix(childMatrix);
             child.drawOne();
@@ -857,6 +863,9 @@ public:
         auto childBasis = translate * transform.matrix.inverse;
 
         foreach (Part child; subParts) {
+            if (cast(Mask)child !is null) {
+                continue;
+            }
             auto childMatrix = correction * child.transform.matrix;
             auto finalMatrix = childBasis * childMatrix;
             child.setOffscreenModelMatrix(finalMatrix);
