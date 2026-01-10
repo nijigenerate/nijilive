@@ -156,14 +156,26 @@ protected:
         return vec2(abs(scale.x), abs(scale.y));
     }
 
+    private float currentCameraRotation() {
+        auto cam = inGetCamera();
+        float rot = cam.rotation;
+        if (!isFinite(rot)) rot = 0;
+        return rot;
+    }
+
     override bool updateDynamicRenderStateFlags() {
         auto currentScale = compositeAutoScale();
+        auto camRot = currentCameraRotation();
         enum float scaleEps = 0.0001f;
+        enum float rotEps = 0.0001f;
         bool scaleChanged = !hasPrevCompositeScale ||
             abs(currentScale.x - prevCompositeScale.x) > scaleEps ||
             abs(currentScale.y - prevCompositeScale.y) > scaleEps;
-        if (scaleChanged) {
+        bool rotChanged = !hasPrevCompositeScale ||
+            abs(camRot - prevCameraRotation) > rotEps;
+        if (scaleChanged || rotChanged) {
             prevCompositeScale = currentScale;
+            prevCameraRotation = camRot;
             hasPrevCompositeScale = true;
             forceResize = true;
             useMaxChildrenBounds = false;
@@ -178,11 +190,8 @@ protected:
     override DynamicCompositePass prepareDynamicCompositePass() {
         auto pass = super.prepareDynamicCompositePass();
         if (pass !is null) {
-            // Auto-scaled composites bake camera/puppet scale into child matrices;
-            // keep the dynamic composite pass itself unscaled/unrotated.
+            // Auto-scaled composites bake camera/puppet scale into child matrices.
             pass.autoScaled = true;
-            pass.scale = vec2(1, 1);
-            pass.rotationZ = 0;
         }
         return pass;
     }
