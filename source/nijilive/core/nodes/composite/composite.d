@@ -43,6 +43,7 @@ public:
     // Ensure serialization writes correct node type (not Part's typeId).
     override string typeId() { return "Composite"; }
     private vec2 prevCompositeScale;
+    private float prevCameraRotation = 0;
     private bool hasPrevCompositeScale = false;
 
     this(Node parent = null) {
