@@ -224,17 +224,17 @@ protected:
         if (!packet.renderable) return;
 
         // Composite consumes its own rotation/scale offscreen; display uses translation only.
-        auto screen = transform();
-        screen.rotation = vec3(0, 0, 0);
-        screen.scale = vec2(1, 1);
-        screen.update();
-        packet.modelMatrix = screen.matrix;
-
-        // Cancel camera scale/rotation around the composite's current screen-space origin.
+        // Compute the on-screen origin first, then reset scale/rotation to show texture 1:1.
         auto cam = inGetCamera();
         auto camMatrix = cam.matrix;
-        auto origin4 = camMatrix * packet.puppetMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
+        // origin before cancelling camera scale/rotation
+        auto screenModel = transform().matrix;
+        auto origin4 = camMatrix * packet.puppetMatrix * screenModel * vec4(0, 0, 0, 1);
         vec2 origin = origin4.xy;
+        // modelMatrix is pure translation to the on-screen origin
+        packet.modelMatrix = mat4.translation(origin.x, origin.y, 0);
+
+        // Cancel camera scale/rotation around that origin.
         float invScaleX = cam.scale.x == 0 ? 1 : 1 / cam.scale.x;
         float invScaleY = cam.scale.y == 0 ? 1 : 1 / cam.scale.y;
         if (!isFinite(invScaleX)) invScaleX = 1;
