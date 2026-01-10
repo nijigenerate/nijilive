@@ -9,6 +9,7 @@ import nijilive.core.render.commands : DynamicCompositePass;
 import nijilive.core.render.passes : RenderPassKind, RenderScopeHint;
 import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.nodes.composite.dcomposite : DynamicComposite, advanceDynamicCompositeFrame;
+import nijilive.core.render.profiler : profileScope;
 
 alias RenderCommandBuilder = void delegate(RenderCommandEmitter emitter);
 
@@ -60,6 +61,7 @@ private:
 
     RenderItem[] collectPassItems(ref RenderPass pass) {
         if (pass.items.length == 0) return [];
+        version (NijiliveRenderProfiler) auto __prof = profileScope("RenderGraph.SortItems");
         pass.items.sort!itemLess();
         return pass.items.dup;
     }
@@ -215,6 +217,7 @@ public:
     }
 
     void enqueueItem(float zSort, RenderScopeHint hint, RenderCommandBuilder builder) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("RenderGraph.Enqueue");
         if (builder is null) return;
         auto ref pass = resolvePass(hint);
         addItemToPass(pass, zSort, builder);
@@ -257,6 +260,7 @@ public:
         enforce(passStack.length == 1, "RenderGraphBuilder scopes were not balanced before playback. " ~ stackDebugString());
         auto rootItems = collectPassItems(passStack[0]);
         clear();
+        version (NijiliveRenderProfiler) auto __prof = profileScope("RenderGraph.Playback");
         playbackItems(rootItems, emitter);
     }
 }

@@ -91,6 +91,11 @@ RenderProfileScope profileScope(string label) {
     return RenderProfileScope(label);
 }
 
+/// Add a sampled duration in microseconds (e.g., GPU timer results).
+void renderProfilerAddSampleUsec(string label, ulong usec) {
+    profiler().addSample(label, dur!"usecs"(usec));
+}
+
 void renderProfilerFrameCompleted() {
     profiler().frameCompleted();
 }
@@ -105,6 +110,8 @@ struct RenderProfileScope {
 RenderProfileScope profileScope(string label) {
     return RenderProfileScope(label);
 }
+
+void renderProfilerAddSampleUsec(string, ulong) {}
 
 void renderProfilerFrameCompleted() {}
 

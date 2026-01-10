@@ -23,6 +23,12 @@ import nijilive.utils.snapshot : Snapshot;
 
 import nijilive.core.render.scheduler;
 import nijilive.core.render.profiler : profileScope;
+version (NijiliveRenderProfiler) {
+    import core.time : MonoTime;
+    import nijilive.core.render.profiler : renderProfilerAddSampleUsec;
+    import nijilive.core.render.backends.opengl.dynamic_composite :
+        resetCompositeAccum, compositeCpuAccumUsec;
+}
 import nijilive.core.texture_types : Filtering;
 
 /**
@@ -316,6 +322,7 @@ private:
     }
 
     final void scanParts(bool reparent = false)(ref Node node) {
+        version (NijiliveRenderProfiler) auto __prof = profileScope("Puppet.ScanParts");
 
         // We want rootParts to be cleared so that we
         // don't draw the same part multiple times
@@ -356,6 +363,7 @@ private:
 
     void rebuildRenderTasks(Node rootNode) {
         if (rootNode is null) return;
+        version (NijiliveRenderProfiler) auto __prof = profileScope("TaskScheduler.Rebuild");
         renderScheduler.clearTasks();
         rootNode.registerRenderTasks(renderScheduler);
         auto rootForTasks = rootNode;
@@ -662,6 +670,7 @@ public:
                 return;
             }
 
+            version (NijiliveRenderProfiler) auto __prof = profileScope("CommandEmitter.Frame");
             commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
             renderGraph.playback(commandEmitter);
             commandEmitter.endFrame(renderBackend, renderContext.gpuState);
@@ -675,9 +684,23 @@ public:
                 return;
             }
 
+            version (NijiliveRenderProfiler) {
+                resetCompositeAccum();
+                auto __prof = profileScope("CommandEmitter.Frame");
+                auto cpuStart = MonoTime.currTime;
+                commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
+                renderGraph.playback(commandEmitter);
+                commandEmitter.endFrame(renderBackend, renderContext.gpuState);
+                auto cpuDur = MonoTime.currTime - cpuStart;
+                ulong frameUsec = cpuDur.total!"usecs";
+                ulong offscreenUsec = compositeCpuAccumUsec();
+                ulong otherUsec = frameUsec > offscreenUsec ? frameUsec - offscreenUsec : 0;
+                renderProfilerAddSampleUsec("Draw.OtherCPU", otherUsec);
+            } else {
             commandEmitter.beginFrame(renderBackend, renderContext.gpuState);
             renderGraph.playback(commandEmitter);
             commandEmitter.endFrame(renderBackend, renderContext.gpuState);
+            }
         } else {
             drawImmediateFallback();
         }

@@ -99,6 +99,9 @@ public:
         Mask mask = cast(Mask)node;
         if (part !is null && node != this) {
             subParts ~= part;
+            if (mask !is null) {
+                maskParts ~= mask;
+            }
             if (proj is null) {
                 foreach(child; part.children) {
                     scanPartsRecurse(child);
@@ -145,8 +148,9 @@ protected:
     vec3 prevTranslation;
     vec3 prevRotation;
     vec2 prevScale;
+    bool hasCachedAncestorTransform = false;
+    size_t lastAncestorTransformCheckFrame = size_t.max;
     bool deferredChanged = false;
-    bool ancestorChangeQueued = false;
     vec4 maxChildrenBounds;
     bool useMaxChildrenBounds = false;
     size_t maxBoundsStartFrame = 0;
@@ -258,19 +262,14 @@ protected:
     bool updateDynamicRenderStateFlags() {
         bool resized = false;
         auto frameId = currentProjectableFrame();
+        if (autoResizedMesh && detectAncestorTransformChange(frameId)) {
+            deferredChanged = true;
+            useMaxChildrenBounds = false;
+        }
         if (deferredChanged) {
             if (autoResizedMesh) {
                 bool ran = false;
                 resized = updateAutoResizedMeshOnce(ran);
-                pendingAncestorChangeFrame = size_t.max;
-                // 最新の変化を基準値に反映
-                if (ancestorChangeQueued) {
-                    auto full = fullTransform();
-                    prevTranslation = full.translation;
-                    prevRotation    = full.rotation;
-                    prevScale       = full.scale;
-                    ancestorChangeQueued = false;
-                }
                 if (ran && resized) {
                     initialized = false;
                 }
@@ -398,6 +397,37 @@ protected:
         return bounds;
     }
 
+    bool detectAncestorTransformChange(size_t frameId) {
+        if (lastAncestorTransformCheckFrame == frameId) {
+            return false;
+        }
+        lastAncestorTransformCheckFrame = frameId;
+        auto full = fullTransform();
+        if (!hasCachedAncestorTransform) {
+            prevTranslation = full.translation;
+            prevRotation = full.rotation;
+            prevScale = full.scale;
+            hasCachedAncestorTransform = true;
+            return false;
+        }
+        enum float TransformEpsilon = 0.0001f;
+        bool changed =
+            abs(full.translation.x - prevTranslation.x) > TransformEpsilon ||
+            abs(full.translation.y - prevTranslation.y) > TransformEpsilon ||
+            abs(full.translation.z - prevTranslation.z) > TransformEpsilon ||
+            abs(full.rotation.x - prevRotation.x) > TransformEpsilon ||
+            abs(full.rotation.y - prevRotation.y) > TransformEpsilon ||
+            abs(full.rotation.z - prevRotation.z) > TransformEpsilon ||
+            abs(full.scale.x - prevScale.x) > TransformEpsilon ||
+            abs(full.scale.y - prevScale.y) > TransformEpsilon;
+        if (changed) {
+            prevTranslation = full.translation;
+            prevRotation = full.rotation;
+            prevScale = full.scale;
+        }
+        return changed;
+    }
+
     vec4 getChildrenBounds(bool forceUpdate = true) {
         version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:getChildrenBounds");
         auto frameId = currentProjectableFrame();
@@ -408,37 +438,41 @@ protected:
             useMaxChildrenBounds = false;
         }
         if (forceUpdate) {
-            foreach (p; subParts) p.updateBounds();
+            foreach (p; subParts) {
+                if (p !is null) p.updateBounds();
+            }
         }
         vec4 bounds;
-        bool useMatrixBounds = autoResizedMesh;
-        if (useMatrixBounds) {
-            auto correction = fullTransformMatrix() * transform.matrix.inverse;
-            bool hasBounds = false;
-            foreach (part; subParts) {
-                auto childMatrix = correction * part.transform.matrix;
-                auto childBounds = boundsFromMatrix(part, childMatrix);
-                if (!hasBounds) {
-                    bounds = childBounds;
-                    hasBounds = true;
-                } else {
-                    bounds.x = min(bounds.x, childBounds.x);
-                    bounds.y = min(bounds.y, childBounds.y);
-                    bounds.z = max(bounds.z, childBounds.z);
-                    bounds.w = max(bounds.w, childBounds.w);
+        bool hasBounds = false;
+        mat4 correction;
+        bool haveCorrection = false;
+        foreach (part; subParts) {
+            if (part is null) continue;
+            vec4 childBounds = part.bounds;
+            if (!boundsFinite(childBounds)) {
+                if (!haveCorrection) {
+                    correction = fullTransformMatrix() * transform.matrix.inverse;
+                    haveCorrection = true;
                 }
+                auto childMatrix = correction * part.transform.matrix;
+                childBounds = boundsFromMatrix(part, childMatrix);
             }
             if (!hasBounds) {
-                bounds = transform.translation.xyxy;
+                bounds = childBounds;
+                hasBounds = true;
+            } else {
+                bounds.x = min(bounds.x, childBounds.x);
+                bounds.y = min(bounds.y, childBounds.y);
+                bounds.z = max(bounds.z, childBounds.z);
+                bounds.w = max(bounds.w, childBounds.w);
             }
-        } else {
-            bounds = mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
         }
-        if (!useMaxChildrenBounds) {
-            maxChildrenBounds = bounds;
-            useMaxChildrenBounds = true;
-            maxBoundsStartFrame = frameId;
+        if (!hasBounds) {
+            bounds = transform.translation.xyxy;
         }
+        maxChildrenBounds = bounds;
+        useMaxChildrenBounds = true;
+        maxBoundsStartFrame = frameId;
         return bounds;
     }
 
@@ -457,24 +491,22 @@ protected:
 
     void enableMaxChildrenBounds(Node target = null) {
         Drawable targetDrawable = cast(Drawable)target;
-        if (targetDrawable !is null && (!autoResizedMesh)) {
+        if (targetDrawable !is null) {
             targetDrawable.updateBounds();
         }
         auto frameId = currentProjectableFrame();
-        maxChildrenBounds = getChildrenBounds(true);
+        maxChildrenBounds = getChildrenBounds(false);
         useMaxChildrenBounds = true;
         maxBoundsStartFrame = frameId;
         if (targetDrawable !is null) {
-            vec4 b;
-            if (autoResizedMesh) {
+            vec4 b = targetDrawable.bounds;
+            if (!boundsFinite(b)) {
                 if (auto targetPart = cast(Part)targetDrawable) {
                     auto correction = fullTransformMatrix() * transform.matrix.inverse;
                     b = boundsFromMatrix(targetPart, correction * targetPart.transform.matrix);
                 } else {
-                    b = targetDrawable.bounds;
+                    return;
                 }
-            } else {
-                b = targetDrawable.bounds;
             }
             maxChildrenBounds.x = min(maxChildrenBounds.x, b.x);
             maxChildrenBounds.y = min(maxChildrenBounds.y, b.y);
@@ -671,6 +703,9 @@ public:
         setOneTimeTransform(&tmp);
         auto correction = fullTransformMatrix() * transform.matrix.inverse;
         foreach (Part child; subParts) {
+            if (cast(Mask)child !is null) {
+                continue;
+            }
             auto childMatrix = correction * child.transform.matrix;
             child.setOffscreenModelMatrix(childMatrix);
             child.drawOne();
@@ -789,6 +824,9 @@ public:
         auto childBasis = translate * transform.matrix.inverse;
 
         foreach (Part child; subParts) {
+            if (cast(Mask)child !is null) {
+                continue;
+            }
             auto childMatrix = correction * child.transform.matrix;
             auto finalMatrix = childBasis * childMatrix;
             child.setOffscreenModelMatrix(finalMatrix);
@@ -981,16 +1019,14 @@ public:
         }
         textureInvalidated = true;
         boundsDirty = false;
-        for (Node c = this; c !is null; c = c.parent) {
-            c.addNotifyListener(&onAncestorChanged);
-        }
+        hasCachedAncestorTransform = false;
+        lastAncestorTransformCheckFrame = size_t.max;
     }
 
     override
     void releaseSelf() {
-        for (Node c = this; c !is null; c = c.parent) {
-            c.removeNotifyListener(&onAncestorChanged);
-        }
+        hasCachedAncestorTransform = false;
+        lastAncestorTransformCheckFrame = size_t.max;
     }
 
     bool boundsFinite(vec4 b) const {
@@ -1016,26 +1052,6 @@ public:
             maxY = max(maxY, v.y);
         }
         return vec4(minX, minY, maxX, maxY);
-    }
-
-    // In autoResizedMesh mode, texture must be updated when any of the parents is translated, rotated, or scaled.
-    // To detect parent's change, this object calls addNotifyListener to parents' event slot, and checks whether
-    // they are changed or not.
-    size_t pendingAncestorChangeFrame = size_t.max;
-    void onAncestorChanged(Node target, NotifyReason reason) {
-        if (autoResizedMesh) {
-            if (reason == NotifyReason.Transformed) {
-                version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:onAncestorChanged");
-                auto frameId = currentProjectableFrame();
-                // 同フレーム中は一度だけ処理を予約する。実計算は後段でまとめて行う。
-                if (pendingAncestorChangeFrame != frameId) {
-                    pendingAncestorChangeFrame = frameId;
-                    deferredChanged = true;
-                    ancestorChangeQueued = true;
-                    useMaxChildrenBounds = false; // 親変化直後は必ず再計算
-                }
-            }
-        }
     }
 
     override
@@ -1077,9 +1093,11 @@ public:
 
     override
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
+        bool markBoundsDirty = false;
         if (target != this) {
             if (reason == NotifyReason.AttributeChanged) {
                 scanSubParts(children);
+                markBoundsDirty = true;
             }
             if (reason != NotifyReason.Initialized) {
                 textureInvalidated = true;
@@ -1090,23 +1108,26 @@ public:
                 enableMaxChildrenBounds(target);
             } else {
                 invalidateChildrenBounds();
+                markBoundsDirty = true;
             }
-            boundsDirty = true;
         } else if (reason == NotifyReason.AttributeChanged) {
             textureInvalidated = true;
             hasValidOffscreenContent = false;
             loggedFirstRenderAttempt = false;
             invalidateChildrenBounds();
-            boundsDirty = true;
+            markBoundsDirty = true;
         } else if (reason == NotifyReason.Transformed) {
             // Composite自身の原点移動などの変化に追従するため、キャッシュを無効化して再計算させる
             textureInvalidated = true;
             hasValidOffscreenContent = false;
             loggedFirstRenderAttempt = false;
             invalidateChildrenBounds();
+            markBoundsDirty = true;
+        }
+        if (markBoundsDirty) {
             boundsDirty = true;
         }
-        if (autoResizedMesh) {
+        if (autoResizedMesh && reason == NotifyReason.AttributeChanged) {
             bool ran = false;
             if (updateAutoResizedMeshOnce(ran) && ran) {
                 initialized = false;
