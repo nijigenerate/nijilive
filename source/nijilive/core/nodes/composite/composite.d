@@ -178,7 +178,11 @@ protected:
     override DynamicCompositePass prepareDynamicCompositePass() {
         auto pass = super.prepareDynamicCompositePass();
         if (pass !is null) {
+            // Auto-scaled composites bake camera/puppet scale into child matrices;
+            // keep the dynamic composite pass itself unscaled/unrotated.
             pass.autoScaled = true;
+            pass.scale = vec2(1, 1);
+            pass.rotationZ = 0;
         }
         return pass;
     }
