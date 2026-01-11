@@ -1,4 +1,4 @@
-/*
+﻿/*
     nijilive Composite Node
     previously Inochi2D Composite Node
 
@@ -43,16 +43,32 @@ public:
     // Ensure serialization writes correct node type (not Part's typeId).
     override string typeId() { return "Composite"; }
     private vec2 prevCompositeScale;
+    private vec2 prevCompositeTranslation;
+    private float prevCompositeRotation = 0;
+    private float prevCameraRotation = 0;
     private bool hasPrevCompositeScale = false;
+
+    private void clearBoundsAndTextureCache() {
+        useMaxChildrenBounds = false;
+        maxChildrenBounds = vec4(0, 0, 0, 0);
+        forceResize = true;
+        boundsDirty = true;
+        textureInvalidated = true;
+        hasValidOffscreenContent = false;
+        loggedFirstRenderAttempt = false;
+        initialized = false;
+    }
 
     this(Node parent = null) {
         super(parent);
         autoResizedMesh = true;
+        clearBoundsAndTextureCache();
     }
 
     this(MeshData data, uint uuid, Node parent = null) {
         super(data, uuid, parent);
         autoResizedMesh = true;
+        clearBoundsAndTextureCache();
     }
 
 public:
@@ -125,6 +141,7 @@ protected:
 
     override void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
         super.copyFrom(src, clone, deepCopy);
+        clearBoundsAndTextureCache();
     }
 
 protected:
@@ -156,21 +173,56 @@ protected:
         return vec2(abs(scale.x), abs(scale.y));
     }
 
+    private float compositeRotation() {
+        float rot = transform().rotation.z;
+        if (!isFinite(rot)) rot = 0;
+        return rot;
+    }
+
+    private float cameraRotation() {
+        auto cam = inGetCamera();
+        float rot = cam.rotation;
+        if (!isFinite(rot)) rot = 0;
+        return rot;
+    }
+
+    private vec2 compositeTranslation() {
+        vec3 t = transform().translation;
+        return vec2(t.x, t.y);
+    }
+
     override bool updateDynamicRenderStateFlags() {
         auto currentScale = compositeAutoScale();
+        auto currentRot = compositeRotation();
+        auto camRot = cameraRotation();
+        auto curTrans = compositeTranslation();
         enum float scaleEps = 0.0001f;
+        enum float rotEps = 0.0001f;
+        enum float transEps = 0.0001f;
         bool scaleChanged = !hasPrevCompositeScale ||
             abs(currentScale.x - prevCompositeScale.x) > scaleEps ||
             abs(currentScale.y - prevCompositeScale.y) > scaleEps;
-        if (scaleChanged) {
+        bool rotChanged = !hasPrevCompositeScale ||
+            abs(currentRot - prevCompositeRotation) > rotEps ||
+            abs(camRot - prevCameraRotation) > rotEps;
+        bool transChanged = !hasPrevCompositeScale ||
+            abs(curTrans.x - prevCompositeTranslation.x) > transEps ||
+            abs(curTrans.y - prevCompositeTranslation.y) > transEps;
+        // サイズに影響するのはスケール・回転のみ。平行移動は無関係なのでキャッシュクリア対象から外す。
+        if (scaleChanged || rotChanged) {
+            writefln("[Composite] change detected scale=(%.3f,%.3f)->(%.3f,%.3f) rot=%.3f/%.3f trans=(%.3f,%.3f)->(%.3f,%.3f)",
+                prevCompositeScale.x, prevCompositeScale.y, currentScale.x, currentScale.y,
+                currentRot, camRot,
+                prevCompositeTranslation.x, prevCompositeTranslation.y, curTrans.x, curTrans.y);
             prevCompositeScale = currentScale;
+            prevCompositeRotation = currentRot;
+            prevCameraRotation = camRot;
+            prevCompositeTranslation = curTrans;
             hasPrevCompositeScale = true;
-            forceResize = true;
-            useMaxChildrenBounds = false;
-            boundsDirty = true;
-            textureInvalidated = true;
-            hasValidOffscreenContent = false;
-            loggedFirstRenderAttempt = false;
+            clearBoundsAndTextureCache();
+        } else if (transChanged) {
+            // 平行移動のみの場合は記録だけ更新（不要なリサイズを防ぐ）
+            prevCompositeTranslation = curTrans;
         }
         return super.updateDynamicRenderStateFlags();
     }
@@ -203,6 +255,36 @@ protected:
     /// Core child matrix without texture offset (for bounds calculation).
     mat4 childCoreMatrix(Part child) {
         return child.transform.matrix;
+    }
+
+    /// Bounds of a child in texture space (after offset and scaling).
+    vec4 textureSpaceBounds(Part child, const mat4 m) {
+        vec4 bounds = vec4(0, 0, 0, 0);
+        if (child.vertices.length == 0) return bounds;
+
+        vec2 minPos;
+        vec2 maxPos;
+        bool first = true;
+        auto deform = child.deformation;
+        foreach (i, vertex; child.vertices) {
+            vec2 localVertex = vertex;
+            if (i < deform.length) {
+                localVertex += deform[i];
+            }
+            vec2 pos = vec2(m * vec4(localVertex, 0, 1));
+            if (first) {
+                minPos = pos;
+                maxPos = pos;
+                first = false;
+            } else {
+                minPos.x = min(minPos.x, pos.x);
+                minPos.y = min(minPos.y, pos.y);
+                maxPos.x = max(maxPos.x, pos.x);
+                maxPos.y = max(maxPos.y, pos.y);
+            }
+        }
+        bounds = vec4(minPos.x, minPos.y, maxPos.x, maxPos.y);
+        return bounds;
     }
 
     override void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
@@ -279,6 +361,7 @@ protected:
         vec4 bounds;
         bool useMatrixBounds = autoResizedMesh;
         if (useMatrixBounds) {
+            // Composite のオフスクリーン用 bounds は、カメラ・パペットスケールを掛けた画面座標系で評価する。
             bool hasBounds = false;
             foreach (part; subParts) {
                 auto childMatrix = scaleMat * childCoreMatrix(part);
@@ -369,6 +452,7 @@ protected:
             newData.origin = vec2(0, 0);
             newData.gridAxes = [];
             super.rebuffer(newData);
+            textureInvalidated = true;
             shouldUpdateVertices = true;
             autoResizedSize = bounds.zw - bounds.xy;
             textureOffset = (bounds.xy + bounds.zw) / 2 + scaledDeformOffset - originOffset;
@@ -419,7 +503,9 @@ protected:
     }
 
     override void drawContents() {
-        if (!updateDynamicRenderStateFlags()) return;
+        if (!updateDynamicRenderStateFlags()) {
+            return;
+        }
 
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {

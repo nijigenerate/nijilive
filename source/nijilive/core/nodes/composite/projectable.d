@@ -19,7 +19,7 @@ import nijilive.core.nodes.utils;
 import std.exception;
 import std.algorithm;
 import std.algorithm.sorting;
-//import std.stdio;
+import std.stdio : writefln;
 import std.array;
 import std.format;
 import std.range;
@@ -271,6 +271,10 @@ protected:
 
         textures = [new Texture(texWidth, texHeight, 4, false, false), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true, false);
+        writefln("[ProjectableTextureResize] %s -> %ux%u (prev=%ux%u)",
+            this.typeId(), texWidth, texHeight,
+            prevTexture is null ? 0 : prevTexture.width,
+            prevTexture is null ? 0 : prevTexture.height);
         version (NijiliveRenderProfiler) projectableRecordTexAlloc(texWidth, texHeight);
         if (prevTexture !is null) {
             prevTexture.dispose();
@@ -321,7 +325,8 @@ protected:
                 loggedFirstRenderAttempt = false;
             }
         }
-        if (autoResizedMesh && boundsDirty) {
+        // boundsDirty のときのみメッシュ再計算し、実際にサイズが変わった場合だけテクスチャを無効化する
+        if (boundsDirty) {
             bool resizedNow = createSimpleMesh();
             boundsDirty = false;
             if (resizedNow) {
@@ -1270,6 +1275,10 @@ public:
         if (autoResizedMesh) {
             if (createSimpleMesh()) initialized = false;
             boundsDirty = false;
+            textureInvalidated = true;
+        }
+        if (textureInvalidated) {
+            initialized = false;
         }
         if (force || !initialized) {
             initTarget();
