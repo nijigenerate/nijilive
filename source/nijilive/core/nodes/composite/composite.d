@@ -1,4 +1,4 @@
-﻿/*
+/*
     nijilive Composite Node
     previously Inochi2D Composite Node
 
@@ -43,32 +43,18 @@ public:
     // Ensure serialization writes correct node type (not Part's typeId).
     override string typeId() { return "Composite"; }
     private vec2 prevCompositeScale;
-    private vec2 prevCompositeTranslation;
     private float prevCompositeRotation = 0;
     private float prevCameraRotation = 0;
     private bool hasPrevCompositeScale = false;
 
-    private void clearBoundsAndTextureCache() {
-        useMaxChildrenBounds = false;
-        maxChildrenBounds = vec4(0, 0, 0, 0);
-        forceResize = true;
-        boundsDirty = true;
-        textureInvalidated = true;
-        hasValidOffscreenContent = false;
-        loggedFirstRenderAttempt = false;
-        initialized = false;
-    }
-
     this(Node parent = null) {
         super(parent);
         autoResizedMesh = true;
-        clearBoundsAndTextureCache();
     }
 
     this(MeshData data, uint uuid, Node parent = null) {
         super(data, uuid, parent);
         autoResizedMesh = true;
-        clearBoundsAndTextureCache();
     }
 
 public:
@@ -77,8 +63,14 @@ public:
         return Part.transform();
     }
 
-protected:
+    protected:
     override bool mustPropagate() { return propagateMeshGroup; }
+
+    // Preserve auto-resize flag even when rebuffering generated meshes.
+    override void rebuffer(ref MeshData data) {
+        super.rebuffer(data);
+        autoResizedMesh = true;
+    }
 
     // Serialize only legacy Composite fields for compatibility.
     override void serializeSelfImpl(ref InochiSerializer serializer, bool recursive = true, SerializeNodeFlags flags=SerializeNodeFlags.All) {
@@ -141,7 +133,7 @@ protected:
 
     override void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
         super.copyFrom(src, clone, deepCopy);
-        clearBoundsAndTextureCache();
+        autoResizedMesh = true;
     }
 
 protected:
@@ -186,45 +178,42 @@ protected:
         return rot;
     }
 
-    private vec2 compositeTranslation() {
-        vec3 t = transform().translation;
-        return vec2(t.x, t.y);
-    }
-
     override bool updateDynamicRenderStateFlags() {
+        bool wasAuto = autoResizedMesh;
+
         auto currentScale = compositeAutoScale();
         auto currentRot = compositeRotation();
         auto camRot = cameraRotation();
-        auto curTrans = compositeTranslation();
         enum float scaleEps = 0.0001f;
         enum float rotEps = 0.0001f;
-        enum float transEps = 0.0001f;
         bool scaleChanged = !hasPrevCompositeScale ||
             abs(currentScale.x - prevCompositeScale.x) > scaleEps ||
             abs(currentScale.y - prevCompositeScale.y) > scaleEps;
         bool rotChanged = !hasPrevCompositeScale ||
             abs(currentRot - prevCompositeRotation) > rotEps ||
             abs(camRot - prevCameraRotation) > rotEps;
-        bool transChanged = !hasPrevCompositeScale ||
-            abs(curTrans.x - prevCompositeTranslation.x) > transEps ||
-            abs(curTrans.y - prevCompositeTranslation.y) > transEps;
-        // サイズに影響するのはスケール・回転のみ。平行移動は無関係なのでキャッシュクリア対象から外す。
+        // 変化検知→フラグ立ての後に必ず基底を呼ぶ。
+        bool changed = false;
         if (scaleChanged || rotChanged) {
-            writefln("[Composite] change detected scale=(%.3f,%.3f)->(%.3f,%.3f) rot=%.3f/%.3f trans=(%.3f,%.3f)->(%.3f,%.3f)",
-                prevCompositeScale.x, prevCompositeScale.y, currentScale.x, currentScale.y,
-                currentRot, camRot,
-                prevCompositeTranslation.x, prevCompositeTranslation.y, curTrans.x, curTrans.y);
+            //writefln("[Composite] scale/rotation changed: %s", name);
             prevCompositeScale = currentScale;
             prevCompositeRotation = currentRot;
             prevCameraRotation = camRot;
-            prevCompositeTranslation = curTrans;
+            useMaxChildrenBounds = false;
+            /*
             hasPrevCompositeScale = true;
-            clearBoundsAndTextureCache();
-        } else if (transChanged) {
-            // 平行移動のみの場合は記録だけ更新（不要なリサイズを防ぐ）
-            prevCompositeTranslation = curTrans;
+            lastInitAttemptFrame = size_t.max; // 強制的に次のinitTargetを許可
+            forceResize = true;
+            boundsDirty = true;
+            textureInvalidated = true;
+            hasValidOffscreenContent = false;
+            loggedFirstRenderAttempt = false;
+            initialized = false; // カメラ/パペットスケール・回転変化時はオフスクリーンを作り直す
+            */
+            changed = true;
         }
-        return super.updateDynamicRenderStateFlags();
+        bool base = super.updateDynamicRenderStateFlags();
+        return changed || (autoResizedMesh && !wasAuto) || base;
     }
 
     override DynamicCompositePass prepareDynamicCompositePass() {
@@ -257,42 +246,19 @@ protected:
         return child.transform.matrix;
     }
 
-    /// Bounds of a child in texture space (after offset and scaling).
-    vec4 textureSpaceBounds(Part child, const mat4 m) {
-        vec4 bounds = vec4(0, 0, 0, 0);
-        if (child.vertices.length == 0) return bounds;
-
-        vec2 minPos;
-        vec2 maxPos;
-        bool first = true;
-        auto deform = child.deformation;
-        foreach (i, vertex; child.vertices) {
-            vec2 localVertex = vertex;
-            if (i < deform.length) {
-                localVertex += deform[i];
-            }
-            vec2 pos = vec2(m * vec4(localVertex, 0, 1));
-            if (first) {
-                minPos = pos;
-                maxPos = pos;
-                first = false;
-            } else {
-                minPos.x = min(minPos.x, pos.x);
-                minPos.y = min(minPos.y, pos.y);
-                maxPos.x = max(maxPos.x, pos.x);
-                maxPos.y = max(maxPos.y, pos.y);
-            }
-        }
-        bounds = vec4(minPos.x, minPos.y, maxPos.x, maxPos.y);
-        return bounds;
-    }
-
     override void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
         super.fillDrawPacket(packet, isMask);
         if (!packet.renderable) return;
 
         // Composite consumes its own rotation/scale offscreen; display uses translation only.
         auto screen = transform();
+        auto offset = textureOffset;
+        if (!isFinite(offset.x) || !isFinite(offset.y)) {
+            offset = vec2(0, 0);
+        }
+        // オフスクリーンで差し引いたoffsetを表示時に戻す。
+        screen.translation.x += offset.x;
+        screen.translation.y += offset.y;
         screen.rotation = vec3(0, 0, 0);
         screen.scale = vec2(1, 1);
         screen.update();
@@ -361,7 +327,6 @@ protected:
         vec4 bounds;
         bool useMatrixBounds = autoResizedMesh;
         if (useMatrixBounds) {
-            // Composite のオフスクリーン用 bounds は、カメラ・パペットスケールを掛けた画面座標系で評価する。
             bool hasBounds = false;
             foreach (part; subParts) {
                 auto childMatrix = scaleMat * childCoreMatrix(part);
@@ -396,6 +361,7 @@ protected:
         auto bounds = getChildrenBounds();
         vec2 size = bounds.zw - bounds.xy;
         if (size.x <= 0 || size.y <= 0) {
+            writefln("[CreateSimpleMesh] Oops! %s %s = %s", name, size, bounds);
             return false;
         }
 
@@ -451,8 +417,8 @@ protected:
             ];
             newData.origin = vec2(0, 0);
             newData.gridAxes = [];
-            super.rebuffer(newData);
-            textureInvalidated = true;
+            // override rebuffer() で autoResizedMesh を維持するため自分の rebuffer を呼ぶ
+            rebuffer(newData);
             shouldUpdateVertices = true;
             autoResizedSize = bounds.zw - bounds.xy;
             textureOffset = (bounds.xy + bounds.zw) / 2 + scaledDeformOffset - originOffset;
@@ -474,6 +440,8 @@ protected:
                 textureOffset = newTextureOffset;
             }
         }
+        if (resizing)
+            writefln("[CreateSimpleMesh] %s %s -> %s", name, origSize, size);
         return resizing;
     }
 
@@ -503,9 +471,7 @@ protected:
     }
 
     override void drawContents() {
-        if (!updateDynamicRenderStateFlags()) {
-            return;
-        }
+        updateDynamicRenderStateFlags();
 
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
@@ -547,21 +513,20 @@ protected:
 
     /// Compositeは子を素のスケール/回転のまま描き、textureOffsetだけ平行移動してオフスクリーンへ描く。
     protected override void dynamicRenderBegin(ref RenderContext ctx) {
-        version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:dynamicRenderBegin");
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
+        updateDynamicRenderStateFlags();
+        //writefln("[dynamicRenderBegin]dynamicRenderBegin, autoResizedMesh=%s", autoResizedMesh);
         if (!hasValidOffscreenContent) {
             textureInvalidated = true;
         }
         if (autoResizedMesh && createSimpleMesh()) {
             textureInvalidated = true;
+            writefln("[TextureInvalidate] %s %s", name, bounds.zw - bounds.xy);
         }
         queuedOffscreenParts.length = 0;
         if (!renderEnabled() || ctx.renderGraph is null) return;
-        if (!updateDynamicRenderStateFlags()) {
-            return;
-        }
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
             reuseCachedTextureThisFrame = true;
