@@ -88,6 +88,21 @@ public:
             puppet.rescanNodes();
     }
 
+    // Offscreen orientation context (propagated from parent Composite).
+    void setOffscreenScaleSign(vec2 sign) {
+        offscreenScaleSign = sign;
+        hasOffscreenScaleSign = true;
+    }
+
+    void clearOffscreenScaleSign() {
+        offscreenScaleSign = vec2(1, 1);
+        hasOffscreenScaleSign = false;
+    }
+
+    vec2 currentOffscreenScaleSign() const {
+        return hasOffscreenScaleSign ? offscreenScaleSign : vec2(1, 1);
+    }
+
     void scanPartsRecurse(ref Node node) {
 
         // Don't need to scan null nodes
@@ -140,6 +155,8 @@ protected:
     bool textureInvalidated = false;
     bool shouldUpdateVertices = false;
     bool boundsDirty = true;
+    vec2 offscreenScaleSign = vec2(1, 1);
+    bool hasOffscreenScaleSign = false;
 
     uint texWidth = 0, texHeight = 0;
     vec2 autoResizedSize;

@@ -24,7 +24,7 @@ import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext;
 import nijilive.core.runtime_state : inGetCamera;
 import std.stdio : writefln;
-import std.math : isFinite;
+import std.math : isFinite, abs;
 import std.algorithm.comparison : min, max;
 import std.algorithm.iteration : map;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
@@ -154,6 +154,10 @@ protected:
     }
 
     private vec2 compositeAutoScale() {
+        // Nested Composite should use 1:1 offscreen scale (like DynamicComposite).
+        if (hasProjectableAncestor()) {
+            return vec2(1, 1);
+        }
         auto camera = inGetCamera();
         vec2 scale = camera.scale;
         if (!isFinite(scale.x) || scale.x == 0) scale.x = 1;
@@ -244,13 +248,28 @@ protected:
         super.fillDrawPacket(packet, isMask);
         if (!packet.renderable) return;
 
-        // Composite consumes its own rotation/scale offscreen; display uses translation only.
+        bool nested = hasProjectableAncestor();
+        if (nested) {
+            // ネスト時: superがセットしたmodelMatrixを使いつつ回転のみキャンセル。
+            // modelMatrixのスケール/平行移動はそのまま維持する。
+            auto m = packet.modelMatrix;
+            // 回転部分のみリセット（上三角2x2を直交スケールのみにする）。
+            float sx = sqrt(m[0][0] * m[0][0] + m[1][0] * m[1][0]);
+            float sy = sqrt(m[0][1] * m[0][1] + m[1][1] * m[1][1]);
+            if (sx == 0) sx = 1;
+            if (sy == 0) sy = 1;
+            m[0][0] = sx; m[0][1] = 0;
+            m[1][0] = 0;  m[1][1] = sy;
+            packet.modelMatrix = m;
+            return;
+        }
+
+        // 非ネスト時: 従来のComposite挙動（自スケール無視＋カメラ補正あり）。
         auto screen = transform();
-        auto offset = vec2(0, 0); //textureOffset;
+        auto offset = vec2(0,0); //textureOffset;
         if (!isFinite(offset.x) || !isFinite(offset.y)) {
             offset = vec2(0, 0);
         }
-        // オフスクリーンで差し引いたoffsetを表示時に戻す。
         screen.translation.x += offset.x;
         screen.translation.y += offset.y;
         screen.rotation = vec3(0, 0, 0);
@@ -258,7 +277,6 @@ protected:
         screen.update();
         packet.modelMatrix = screen.matrix;
 
-        // Cancel camera scale/rotation around the composite's current screen-space origin.
         auto cam = inGetCamera();
         auto camMatrix = cam.matrix;
         auto origin4 = camMatrix * packet.puppetMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
@@ -269,9 +287,7 @@ protected:
         if (!isFinite(invScaleY)) invScaleY = 1;
         float rot = cam.rotation;
         if (!isFinite(rot)) rot = 0;
-        if (cam.scale.x * cam.scale.y < 0) {
-            rot = -rot;
-        }
+        if (cam.scale.x * cam.scale.y < 0) rot = -rot;
         auto cancel = mat4.translation(origin.x, origin.y, 0) *
             mat4.identity.rotateZ(-rot) *
             mat4.identity.scaling(invScaleX, invScaleY, 1) *
