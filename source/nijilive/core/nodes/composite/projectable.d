@@ -677,7 +677,7 @@ public:
     }
 
     void drawContents() {
-        if (!updateDynamicRenderStateFlags()) return;
+        updateDynamicRenderStateFlags();
 
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
@@ -798,9 +798,7 @@ public:
         }
         queuedOffscreenParts.length = 0;
         if (!renderEnabled() || ctx.renderGraph is null) return;
-        if (!updateDynamicRenderStateFlags()) {
-            return;
-        }
+        updateDynamicRenderStateFlags();
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
             reuseCachedTextureThisFrame = true;

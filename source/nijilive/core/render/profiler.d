@@ -39,16 +39,17 @@ private class RenderProfiler {
 private:
     void report(Duration interval) {
         double secondsElapsed = interval.total!"usecs" / 1_000_000.0;
-        writeln(format!"[RenderProfiler] %.3fs window (%s frames)"(
-            secondsElapsed, frameCount));
+            writeln(format!"[RenderProfiler] %.3fs window (%s frames)"(
+                secondsElapsed, frameCount));
         auto entries = accumUsec.byKeyValue.array;
         sort!((a, b) => a.value > b.value)(entries);
         foreach (entry; entries) {
             double totalMs = entry.value / 1000.0;
             auto count = entry.key in callCounts ? callCounts[entry.key] : 0;
             double avgMs = count ? totalMs / cast(double)count : totalMs;
-            writeln(format!"  %-18s total=%8.3f ms  avg=%6.3f ms  calls=%6s"(
-                entry.key, totalMs, avgMs, count));
+            double perFrameMs = frameCount ? totalMs / cast(double)frameCount : totalMs;
+            writeln(format!"  %-18s total=%8.3f ms  avg=%6.3f ms  perFrame=%6.3f ms  calls=%6s"(
+                entry.key, totalMs, avgMs, perFrameMs, count));
         }
         if (entries.length == 0) {
             writeln("  (no instrumented passes recorded)");
