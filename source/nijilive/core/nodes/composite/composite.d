@@ -46,6 +46,9 @@ public:
     private float prevCompositeRotation = 0;
     private float prevCameraRotation = 0;
     private bool hasPrevCompositeScale = false;
+    // Bounds cache: ローカル座標で保持し、返却時に現在スケールを掛ける
+    private vec4 maxChildrenBoundsLocal;
+    private bool hasMaxChildrenBoundsLocal = false;
 
     this(Node parent = null) {
         super(parent);
@@ -199,17 +202,8 @@ protected:
             prevCompositeScale = currentScale;
             prevCompositeRotation = currentRot;
             prevCameraRotation = camRot;
-            useMaxChildrenBounds = false;
-            /*
             hasPrevCompositeScale = true;
-            lastInitAttemptFrame = size_t.max; // 強制的に次のinitTargetを許可
-            forceResize = true;
-            boundsDirty = true;
-            textureInvalidated = true;
-            hasValidOffscreenContent = false;
-            loggedFirstRenderAttempt = false;
-            initialized = false; // カメラ/パペットスケール・回転変化時はオフスクリーンを作り直す
-            */
+            useMaxChildrenBounds = false;
             changed = true;
         }
         bool base = super.updateDynamicRenderStateFlags();
@@ -252,7 +246,7 @@ protected:
 
         // Composite consumes its own rotation/scale offscreen; display uses translation only.
         auto screen = transform();
-        auto offset = textureOffset;
+        auto offset = vec2(0, 0); //textureOffset;
         if (!isFinite(offset.x) || !isFinite(offset.y)) {
             offset = vec2(0, 0);
         }
@@ -311,40 +305,54 @@ protected:
     override vec4 getChildrenBounds(bool forceUpdate = true) {
         version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:getChildrenBounds");
         auto scale = compositeAutoScale();
-        auto scaleMat = mat4.identity.scaling(scale.x, scale.y, 1);
         auto frameId = currentDynamicCompositeFrame();
         if (useMaxChildrenBounds) {
             if (frameId - maxBoundsStartFrame < MaxBoundsResetInterval) {
+                if (hasMaxChildrenBoundsLocal) {
+                    vec4 scaled = maxChildrenBoundsLocal;
+                    scaled.x *= scale.x;
+                    scaled.z *= scale.x;
+                    scaled.y *= scale.y;
+                    scaled.w *= scale.y;
+                    return scaled;
+                }
                 return maxChildrenBounds;
             }
             useMaxChildrenBounds = false;
+            hasMaxChildrenBoundsLocal = false;
         }
         if (forceUpdate) {
             foreach (p; subParts) {
                 if (p !is null) p.updateBounds();
             }
         }
-        vec4 bounds;
+        vec4 bounds;          // スケール適用後
+        vec4 localBounds;     // スケール適用前（キャッシュ用）
         bool useMatrixBounds = autoResizedMesh;
         if (useMatrixBounds) {
             bool hasBounds = false;
             foreach (part; subParts) {
-                auto childMatrix = scaleMat * childCoreMatrix(part);
+                auto childMatrix = childCoreMatrix(part);
                 auto childBounds = localBoundsFromMatrix(part, childMatrix);
                 if (!hasBounds) {
-                    bounds = childBounds;
+                    localBounds = childBounds;
                     hasBounds = true;
                 } else {
-                    bounds.x = min(bounds.x, childBounds.x);
-                    bounds.y = min(bounds.y, childBounds.y);
-                    bounds.z = max(bounds.z, childBounds.z);
-                    bounds.w = max(bounds.w, childBounds.w);
+                    localBounds.x = min(localBounds.x, childBounds.x);
+                    localBounds.y = min(localBounds.y, childBounds.y);
+                    localBounds.z = max(localBounds.z, childBounds.z);
+                    localBounds.w = max(localBounds.w, childBounds.w);
                 }
             }
             if (!hasBounds) {
-                bounds = vec4(transform.translation.x * scale.x, transform.translation.y * scale.y,
-                    transform.translation.x * scale.x, transform.translation.y * scale.y);
+                localBounds = vec4(transform.translation.x, transform.translation.y,
+                    transform.translation.x, transform.translation.y);
             }
+            bounds = localBounds;
+            bounds.x *= scale.x;
+            bounds.z *= scale.x;
+            bounds.y *= scale.y;
+            bounds.w *= scale.y;
         } else {
             bounds = mergeBounds(subParts.map!(p=>p.bounds), transform.translation.xyxy);
         }
@@ -352,13 +360,20 @@ protected:
             maxChildrenBounds = bounds;
             useMaxChildrenBounds = true;
             maxBoundsStartFrame = frameId;
+            if (useMatrixBounds) {
+                maxChildrenBoundsLocal = localBounds;
+                hasMaxChildrenBoundsLocal = true;
+            } else {
+                hasMaxChildrenBoundsLocal = false;
+            }
         }
         return bounds;
     }
 
     override bool createSimpleMesh() {
         version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:createSimpleMesh");
-        auto bounds = getChildrenBounds();
+        // 表示ズレを防ぐため、メッシュ生成時は必ず最新の子boundsを再計算する
+        auto bounds = getChildrenBounds(true);
         vec2 size = bounds.zw - bounds.xy;
         if (size.x <= 0 || size.y <= 0) {
             writefln("[CreateSimpleMesh] Oops! %s %s = %s", name, size, bounds);
@@ -454,6 +469,20 @@ protected:
         maxChildrenBounds = getChildrenBounds(false);
         useMaxChildrenBounds = true;
         maxBoundsStartFrame = frameId;
+        if (autoResizedMesh) {
+            // 現在スケールでのboundsからローカルキャッシュを復元
+            auto scale = compositeAutoScale();
+            maxChildrenBoundsLocal = maxChildrenBounds;
+            if (scale.x != 0 && scale.y != 0) {
+                maxChildrenBoundsLocal.x /= scale.x;
+                maxChildrenBoundsLocal.z /= scale.x;
+                maxChildrenBoundsLocal.y /= scale.y;
+                maxChildrenBoundsLocal.w /= scale.y;
+            }
+            hasMaxChildrenBoundsLocal = true;
+        } else {
+            hasMaxChildrenBoundsLocal = false;
+        }
         if (targetDrawable !is null) {
             vec4 b = targetDrawable.bounds;
             if (!boundsFinite(b)) {
