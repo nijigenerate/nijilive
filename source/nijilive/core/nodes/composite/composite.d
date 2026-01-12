@@ -372,8 +372,8 @@ protected:
 
     override bool createSimpleMesh() {
         version (NijiliveRenderProfiler) auto __prof = profileScope("Composite:createSimpleMesh");
-        // 表示ズレを防ぐため、メッシュ生成時は必ず最新の子boundsを再計算する
-        auto bounds = getChildrenBounds(true);
+        // キャッシュが有効な場合はそれを活用し、無効時のみ再計算してコストを下げる
+        auto bounds = getChildrenBounds(!useMaxChildrenBounds);
         vec2 size = bounds.zw - bounds.xy;
         if (size.x <= 0 || size.y <= 0) {
             writefln("[CreateSimpleMesh] Oops! %s %s = %s", name, size, bounds);
