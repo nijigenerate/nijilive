@@ -376,7 +376,7 @@ protected:
         auto bounds = getChildrenBounds(!useMaxChildrenBounds);
         vec2 size = bounds.zw - bounds.xy;
         if (size.x <= 0 || size.y <= 0) {
-            writefln("[CreateSimpleMesh] Oops! %s %s = %s", name, size, bounds);
+//            writefln("[CreateSimpleMesh] Oops! %s %s = %s", name, size, bounds);
             return false;
         }
 
@@ -455,8 +455,7 @@ protected:
                 textureOffset = newTextureOffset;
             }
         }
-        if (resizing)
-            writefln("[CreateSimpleMesh] %s %s -> %s", name, origSize, size);
+//        if (resizing) writefln("[CreateSimpleMesh] %s %s -> %s", name, origSize, size);
         return resizing;
     }
 
