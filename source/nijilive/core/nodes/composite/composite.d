@@ -250,10 +250,16 @@ protected:
 
         bool nested = hasProjectableAncestor();
         if (nested) {
-            // ネスト時: superがセットしたmodelMatrixを使いつつ回転のみキャンセル。
-            // modelMatrixのスケール/平行移動はそのまま維持する。
-            auto m = packet.modelMatrix;
-            // 回転部分のみリセット（上三角2x2を直交スケールのみにする）。
+            // ネスト時: superがセットしたmodelMatrixを使いつつ、ローカルスケールだけ打ち消し、回転もキャンセル。
+            mat4 m = packet.modelMatrix;
+
+            // 自身のローカルスケールを逆方向に掛けて打ち消す（親やパペット/カメラのスケールは維持）。
+            auto localScale = transform().scale;
+            float invLocalX = (localScale.x == 0 || !isFinite(localScale.x)) ? 1 : 1 / localScale.x;
+            float invLocalY = (localScale.y == 0 || !isFinite(localScale.y)) ? 1 : 1 / localScale.y;
+            m = m * mat4.identity.scaling(invLocalX, invLocalY, 1);
+
+            // 回転部分のみリセットし、スケールと平行移動を残す。
             float sx = sqrt(m[0][0] * m[0][0] + m[1][0] * m[1][0]);
             float sy = sqrt(m[0][1] * m[0][1] + m[1][1] * m[1][1]);
             if (sx == 0) sx = 1;
