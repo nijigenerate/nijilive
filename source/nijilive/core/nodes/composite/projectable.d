@@ -25,11 +25,32 @@ import std.format;
 import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil, abs;
+import std.stdio : writefln;
+import std.file : tempDir, append;
+import std.path : buildPath;
+import std.datetime : Clock;
+import std.exception : collectException;
+import std.format : format;
+import std.file : write; // for log truncation
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 import nijilive.core.runtime_state : inGetCamera;
+
+private string compositeLogPath() {
+    static string path;
+    if (path.length == 0) {
+        path = buildPath(tempDir(), "nijilive_composite.log");
+        collectException(write(path, cast(ubyte[])""));
+    }
+    return path;
+}
+
+private void logComposite(string msg) {
+    auto ts = Clock.currTime().toISOExtString();
+    collectException(append(compositeLogPath(), ts ~ " " ~ msg ~ "\n"));
+}
 
 package(nijilive) {
     __gshared size_t projectableFrameCounter;
@@ -183,7 +204,12 @@ protected:
     }
 
     DynamicCompositePass prepareDynamicCompositePass() {
-        if (textures.length == 0 || textures[0] is null) return null;
+        if (textures.length == 0 || textures[0] is null) {
+            auto msg = format("[nijilive] prepareDynamicCompositePass skip: %s tex0 missing len=%s", name, textures.length);
+            writefln(msg);
+            logComposite(msg);
+            return null;
+        }
         if (offscreenSurface is null) {
             offscreenSurface = new DynamicCompositeSurface();
         }
@@ -195,7 +221,12 @@ protected:
                 count = i + 1;
             }
         }
-        if (count == 0) return null;
+        if (count == 0) {
+            auto msg = format("[nijilive] prepareDynamicCompositePass skip: %s no valid textures", name);
+            writefln(msg);
+            logComposite(msg);
+            return null;
+        }
         offscreenSurface.textureCount = count;
         offscreenSurface.stencil = stencil;
 
@@ -204,6 +235,13 @@ protected:
         pass.scale = vec2(transform.scale.x, transform.scale.y);
         pass.rotationZ = transform.rotation.z;
         pass.autoScaled = false;
+        auto msg = format("[nijilive] prepareDynamicCompositePass ok: %s texCount=%s size0=%sx%s scale=%s rotZ=%s autoScaled=%s",
+            name, count,
+            offscreenSurface.textures[0] is null ? 0 : offscreenSurface.textures[0].width,
+            offscreenSurface.textures[0] is null ? 0 : offscreenSurface.textures[0].height,
+            pass.scale, pass.rotationZ, pass.autoScaled);
+        writefln(msg);
+        logComposite(msg);
         return pass;
     }
 
@@ -814,12 +852,26 @@ public:
             textureInvalidated = true;
         }
         queuedOffscreenParts.length = 0;
-        if (!renderEnabled() || ctx.renderGraph is null) return;
+        if (!renderEnabled()) {
+            auto msg = format("[nijilive] dynamicRenderBegin skip: %s render disabled", name);
+            writefln(msg);
+            logComposite(msg);
+            return;
+        }
+        if (ctx.renderGraph is null) {
+            auto msg = format("[nijilive] dynamicRenderBegin skip: %s renderGraph=null", name);
+            writefln(msg);
+            logComposite(msg);
+            return;
+        }
         updateDynamicRenderStateFlags();
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
+            auto msg = format("[nijilive] dynamicRenderBegin reuse cached: %s", name);
+            writefln(msg);
+            logComposite(msg);
             return;
         }
 
@@ -828,6 +880,9 @@ public:
         if (passData is null) {
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
+            auto msg = format("[nijilive] dynamicRenderBegin passData null: %s", name);
+            writefln(msg);
+            logComposite(msg);
             return;
         }
         dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
@@ -930,6 +985,9 @@ public:
             textureInvalidated = false;
             if (deferred > 0) deferred--;
             hasValidOffscreenContent = true;
+            auto msg = format("[nijilive] dynamicRenderEnd complete: %s redrew", name);
+            writefln(msg);
+            logComposite(msg);
         }
         loggedFirstRenderAttempt = true;
         dynamicScopeActive = false;

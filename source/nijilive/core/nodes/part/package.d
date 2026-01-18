@@ -21,10 +21,11 @@ import nijilive.core;
 import nijilive.math;
 import nijilive.core.render.shared_deform_buffer;
 version(InDoesRender) import nijilive.core.runtime_state : currentRenderBackend;
+import nijilive.core.runtime_state : inGetCamera;
 import std.exception;
 import std.algorithm.mutation : copy;
 public import nijilive.core.nodes.common;
-import std.math : isNaN;
+import std.math : isNaN, isFinite;
 import std.algorithm.comparison : min, max;
 
 public import nijilive.core.meshdata;
@@ -96,6 +97,13 @@ enum TextureUsage : size_t {
     Emissive,
     Bumpmap,
     COUNT
+}
+
+/// Combined render-space parameters derived from camera and puppet transforms.
+package(nijilive) struct RenderSpace {
+    mat4 matrix;
+    vec2 scale;
+    float rotation;
 }
 
 /**
@@ -686,14 +694,40 @@ public:
         }
     }
 
+    /// Build a render-space matrix/params that treat camera and puppet transforms uniformly.
+    package(nijilive) RenderSpace currentRenderSpace(bool forceIgnorePuppet = false) {
+        auto cam = inGetCamera();
+        bool usePuppet = !forceIgnorePuppet && !ignorePuppet && puppet !is null;
+        mat4 puppetMatrix = usePuppet ? puppet.transform.matrix : mat4.identity;
+        vec2 puppetScale = usePuppet ? puppet.transform.scale : vec2(1, 1);
+        float puppetRot = usePuppet ? puppet.transform.rotation.z : 0;
+
+        float sx = cam.scale.x * puppetScale.x;
+        float sy = cam.scale.y * puppetScale.y;
+        if (!isFinite(sx) || sx == 0) sx = 1;
+        if (!isFinite(sy) || sy == 0) sy = 1;
+
+        float rot = cam.rotation + puppetRot;
+        if (!isFinite(rot)) rot = 0;
+        if (sx * sy < 0) rot = -rot;
+
+        RenderSpace space;
+        space.matrix = cam.matrix * puppetMatrix;
+        space.scale = vec2(sx, sy);
+        space.rotation = rot;
+        return space;
+    }
+
     void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
         packet.isMask = isMask;
         packet.renderable = backendRenderable();
 
         mat4 modelMatrix = immediateModelMatrix();
         packet.modelMatrix = modelMatrix;
-        mat4 puppetMatrix = (!ignorePuppet && puppet !is null) ? puppet.transform.matrix : mat4.identity;
-        packet.puppetMatrix = puppetMatrix;
+        auto renderSpace = currentRenderSpace();
+        packet.renderMatrix = renderSpace.matrix;
+        packet.renderScale = renderSpace.scale;
+        packet.renderRotation = renderSpace.rotation;
 
         packet.opacity = clamp(offsetOpacity * opacity, 0, 1);
         packet.emissionStrength = emissionStrength * offsetEmissionStrength;

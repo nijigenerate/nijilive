@@ -83,7 +83,9 @@ extern(C) struct NjgPartDrawPacket {
     bool isMask;
     bool renderable;
     mat4 modelMatrix;
-    mat4 puppetMatrix;
+    mat4 renderMatrix;
+    vec2 renderScale;
+    float renderRotation;
     vec3 clampedTint;
     vec3 clampedScreen;
     float opacity;
@@ -282,7 +284,9 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, UnityRendere
     result.isMask = packet.isMask;
     result.renderable = packet.renderable;
     result.modelMatrix = packet.modelMatrix;
-    result.puppetMatrix = packet.puppetMatrix;
+    result.renderMatrix = packet.renderMatrix;
+    result.renderScale = packet.renderScale;
+    result.renderRotation = packet.renderRotation;
     result.clampedTint = packet.clampedTint;
     result.clampedScreen = packet.clampedScreen;
     result.opacity = packet.opacity;

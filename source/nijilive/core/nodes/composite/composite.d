@@ -283,23 +283,18 @@ protected:
         screen.update();
         packet.modelMatrix = screen.matrix;
 
-        auto cam = inGetCamera();
-        auto camMatrix = cam.matrix;
-        auto origin4 = camMatrix * packet.puppetMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
+        auto origin4 = packet.renderMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
         vec2 origin = origin4.xy;
-        float invScaleX = cam.scale.x == 0 ? 1 : 1 / cam.scale.x;
-        float invScaleY = cam.scale.y == 0 ? 1 : 1 / cam.scale.y;
+        float invScaleX = packet.renderScale.x == 0 ? 1 : 1 / packet.renderScale.x;
+        float invScaleY = packet.renderScale.y == 0 ? 1 : 1 / packet.renderScale.y;
         if (!isFinite(invScaleX)) invScaleX = 1;
         if (!isFinite(invScaleY)) invScaleY = 1;
-        float rot = cam.rotation;
-        if (!isFinite(rot)) rot = 0;
-        if (cam.scale.x * cam.scale.y < 0) rot = -rot;
+        float rot = packet.renderRotation;
         auto cancel = mat4.translation(origin.x, origin.y, 0) *
             mat4.identity.rotateZ(-rot) *
             mat4.identity.scaling(invScaleX, invScaleY, 1) *
             mat4.translation(-origin.x, -origin.y, 0);
-        auto correction = camMatrix.inverse * cancel * camMatrix;
-        packet.puppetMatrix = correction * packet.puppetMatrix;
+        packet.renderMatrix = cancel * packet.renderMatrix;
     }
 
     vec4 localBoundsFromMatrix(Part child, const mat4 matrix) {
