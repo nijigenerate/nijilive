@@ -218,9 +218,7 @@ protected:
         auto trans = transform();
         float sx = (trans.scale.x == 0 || !isFinite(trans.scale.x)) ? 1 : trans.scale.x;
         float sy = (trans.scale.y == 0 || !isFinite(trans.scale.y)) ? 1 : trans.scale.y;
-        float rot = isFinite(trans.rotation.z) ? trans.rotation.z : 0;
         auto invComposite = mat4.translation(-trans.translation.x, -trans.translation.y, 0) *
-            mat4.zRotation(-rot) *
             mat4.scaling(1 / sx, 1 / sy, 1);
         auto childLocal = invComposite * child.transform.matrix;
         auto translate = mat4.translation(-offset.x, -offset.y, 0);
@@ -240,15 +238,10 @@ protected:
     private ScreenSpaceData screenSpaceData() {
         auto renderSpace = currentRenderSpace();
         auto screen = transform();
-        vec2 offset = vec2(0, 0);
-        if (isFinite(textureOffset.x) && isFinite(textureOffset.y)) {
-            offset = textureOffset;
-        }
-        screen.translation.x += offset.x;
-        screen.translation.y += offset.y;
         screen.update();
         ScreenSpaceData data;
         data.renderMatrix = renderSpace.matrix;
+        // textureOffset is already baked into the auto-resized mesh vertices.
         data.modelMatrix = screen.matrix;
         return data;
     }
