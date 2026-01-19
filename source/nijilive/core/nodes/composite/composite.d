@@ -153,7 +153,22 @@ protected:
     }
 
     private vec2 compositeAutoScale() {
-        return vec2(1, 1);
+        // Nested Composite should use 1:1 offscreen scale (like DynamicComposite).
+        if (hasProjectableAncestor()) {
+            return vec2(1, 1);
+        }
+        auto camera = inGetCamera();
+        vec2 scale = camera.scale;
+        if (!isFinite(scale.x) || scale.x == 0) scale.x = 1;
+        if (!isFinite(scale.y) || scale.y == 0) scale.y = 1;
+        if (puppet !is null) {
+            auto puppetScale = puppet.transform.scale;
+            if (!isFinite(puppetScale.x) || puppetScale.x == 0) puppetScale.x = 1;
+            if (!isFinite(puppetScale.y) || puppetScale.y == 0) puppetScale.y = 1;
+            scale.x *= puppetScale.x;
+            scale.y *= puppetScale.y;
+        }
+        return vec2(abs(scale.x), abs(scale.y));
     }
 
     private float compositeRotation() {
@@ -206,18 +221,19 @@ protected:
         return pass;
     }
 
-    /// Build child matrix with texture offset; remove Composite transform for offscreen.
+    /// Build child matrix with texture offset; treat Composite as transparent.
     mat4 childOffscreenMatrix(Part child) {
-        vec2 offset = vec2(0, 0);
-        if (isFinite(textureOffset.x) && isFinite(textureOffset.y)) {
-            offset = textureOffset;
+        auto scale = compositeAutoScale();
+        auto scaleMat = mat4.identity.scaling(scale.x, scale.y, 1);
+        auto offset = textureOffset;
+        if (!isFinite(offset.x) || !isFinite(offset.y)) {
+            offset = vec2(0, 0);
         }
+        // Composite auto-scales: keep rotation/scale in offscreen render,
+        // only remove translation to align with texture space.
         auto trans = transform();
-        float sx = (trans.scale.x == 0 || !isFinite(trans.scale.x)) ? 1 : trans.scale.x;
-        float sy = (trans.scale.y == 0 || !isFinite(trans.scale.y)) ? 1 : trans.scale.y;
-        auto invComposite = mat4.translation(-trans.translation.x, -trans.translation.y, 0) *
-            mat4.scaling(1 / sx, 1 / sy, 1);
-        auto childLocal = invComposite * child.transform.matrix;
+        auto invTranslate = mat4.translation(-trans.translation.x * scale.x, -trans.translation.y * scale.y, 0);
+        auto childLocal = invTranslate * (scaleMat * child.transform.matrix);
         auto translate = mat4.translation(-offset.x, -offset.y, 0);
         return translate * childLocal;
     }
@@ -284,9 +300,27 @@ protected:
         }
 
         // 非ネスト時: 従来のComposite挙動（自スケール無視＋カメラ補正あり）。
-        auto screenSpace = screenSpaceData();
-        packet.modelMatrix = screenSpace.modelMatrix;
-        packet.renderMatrix = screenSpace.renderMatrix;
+        auto screen = transform();
+        screen.rotation = vec3(0, 0, 0);
+        screen.scale = vec2(1, 1);
+        screen.update();
+        packet.modelMatrix = screen.matrix;
+
+        auto renderSpace = currentRenderSpace();
+        auto renderMatrix = packet.renderMatrix;
+        auto origin4 = renderMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
+        vec2 origin = origin4.xy;
+        float invScaleX = renderSpace.scale.x == 0 ? 1 : 1 / renderSpace.scale.x;
+        float invScaleY = renderSpace.scale.y == 0 ? 1 : 1 / renderSpace.scale.y;
+        if (!isFinite(invScaleX)) invScaleX = 1;
+        if (!isFinite(invScaleY)) invScaleY = 1;
+        float rot = renderSpace.rotation;
+        if (!isFinite(rot)) rot = 0;
+        auto cancel = mat4.translation(origin.x, origin.y, 0) *
+            mat4.identity.rotateZ(-rot) *
+            mat4.identity.scaling(invScaleX, invScaleY, 1) *
+            mat4.translation(-origin.x, -origin.y, 0);
+        packet.renderMatrix = cancel * renderMatrix;
         packet.renderScale = vec2(1, 1);
         packet.renderRotation = 0;
     }
