@@ -263,7 +263,8 @@ protected:
         if (onscreenY != 0 && (ortho[1][1] > 0) != (onscreenY > 0)) {
             ortho = mat4.orthographic(-halfW, halfW, -halfH, halfH, 0, ushort.max);
         }
-        return ortho;
+        // Offscreen Y is inverted relative to onscreen; flip here to match expected orientation.
+        return mat4.scaling(1, -1, 1) * ortho;
     }
 
     override void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
