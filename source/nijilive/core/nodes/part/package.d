@@ -389,6 +389,8 @@ public:
 private:
     bool hasOffscreenModelMatrix = false;
     mat4 offscreenModelMatrix;
+    bool hasOffscreenRenderMatrix = false;
+    mat4 offscreenRenderMatrix;
 
 public:
 
@@ -728,6 +730,12 @@ public:
         packet.renderMatrix = renderSpace.matrix;
         packet.renderScale = renderSpace.scale;
         packet.renderRotation = renderSpace.rotation;
+        if (hasOffscreenModelMatrix) {
+            // Offscreen model matrices are already in render space.
+            packet.renderMatrix = hasOffscreenRenderMatrix ? offscreenRenderMatrix : mat4.identity;
+            packet.renderScale = vec2(1, 1);
+            packet.renderRotation = 0;
+        }
 
         packet.opacity = clamp(offsetOpacity * opacity, 0, 1);
         packet.emissionStrength = emissionStrength * offsetEmissionStrength;
@@ -774,8 +782,29 @@ package(nijilive) void setOffscreenModelMatrix(const mat4 matrix) {
     hasOffscreenModelMatrix = true;
 }
 
+package(nijilive) void setOffscreenRenderMatrix(const mat4 matrix) {
+    offscreenRenderMatrix = matrix;
+    hasOffscreenRenderMatrix = true;
+}
+
+package(nijilive) bool hasOffscreenModelMatrixActive() const {
+    return hasOffscreenModelMatrix;
+}
+
+package(nijilive) bool hasOffscreenRenderMatrixActive() const {
+    return hasOffscreenRenderMatrix;
+}
+
+package(nijilive) mat4 offscreenRenderMatrixValue() const {
+    return offscreenRenderMatrix;
+}
+
 package(nijilive) void clearOffscreenModelMatrix() {
     hasOffscreenModelMatrix = false;
+}
+
+package(nijilive) void clearOffscreenRenderMatrix() {
+    hasOffscreenRenderMatrix = false;
 }
 
 package(nijilive) bool backendRenderable() {

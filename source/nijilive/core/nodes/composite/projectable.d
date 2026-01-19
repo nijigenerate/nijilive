@@ -52,6 +52,15 @@ private void logComposite(string msg) {
     collectException(append(compositeLogPath(), ts ~ " " ~ msg ~ "\n"));
 }
 
+package(nijilive) void compositeLogClear() {
+    auto path = compositeLogPath();
+    collectException(write(path, cast(ubyte[])""));
+}
+
+package(nijilive) void logCompositeMessage(string msg) {
+    logComposite(msg);
+}
+
 package(nijilive) {
     __gshared size_t projectableFrameCounter;
 
@@ -193,6 +202,8 @@ protected:
     bool useMaxChildrenBounds = false;
     size_t maxBoundsStartFrame = 0;
     size_t lastInitAttemptFrame = size_t.max;
+    size_t cachedRenderSpaceFrame = size_t.max;
+    mat4 cachedRenderSpaceMatrix = mat4.identity;
     enum size_t MaxBoundsResetInterval = 120;
     bool hasProjectableAncestor() {
         for (Node node = parent; node !is null; node = node.parent) {
@@ -201,6 +212,18 @@ protected:
             }
         }
         return false;
+    }
+
+    mat4 renderSpaceMatrix() {
+        if (hasProjectableAncestor()) {
+            return mat4.identity;
+        }
+        auto frameId = currentProjectableFrame();
+        if (cachedRenderSpaceFrame != frameId) {
+            cachedRenderSpaceFrame = frameId;
+            cachedRenderSpaceMatrix = currentRenderSpace().matrix;
+        }
+        return cachedRenderSpaceMatrix;
     }
 
     DynamicCompositePass prepareDynamicCompositePass() {
@@ -742,6 +765,7 @@ public:
 
         selfSort();
 
+        auto renderSpace = renderSpaceMatrix();
         DynamicCompositePass immediatePass;
         version (InDoesRender) {
             auto backendBegin = puppet ? puppet.renderBackend : null;
@@ -761,13 +785,13 @@ public:
             if (cast(Mask)child !is null) {
                 continue;
             }
-            auto childMatrix = correction * child.transform.matrix;
+            auto childMatrix = renderSpace * correction * child.transform.matrix;
             child.setOffscreenModelMatrix(childMatrix);
             child.drawOne();
             child.clearOffscreenModelMatrix();
         }
         foreach (mask; maskParts) {
-            auto maskMatrix = correction * mask.transform.matrix;
+            auto maskMatrix = renderSpace * correction * mask.transform.matrix;
             mask.setOffscreenModelMatrix(maskMatrix);
             mask.renderMask(false);
             mask.clearOffscreenModelMatrix();
@@ -889,16 +913,16 @@ public:
         dynamicScopeActive = true;
 
         queuedOffscreenParts.length = 0;
+        auto renderSpace = renderSpaceMatrix();
         auto translate = mat4.translation(-textureOffset.x, -textureOffset.y, 0);
         auto correction = fullTransformMatrix() * transform.matrix.inverse;
-        auto childBasis = translate * transform.matrix.inverse;
 
         foreach (Part child; subParts) {
             if (cast(Mask)child !is null) {
                 continue;
             }
             auto childMatrix = correction * child.transform.matrix;
-            auto finalMatrix = childBasis * childMatrix;
+            auto finalMatrix = translate * renderSpace * childMatrix;
             child.setOffscreenModelMatrix(finalMatrix);
             if (auto dynChild = cast(Projectable)child) {
                 dynChild.renderNestedOffscreen(ctx);
@@ -909,7 +933,7 @@ public:
         }
         foreach (mask; maskParts) {
             auto maskMatrix = correction * mask.transform.matrix;
-            auto finalMatrix = translate * maskMatrix;
+            auto finalMatrix = translate * renderSpace * maskMatrix;
             mask.setOffscreenModelMatrix(finalMatrix);
             mask.enqueueRenderCommands(ctx);
             queuedOffscreenParts ~= mask;
@@ -966,16 +990,26 @@ public:
                 }
 
                 foreach (part; queuedForCleanup) {
-                    if (auto p = cast(Part)part) p.clearOffscreenModelMatrix();
-                    else if (auto m = cast(Mask)part) m.clearOffscreenModelMatrix();
+                    if (auto p = cast(Part)part) {
+                        p.clearOffscreenModelMatrix();
+                        p.clearOffscreenRenderMatrix();
+                    } else if (auto m = cast(Mask)part) {
+                        m.clearOffscreenModelMatrix();
+                        m.clearOffscreenRenderMatrix();
+                    }
                 }
             });
         } else {
             auto cleanupParts = queuedOffscreenParts.dup;
             enqueueRenderCommands(ctx, (RenderCommandEmitter emitter) {
                 foreach (part; cleanupParts) {
-                    if (auto p = cast(Part)part) p.clearOffscreenModelMatrix();
-                    else if (auto m = cast(Mask)part) m.clearOffscreenModelMatrix();
+                    if (auto p = cast(Part)part) {
+                        p.clearOffscreenModelMatrix();
+                        p.clearOffscreenRenderMatrix();
+                    } else if (auto m = cast(Mask)part) {
+                        m.clearOffscreenModelMatrix();
+                        m.clearOffscreenRenderMatrix();
+                    }
                 }
             });
         }

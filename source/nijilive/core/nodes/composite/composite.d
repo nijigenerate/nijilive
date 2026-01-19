@@ -27,11 +27,13 @@ import std.stdio : writefln;
 import std.math : isFinite, abs;
 import std.algorithm.comparison : min, max;
 import std.algorithm.iteration : map;
+import std.format : format;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 
 package(nijilive) {
     void inInitComposite() {
         inRegisterNodeType!Composite;
+        compositeLogClear();
     }
 }
 
@@ -154,22 +156,7 @@ protected:
     }
 
     private vec2 compositeAutoScale() {
-        // Nested Composite should use 1:1 offscreen scale (like DynamicComposite).
-        if (hasProjectableAncestor()) {
-            return vec2(1, 1);
-        }
-        auto camera = inGetCamera();
-        vec2 scale = camera.scale;
-        if (!isFinite(scale.x) || scale.x == 0) scale.x = 1;
-        if (!isFinite(scale.y) || scale.y == 0) scale.y = 1;
-        if (puppet !is null) {
-            auto puppetScale = puppet.transform.scale;
-            if (!isFinite(puppetScale.x) || puppetScale.x == 0) puppetScale.x = 1;
-            if (!isFinite(puppetScale.y) || puppetScale.y == 0) puppetScale.y = 1;
-            scale.x *= puppetScale.x;
-            scale.y *= puppetScale.y;
-        }
-        return vec2(abs(scale.x), abs(scale.y));
+        return vec2(1, 1);
     }
 
     private float compositeRotation() {
@@ -222,19 +209,20 @@ protected:
         return pass;
     }
 
-    /// Build child matrix with texture offset; treat Composite as transparent.
+    /// Build child matrix with texture offset; remove Composite transform for offscreen.
     mat4 childOffscreenMatrix(Part child) {
-        auto scale = compositeAutoScale();
-        auto scaleMat = mat4.identity.scaling(scale.x, scale.y, 1);
-        auto offset = textureOffset;
-        if (!isFinite(offset.x) || !isFinite(offset.y)) {
-            offset = vec2(0, 0);
+        vec2 offset = vec2(0, 0);
+        if (isFinite(textureOffset.x) && isFinite(textureOffset.y)) {
+            offset = textureOffset;
         }
-        // Composite auto-scales: keep rotation/scale in offscreen render,
-        // only remove translation to align with texture space.
         auto trans = transform();
-        auto invTranslate = mat4.translation(-trans.translation.x * scale.x, -trans.translation.y * scale.y, 0);
-        auto childLocal = invTranslate * (scaleMat * child.transform.matrix);
+        float sx = (trans.scale.x == 0 || !isFinite(trans.scale.x)) ? 1 : trans.scale.x;
+        float sy = (trans.scale.y == 0 || !isFinite(trans.scale.y)) ? 1 : trans.scale.y;
+        float rot = isFinite(trans.rotation.z) ? trans.rotation.z : 0;
+        auto invComposite = mat4.translation(-trans.translation.x, -trans.translation.y, 0) *
+            mat4.zRotation(-rot) *
+            mat4.scaling(1 / sx, 1 / sy, 1);
+        auto childLocal = invComposite * child.transform.matrix;
         auto translate = mat4.translation(-offset.x, -offset.y, 0);
         return translate * childLocal;
     }
@@ -242,6 +230,40 @@ protected:
     /// Core child matrix without texture offset (for bounds calculation).
     mat4 childCoreMatrix(Part child) {
         return child.transform.matrix;
+    }
+
+    private struct ScreenSpaceData {
+        mat4 renderMatrix;
+        mat4 modelMatrix;
+    }
+
+    private ScreenSpaceData screenSpaceData() {
+        auto renderSpace = currentRenderSpace();
+        auto screen = transform();
+        vec2 offset = vec2(0, 0);
+        if (isFinite(textureOffset.x) && isFinite(textureOffset.y)) {
+            offset = textureOffset;
+        }
+        screen.translation.x += offset.x;
+        screen.translation.y += offset.y;
+        screen.update();
+        ScreenSpaceData data;
+        data.renderMatrix = renderSpace.matrix;
+        data.modelMatrix = screen.matrix;
+        return data;
+    }
+    private mat4 offscreenRenderMatrix() {
+        auto tex = textures.length > 0 ? textures[0] : null;
+        if (tex is null) return mat4.identity;
+        float halfW = cast(float)tex.width / 2;
+        float halfH = cast(float)tex.height / 2;
+        auto onscreenMatrix = currentRenderSpace().matrix;
+        float onscreenY = onscreenMatrix[1][1];
+        auto ortho = mat4.orthographic(-halfW, halfW, halfH, -halfH, 0, ushort.max);
+        if (onscreenY != 0 && (ortho[1][1] > 0) != (onscreenY > 0)) {
+            ortho = mat4.orthographic(-halfW, halfW, -halfH, halfH, 0, ushort.max);
+        }
+        return ortho;
     }
 
     override void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
@@ -271,30 +293,15 @@ protected:
         }
 
         // 非ネスト時: 従来のComposite挙動（自スケール無視＋カメラ補正あり）。
-        auto screen = transform();
-        auto offset = vec2(0,0); //textureOffset;
-        if (!isFinite(offset.x) || !isFinite(offset.y)) {
-            offset = vec2(0, 0);
-        }
-        screen.translation.x += offset.x;
-        screen.translation.y += offset.y;
-        screen.rotation = vec3(0, 0, 0);
-        screen.scale = vec2(1, 1);
-        screen.update();
-        packet.modelMatrix = screen.matrix;
-
-        auto origin4 = packet.renderMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
-        vec2 origin = origin4.xy;
-        float invScaleX = packet.renderScale.x == 0 ? 1 : 1 / packet.renderScale.x;
-        float invScaleY = packet.renderScale.y == 0 ? 1 : 1 / packet.renderScale.y;
-        if (!isFinite(invScaleX)) invScaleX = 1;
-        if (!isFinite(invScaleY)) invScaleY = 1;
-        float rot = packet.renderRotation;
-        auto cancel = mat4.translation(origin.x, origin.y, 0) *
-            mat4.identity.rotateZ(-rot) *
-            mat4.identity.scaling(invScaleX, invScaleY, 1) *
-            mat4.translation(-origin.x, -origin.y, 0);
-        packet.renderMatrix = cancel * packet.renderMatrix;
+        auto screenSpace = screenSpaceData();
+        packet.modelMatrix = screenSpace.modelMatrix;
+        packet.renderMatrix = screenSpace.renderMatrix;
+        packet.renderScale = vec2(1, 1);
+        packet.renderRotation = 0;
+        auto msg = format(
+            "[Composite] fillDrawPacket onscreen name=%s nested=false model=%s render=%s",
+            name, packet.modelMatrix, packet.renderMatrix);
+        logCompositeMessage(msg);
     }
 
     vec4 localBoundsFromMatrix(Part child, const mat4 matrix) {
@@ -535,11 +542,34 @@ protected:
             }
         }
 
+        bool applyScreenSpace = !hasProjectableAncestor();
+        mat4 renderMatrix = applyScreenSpace ? offscreenRenderMatrix() : mat4.identity;
+        {
+            auto msg = format(
+                "[Composite] drawContents offscreen name=%s nested=%s childCount=%s tex=%sx%s scale=%s offset=%s render=%s",
+                name, hasProjectableAncestor(), subParts.length,
+                textures.length > 0 && textures[0] !is null ? textures[0].width : 0,
+                textures.length > 0 && textures[0] !is null ? textures[0].height : 0,
+                compositeAutoScale(),
+                textureOffset,
+                renderMatrix);
+            logCompositeMessage(msg);
+        }
         foreach (Part child; subParts) {
             auto childMatrix = childOffscreenMatrix(child);
+            auto msg = format(
+                "[Composite] drawContents child name=%s child=%s matrix=%s",
+                name, child.name, childMatrix);
+            logCompositeMessage(msg);
             child.setOffscreenModelMatrix(childMatrix);
+            if (applyScreenSpace) {
+                child.setOffscreenRenderMatrix(renderMatrix);
+            } else {
+                child.clearOffscreenRenderMatrix();
+            }
             child.drawOne();
             child.clearOffscreenModelMatrix();
+            child.clearOffscreenRenderMatrix();
         }
 
         version (InDoesRender) {
@@ -571,11 +601,21 @@ protected:
             writefln("[TextureInvalidate] %s %s", name, bounds.zw - bounds.xy);
         }
         queuedOffscreenParts.length = 0;
-        if (!renderEnabled() || ctx.renderGraph is null) return;
+        if (!renderEnabled() || ctx.renderGraph is null) {
+            auto msg = format(
+                "[Composite] dynamicRenderBegin skip name=%s enabled=%s renderGraph=%s",
+                name, renderEnabled(), ctx.renderGraph !is null);
+            logCompositeMessage(msg);
+            return;
+        }
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
+            auto msg = format(
+                "[Composite] dynamicRenderBegin reuse name=%s texInvalid=%s deferred=%s",
+                name, textureInvalidated, deferred);
+            logCompositeMessage(msg);
             return;
         }
 
@@ -584,6 +624,8 @@ protected:
         if (passData is null) {
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
+            auto msg = format("[Composite] dynamicRenderBegin skip passData=null name=%s", name);
+            logCompositeMessage(msg);
             return;
         }
         // CompositeもDynamicCompositeパスでレンダリングし、転送はdrawOne()内のdrawSelf。
@@ -592,9 +634,31 @@ protected:
 
         queuedOffscreenParts.length = 0;
 
+        bool applyScreenSpace = !hasProjectableAncestor();
+        mat4 renderMatrix = applyScreenSpace ? offscreenRenderMatrix() : mat4.identity;
+        {
+            auto msg = format(
+                "[Composite] dynamicRenderBegin offscreen name=%s nested=%s childCount=%s tex=%sx%s scale=%s offset=%s render=%s",
+                name, hasProjectableAncestor(), subParts.length,
+                textures.length > 0 && textures[0] !is null ? textures[0].width : 0,
+                textures.length > 0 && textures[0] !is null ? textures[0].height : 0,
+                compositeAutoScale(),
+                textureOffset,
+                renderMatrix);
+            logCompositeMessage(msg);
+        }
         foreach (Part child; subParts) {
             auto finalMatrix = childOffscreenMatrix(child);
+            auto msg = format(
+                "[Composite] dynamicRenderBegin child name=%s child=%s matrix=%s",
+                name, child.name, finalMatrix);
+            logCompositeMessage(msg);
             child.setOffscreenModelMatrix(finalMatrix);
+            if (applyScreenSpace) {
+                child.setOffscreenRenderMatrix(renderMatrix);
+            } else {
+                child.clearOffscreenRenderMatrix();
+            }
             if (auto dynChild = cast(Projectable)child) {
                 dynChild.renderNestedOffscreen(ctx);
             } else {
