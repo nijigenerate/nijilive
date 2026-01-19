@@ -731,10 +731,12 @@ public:
         packet.renderScale = renderSpace.scale;
         packet.renderRotation = renderSpace.rotation;
         if (hasOffscreenModelMatrix) {
-            // Offscreen model matrices are already in render space.
-            packet.renderMatrix = hasOffscreenRenderMatrix ? offscreenRenderMatrix : mat4.identity;
-            packet.renderScale = vec2(1, 1);
-            packet.renderRotation = 0;
+            // Use explicit offscreen render matrix when provided; otherwise keep current render space.
+            if (hasOffscreenRenderMatrix) {
+                packet.renderMatrix = offscreenRenderMatrix;
+                packet.renderScale = vec2(1, 1);
+                packet.renderRotation = 0;
+            }
         }
 
         packet.opacity = clamp(offsetOpacity * opacity, 0, 1);

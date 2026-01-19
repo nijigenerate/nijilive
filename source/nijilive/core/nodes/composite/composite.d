@@ -23,17 +23,14 @@ import nijilive.core.render.commands : DynamicCompositePass, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext;
 import nijilive.core.runtime_state : inGetCamera;
-import std.stdio : writefln;
 import std.math : isFinite, abs;
 import std.algorithm.comparison : min, max;
 import std.algorithm.iteration : map;
-import std.format : format;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 
 package(nijilive) {
     void inInitComposite() {
         inRegisterNodeType!Composite;
-        compositeLogClear();
     }
 }
 
@@ -292,10 +289,6 @@ protected:
         packet.renderMatrix = screenSpace.renderMatrix;
         packet.renderScale = vec2(1, 1);
         packet.renderRotation = 0;
-        auto msg = format(
-            "[Composite] fillDrawPacket onscreen name=%s nested=false model=%s render=%s",
-            name, packet.modelMatrix, packet.renderMatrix);
-        logCompositeMessage(msg);
     }
 
     vec4 localBoundsFromMatrix(Part child, const mat4 matrix) {
@@ -538,23 +531,8 @@ protected:
 
         bool applyScreenSpace = !hasProjectableAncestor();
         mat4 renderMatrix = applyScreenSpace ? offscreenRenderMatrix() : mat4.identity;
-        {
-            auto msg = format(
-                "[Composite] drawContents offscreen name=%s nested=%s childCount=%s tex=%sx%s scale=%s offset=%s render=%s",
-                name, hasProjectableAncestor(), subParts.length,
-                textures.length > 0 && textures[0] !is null ? textures[0].width : 0,
-                textures.length > 0 && textures[0] !is null ? textures[0].height : 0,
-                compositeAutoScale(),
-                textureOffset,
-                renderMatrix);
-            logCompositeMessage(msg);
-        }
         foreach (Part child; subParts) {
             auto childMatrix = childOffscreenMatrix(child);
-            auto msg = format(
-                "[Composite] drawContents child name=%s child=%s matrix=%s",
-                name, child.name, childMatrix);
-            logCompositeMessage(msg);
             child.setOffscreenModelMatrix(childMatrix);
             if (applyScreenSpace) {
                 child.setOffscreenRenderMatrix(renderMatrix);
@@ -592,24 +570,15 @@ protected:
         }
         if (autoResizedMesh && createSimpleMesh()) {
             textureInvalidated = true;
-            writefln("[TextureInvalidate] %s %s", name, bounds.zw - bounds.xy);
         }
         queuedOffscreenParts.length = 0;
         if (!renderEnabled() || ctx.renderGraph is null) {
-            auto msg = format(
-                "[Composite] dynamicRenderBegin skip name=%s enabled=%s renderGraph=%s",
-                name, renderEnabled(), ctx.renderGraph !is null);
-            logCompositeMessage(msg);
             return;
         }
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
-            auto msg = format(
-                "[Composite] dynamicRenderBegin reuse name=%s texInvalid=%s deferred=%s",
-                name, textureInvalidated, deferred);
-            logCompositeMessage(msg);
             return;
         }
 
@@ -618,8 +587,6 @@ protected:
         if (passData is null) {
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
-            auto msg = format("[Composite] dynamicRenderBegin skip passData=null name=%s", name);
-            logCompositeMessage(msg);
             return;
         }
         // CompositeもDynamicCompositeパスでレンダリングし、転送はdrawOne()内のdrawSelf。
@@ -630,23 +597,8 @@ protected:
 
         bool applyScreenSpace = !hasProjectableAncestor();
         mat4 renderMatrix = applyScreenSpace ? offscreenRenderMatrix() : mat4.identity;
-        {
-            auto msg = format(
-                "[Composite] dynamicRenderBegin offscreen name=%s nested=%s childCount=%s tex=%sx%s scale=%s offset=%s render=%s",
-                name, hasProjectableAncestor(), subParts.length,
-                textures.length > 0 && textures[0] !is null ? textures[0].width : 0,
-                textures.length > 0 && textures[0] !is null ? textures[0].height : 0,
-                compositeAutoScale(),
-                textureOffset,
-                renderMatrix);
-            logCompositeMessage(msg);
-        }
         foreach (Part child; subParts) {
             auto finalMatrix = childOffscreenMatrix(child);
-            auto msg = format(
-                "[Composite] dynamicRenderBegin child name=%s child=%s matrix=%s",
-                name, child.name, finalMatrix);
-            logCompositeMessage(msg);
             child.setOffscreenModelMatrix(finalMatrix);
             if (applyScreenSpace) {
                 child.setOffscreenRenderMatrix(renderMatrix);

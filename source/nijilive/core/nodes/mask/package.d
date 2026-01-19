@@ -115,7 +115,8 @@ public:
             if (hasOffscreenRenderMatrixActive()) {
                 packet.mvp = offscreenRenderMatrixValue() * modelMatrix;
             } else {
-                packet.mvp = modelMatrix;
+                auto renderSpace = currentRenderSpace();
+                packet.mvp = renderSpace.matrix * modelMatrix;
             }
         } else {
             auto renderSpace = currentRenderSpace();
