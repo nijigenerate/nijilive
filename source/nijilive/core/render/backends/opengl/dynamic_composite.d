@@ -5,7 +5,10 @@ version (InDoesRender) {
 import bindbc.opengl;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface;
 import nijilive.core.runtime_state : inPushViewport, inPopViewport, inGetCamera, inSetCamera;
-import nijilive.core.render.backends.opengl.runtime : oglRebindActiveTargets;
+import nijilive.core.render.backends.opengl.runtime :
+    oglRebindActiveTargets,
+    oglGetActiveDrawBuffers,
+    oglSetActiveDrawBuffers;
 import nijilive.math : mat4, vec2, vec3, vec4;
 import nijilive.core.texture : Texture;
 import nijilive.core.render.backends.opengl.handles : requireGLTexture;
@@ -87,7 +90,7 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
 
     glBindFramebuffer(GL_FRAMEBUFFER, cast(GLuint)surface.framebuffer);
 
-    GLuint[3] drawBuffers;
+    GLenum[3] drawBuffers;
     size_t bufferCount;
     foreach (i; 0 .. surface.textureCount) {
         auto attachment = GL_COLOR_ATTACHMENT0 + cast(GLenum)i;
@@ -113,6 +116,13 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
 
     inPushViewport(tex.width, tex.height);
 
+    GLenum[3] prevBuffers;
+    oglGetActiveDrawBuffers(prevBuffers, pass.prevDrawBufferCount);
+    foreach (i; 0 .. pass.prevDrawBufferCount) {
+        pass.prevDrawBuffers[i] = prevBuffers[i];
+    }
+    oglSetActiveDrawBuffers(drawBuffers[0 .. bufferCount]);
+
     auto camera = inGetCamera();
     camera.scale = vec2(1, -1);
 
@@ -124,7 +134,7 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
     camera.position = (offsetMatrix * -vec4(0, 0, 0, 1)).xy;
     inSetCamera(camera);
 
-    glDrawBuffers(cast(int)bufferCount, drawBuffers.ptr);
+    // Draw buffers already set to match active attachments.
     glViewport(0, 0, tex.width, tex.height);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -168,9 +178,13 @@ void oglEndDynamicComposite(DynamicCompositePass pass) {
 
     glBindFramebuffer(GL_FRAMEBUFFER, cast(GLuint)pass.origBuffer);
     inPopViewport();
+    GLenum[3] restoredBuffers;
+    foreach (i; 0 .. pass.prevDrawBufferCount) {
+        restoredBuffers[i] = cast(GLenum)pass.prevDrawBuffers[i];
+    }
+    oglSetActiveDrawBuffers(restoredBuffers[0 .. pass.prevDrawBufferCount]);
     glViewport(pass.origViewport[0], pass.origViewport[1],
         pass.origViewport[2], pass.origViewport[3]);
-    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
     debug (NijiliveRenderProfiler) {
     auto endMsg = format(
         "[nijilive] oglEndDynamicComposite restore origFbo=%s viewport=%s,%s,%s,%s autoScaled=%s",

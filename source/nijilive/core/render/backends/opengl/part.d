@@ -22,7 +22,11 @@ import nijilive.core.render.backends.opengl.runtime :
     oglGetBlendAlbedo,
     oglGetBlendEmissive,
     oglGetBlendBump,
-    oglSwapMainCompositeBuffers;
+    oglSwapMainCompositeBuffers,
+    oglGetActiveDrawBufferCount,
+    oglSetActiveDrawBuffers,
+    oglApplyActiveDrawBuffers,
+    oglIsMaskContentActive;
 import nijilive.core.render.backends.opengl.blend : oglGetBlendShader, oglBlendToBuffer;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
@@ -58,7 +62,7 @@ package(nijilive) {
     __gshared GLint gs2ScreenColor;
     __gshared GLint mmvp;
     __gshared GLint mthreshold;
-__gshared bool partBackendInitialized = false;
+    __gshared bool partBackendInitialized = false;
 
 enum ShaderAsset PartShaderSource = shaderAsset!("opengl/basic/basic.vert","opengl/basic/basic.frag")();
 enum ShaderAsset PartShaderStage1Source = shaderAsset!("opengl/basic/basic.vert","opengl/basic/basic-stage1.frag")();
@@ -126,6 +130,10 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
 
     incDrawableBindVAO();
 
+    if (!packet.isMask && !oglIsMaskContentActive()) {
+        glDisable(GL_STENCIL_TEST);
+    }
+
     if (boundAlbedo != textures[0]) {
         foreach(i, ref texture; textures) {
             if (texture) texture.bind(cast(uint)i);
@@ -154,11 +162,12 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
         renderStage(packet, false);
     } else {
         if (packet.useMultistageBlend) {
-            setupShaderStage(packet, 0, matrix, renderMatrix);
+            auto drawCount = oglGetActiveDrawBufferCount();
+            setupShaderStage(packet, 0, matrix, renderMatrix, drawCount);
             renderStage(packet, true);
 
-            if (packet.hasEmissionOrBumpmap) {
-                setupShaderStage(packet, 1, matrix, renderMatrix);
+            if (packet.hasEmissionOrBumpmap && drawCount >= 2) {
+                setupShaderStage(packet, 1, matrix, renderMatrix, drawCount);
                 renderStage(packet, false);
             }
         } else {
@@ -222,12 +231,17 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
                     bool drawingCompositeBuffer = prev.drawFbo == oglGetCompositeFramebuffer();
 
                     if (!drawingMainBuffer && !drawingCompositeBuffer) {
-                        setupShaderStage(packet, 2, matrix, renderMatrix);
+                        auto drawCount = oglGetActiveDrawBufferCount();
+                        setupShaderStage(packet, 2, matrix, renderMatrix, drawCount);
                         renderStage(packet, false);
                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev.drawFbo);
                         glBindFramebuffer(GL_READ_FRAMEBUFFER, prev.readFbo);
                         glReadBuffer(prev.readBuffer);
-                        glDrawBuffers(prev.drawBufferCount, cast(const(GLenum)*)prev.drawBuffers.ptr);
+                        GLenum[4] restoredBuffers;
+                        foreach (i; 0 .. prev.drawBufferCount) {
+                            restoredBuffers[i] = cast(GLenum)prev.drawBuffers[i];
+                        }
+                        oglSetActiveDrawBuffers(restoredBuffers[0 .. prev.drawBufferCount]);
                         glViewport(prev.viewport[0], prev.viewport[1], prev.viewport[2], prev.viewport[3]);
                         glClearColor(prev.clearColor[0], prev.clearColor[1], prev.clearColor[2], prev.clearColor[3]);
                         glBlendEquationSeparate(prev.blendEqRGB, prev.blendEqA);
@@ -235,8 +249,6 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
                         glColorMask(prev.colorMask[0], prev.colorMask[1], prev.colorMask[2], prev.colorMask[3]);
                         if (prev.depthEnabled) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
                         if (prev.stencilEnabled) glEnable(GL_STENCIL_TEST); else glDisable(GL_STENCIL_TEST);
-                        // Ensure downstream draws target standard MRT attachments.
-                        glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
                         return;
                     }
 
@@ -258,9 +270,10 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
 
                     // Draw the part into the blend buffer.
                     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
-                    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+                    oglApplyActiveDrawBuffers();
                     glViewport(0, 0, viewportWidth, viewportHeight);
-                    setupShaderStage(packet, 2, matrix, renderMatrix);
+                    auto drawCount = oglGetActiveDrawBufferCount();
+                    setupShaderStage(packet, 2, matrix, renderMatrix, drawCount);
                     renderStage(packet, false);
 
                     // Copy result back to original target.
@@ -279,7 +292,11 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
                     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev.drawFbo);
                     glBindFramebuffer(GL_READ_FRAMEBUFFER, prev.readFbo);
                     glReadBuffer(prev.readBuffer);
-                    glDrawBuffers(prev.drawBufferCount, cast(const(GLenum)*)prev.drawBuffers.ptr);
+                    GLenum[4] restoredBuffers;
+                    foreach (i; 0 .. prev.drawBufferCount) {
+                        restoredBuffers[i] = cast(GLenum)prev.drawBuffers[i];
+                    }
+                    oglSetActiveDrawBuffers(restoredBuffers[0 .. prev.drawBufferCount]);
                     glViewport(prev.viewport[0], prev.viewport[1], prev.viewport[2], prev.viewport[3]);
                     glClearColor(prev.clearColor[0], prev.clearColor[1], prev.clearColor[2], prev.clearColor[3]);
                     glBlendEquationSeparate(prev.blendEqRGB, prev.blendEqA);
@@ -287,23 +304,22 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
                     glColorMask(prev.colorMask[0], prev.colorMask[1], prev.colorMask[2], prev.colorMask[3]);
                     if (prev.depthEnabled) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
                     if (prev.stencilEnabled) glEnable(GL_STENCIL_TEST); else glDisable(GL_STENCIL_TEST);
-                    // Ensure downstream draws target standard MRT attachments.
-                    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
                     boundAlbedo = null; // force texture rebind after fallback path
                     return;
                 }
             }
 
-            setupShaderStage(packet, 2, matrix, renderMatrix);
+            auto drawCount = oglGetActiveDrawBufferCount();
+            setupShaderStage(packet, 2, matrix, renderMatrix, drawCount);
             renderStage(packet, false);
         }
     }
 
-    glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+    oglApplyActiveDrawBuffers();
     glBlendEquation(GL_FUNC_ADD);
 }
 
-private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix, mat4 renderMatrix) {
+private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix, mat4 renderMatrix, int drawCount) {
     mat4 mvpMatrix = renderMatrix * matrix;
 
     switch (stage) {
@@ -319,7 +335,11 @@ private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix,
             inSetBlendMode(packet.blendingMode, false);
             break;
         case 1:
-            glDrawBuffers(2, [GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+            if (drawCount >= 2) {
+                glDrawBuffers(2, [GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+            } else {
+                return;
+            }
 
             partShaderStage2.use();
             partShaderStage2.setUniform(gs2offset, packet.origin);
@@ -331,7 +351,11 @@ private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix,
             inSetBlendMode(packet.blendingMode, true);
             break;
         case 2:
-            glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+            if (drawCount >= 3) {
+                glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+            } else {
+                glDrawBuffers(1, [GL_COLOR_ATTACHMENT0].ptr);
+            }
 
             partShader.use();
             partShader.setUniform(offset, packet.origin);

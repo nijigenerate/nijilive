@@ -1,7 +1,7 @@
 ﻿module nijilive.core.render.backends.opengl.runtime;
 
 import bindbc.opengl;
-import std.algorithm.comparison : max;
+import std.algorithm.comparison : max, min;
 import std.algorithm.mutation : swap;
 import core.stdc.string : memcpy;
 
@@ -92,6 +92,9 @@ private {
         GLint[4] viewport;
     }
     CompositeFrameState[] compositeScopeStack;
+    int activeDrawBufferCount = 3;
+    GLenum[3] activeDrawBuffers = [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2];
+    bool maskContentActive = false;
 
     void renderScene(vec4 area, PostProcessingShader shaderToUse, GLuint albedo, GLuint emissive, GLuint bump) {
         glViewport(0, 0, cast(int)area.z, cast(int)area.w);
@@ -148,6 +151,49 @@ private {
 
 // Things only available internally for nijilive rendering
 package(nijilive) {
+    int oglGetActiveDrawBufferCount() {
+        return activeDrawBufferCount;
+    }
+
+    void oglSetActiveDrawBufferCount(int count) {
+        if (count <= 0) count = 1;
+        if (count > cast(int)activeDrawBuffers.length) count = cast(int)activeDrawBuffers.length;
+        activeDrawBufferCount = count;
+        foreach (i; 0 .. activeDrawBufferCount) {
+            activeDrawBuffers[i] = GL_COLOR_ATTACHMENT0 + cast(GLenum)i;
+        }
+    }
+
+    void oglGetActiveDrawBuffers(out GLenum[3] buffers, out int count) {
+        count = activeDrawBufferCount;
+        buffers = activeDrawBuffers;
+    }
+
+    void oglSetActiveDrawBuffers(const(GLenum)[] buffers) {
+        if (buffers.length == 0) {
+            activeDrawBufferCount = 1;
+            activeDrawBuffers[0] = GL_COLOR_ATTACHMENT0;
+        } else {
+            activeDrawBufferCount = cast(int)min(buffers.length, activeDrawBuffers.length);
+            foreach (i; 0 .. activeDrawBufferCount) {
+                activeDrawBuffers[i] = buffers[i];
+            }
+        }
+        glDrawBuffers(activeDrawBufferCount, activeDrawBuffers.ptr);
+    }
+
+    void oglApplyActiveDrawBuffers() {
+        glDrawBuffers(activeDrawBufferCount, activeDrawBuffers.ptr);
+    }
+
+    void oglSetMaskContentActive(bool active) {
+        maskContentActive = active;
+    }
+
+    bool oglIsMaskContentActive() {
+        return maskContentActive;
+    }
+
     
     /**
         Initializes the renderer (OpenGL-specific portion)

@@ -100,6 +100,8 @@ class DynamicCompositePass {
     RenderResourceHandle origBuffer;
     int[4] origViewport;
     bool autoScaled;
+    int prevDrawBufferCount;
+    uint[3] prevDrawBuffers;
 }
 
 PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {

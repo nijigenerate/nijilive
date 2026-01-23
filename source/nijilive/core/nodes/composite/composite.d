@@ -265,9 +265,10 @@ protected:
         float halfH = cast(float)tex.height / 2;
         auto onscreenMatrix = currentRenderSpace().matrix;
         float onscreenY = onscreenMatrix[1][1];
-        auto ortho = mat4.orthographic(-halfW, halfW, halfH, -halfH, 0, ushort.max);
+        // Use a symmetric Z range to keep z=0 away from the clip planes.
+        auto ortho = mat4.orthographic(-halfW, halfW, halfH, -halfH, -1, 1);
         if (onscreenY != 0 && (ortho[1][1] > 0) != (onscreenY > 0)) {
-            ortho = mat4.orthographic(-halfW, halfW, -halfH, halfH, 0, ushort.max);
+            ortho = mat4.orthographic(-halfW, halfW, -halfH, halfH, -1, 1);
         }
         // Offscreen Y is inverted relative to onscreen; flip here to match expected orientation.
         return mat4.scaling(1, -1, 1) * ortho;

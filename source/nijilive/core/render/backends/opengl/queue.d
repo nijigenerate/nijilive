@@ -31,6 +31,7 @@ final class RenderQueue : RenderCommandEmitter {
 private:
     RenderBackend activeBackend;
     RenderGpuState* frameState;
+    bool inDynamicCompositeScope = false;
 
     bool ready() const {
         return activeBackend !is null && frameState !is null;
@@ -88,12 +89,14 @@ public:
 
     void beginDynamicComposite(Projectable, DynamicCompositePass passData) {
         if (!ready() || passData is null) return;
+        inDynamicCompositeScope = true;
         activeBackend.beginDynamicComposite(passData);
     }
 
     void endDynamicComposite(Projectable, DynamicCompositePass passData) {
         if (!ready() || passData is null) return;
         activeBackend.endDynamicComposite(passData);
+        inDynamicCompositeScope = false;
     }
 
     void beginMask(bool useStencil) {
@@ -104,9 +107,26 @@ public:
 
     void applyMask(Drawable drawable, bool isDodge) {
         if (!ready() || drawable is null) return;
+        bool restoreIgnore = false;
+        bool prevIgnore = false;
+        if (inDynamicCompositeScope) {
+            if (auto part = cast(Part)drawable) {
+                prevIgnore = part.ignorePuppet;
+                if (!prevIgnore) {
+                    part.ignorePuppet = true;
+                    restoreIgnore = true;
+                }
+            }
+        }
         MaskApplyPacket packet;
         if (tryMakeMaskApplyPacket(drawable, isDodge, packet)) {
             activeBackend.applyMask(packet);
+        } else {
+        }
+        if (restoreIgnore) {
+            if (auto part = cast(Part)drawable) {
+                part.ignorePuppet = prevIgnore;
+            }
         }
     }
 

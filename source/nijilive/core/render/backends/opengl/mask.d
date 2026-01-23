@@ -7,6 +7,7 @@ version (InDoesRender) {
 import bindbc.opengl;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.backends.opengl.part : oglExecutePartPacket;
+import nijilive.core.render.backends.opengl.runtime : oglSetMaskContentActive;
 import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
 import nijilive.core.render.backends.opengl.drawable_buffers :
@@ -32,6 +33,7 @@ void oglInitMaskBackend() {
     ensureMaskBackendInitialized();
 }
 
+
 /// Prepare stencil for mask rendering.
 /// useStencil == true when there is at least one normal mask (write 1 to masked area).
 /// useStencil == false when only dodge masks are present (keep stencil at 1 and punch 0 holes).
@@ -44,17 +46,20 @@ void oglBeginMask(bool useStencil) {
     glStencilMask(0xFF);
     glStencilFunc(GL_ALWAYS, useStencil ? 0 : 1, 0xFF);
     glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    oglSetMaskContentActive(false);
 }
 
 void oglEndMask() {
     glStencilMask(0xFF);
     glStencilFunc(GL_ALWAYS, 1, 0xFF);
     glDisable(GL_STENCIL_TEST);
+    oglSetMaskContentActive(false);
 }
 
 void oglBeginMaskContent() {
     glStencilFunc(GL_EQUAL, 1, 0xFF);
     glStencilMask(0x00);
+    oglSetMaskContentActive(true);
 }
 
 void oglExecuteMaskPacket(ref MaskDrawPacket packet) {
