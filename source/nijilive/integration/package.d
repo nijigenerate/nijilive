@@ -19,10 +19,6 @@ version(InRenderless) {
     string inPartFragmentShader = import("opengl/basic/basic.frag");
     string inPartVertexShader = import("opengl/basic/basic.vert");
 
-    string inCompositeMaskShader = import("opengl/basic/composite-mask.frag");
-    string inCompositeFragmentShader = import("opengl/basic/composite.frag");
-    string inCompositeVertexShader = import("opengl/basic/composite.vert");
-
     string inMaskFragmentShader = import("opengl/mask.frag");
     string inMaskVertexShader = import("opengl/mask.vert");
 

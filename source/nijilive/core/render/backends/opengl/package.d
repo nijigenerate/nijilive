@@ -80,7 +80,6 @@ import nijilive.core.render.backends.opengl.blend :
     oglBlendToBuffer;
 import nijilive.core.render.backends.opengl.draw_texture :
     oglDrawTextureAtPart, oglDrawTextureAtPosition, oglDrawTextureAtRect;
-import nijilive.core.render.backends.opengl.composite : oglDrawCompositeQuad;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.render.profiler : profileScope, renderProfilerFrameCompleted;
 import nijilive.core.render.backends.opengl.shader_backend :
