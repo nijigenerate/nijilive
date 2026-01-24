@@ -1,7 +1,7 @@
 cbuffer PartVertexConstants : register(b0)
 {
     float4x4 modelMatrix;
-    float4x4 puppetMatrix;
+    float4x4 renderMatrix;
     float4 origin;
 };
 
@@ -25,7 +25,7 @@ VSOutput vs_main(VSInput input) {
     float2 deformed = float2(input.vertX - offset.x + input.deformX,
                              input.vertY - offset.y + input.deformY);
     float4 pos = float4(deformed, 0.0f, 1.0f);
-    output.position = mul(puppetMatrix, mul(modelMatrix, pos));
+    output.position = mul(renderMatrix, mul(modelMatrix, pos));
     output.uv = float2(input.uvX, input.uvY);
     return output;
 }

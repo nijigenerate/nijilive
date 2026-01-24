@@ -111,8 +111,17 @@ public:
         mat4 modelMatrix = immediateModelMatrix();
         packet.modelMatrix = modelMatrix;
 
-        mat4 puppetMatrix = puppet ? puppet.transform.matrix : mat4.identity;
-        packet.mvp = inGetCamera().matrix * puppetMatrix * modelMatrix;
+        if (hasOffscreenModelMatrixActive()) {
+            if (hasOffscreenRenderMatrixActive()) {
+                packet.mvp = offscreenRenderMatrixValue() * modelMatrix;
+            } else {
+                auto renderSpace = currentRenderSpace();
+                packet.mvp = renderSpace.matrix * modelMatrix;
+            }
+        } else {
+            auto renderSpace = currentRenderSpace();
+            packet.mvp = renderSpace.matrix * modelMatrix;
+        }
 
         packet.origin = data.origin;
         packet.vertexOffset = vertexSliceOffset;

@@ -1,4 +1,4 @@
-module nijilive.core.render.backends.opengl.dynamic_composite;
+﻿module nijilive.core.render.backends.opengl.dynamic_composite;
 
 version (InDoesRender) {
 
@@ -10,6 +10,10 @@ import nijilive.math : mat4, vec2, vec3, vec4;
 import nijilive.core.texture : Texture;
 import nijilive.core.render.backends.opengl.handles : requireGLTexture;
 import nijilive.core.render.backends : RenderResourceHandle;
+version (NijiliveRenderProfiler) {
+    import std.stdio : writefln;
+    import std.format : format;
+}
 version (NijiliveRenderProfiler) {
     import nijilive.core.render.profiler : renderProfilerAddSampleUsec;
     import core.time : MonoTime;
@@ -50,11 +54,24 @@ private {
 }
 
 void oglBeginDynamicComposite(DynamicCompositePass pass) {
-    if (pass is null) return;
+    if (pass is null) {
+        debug (NijiliveRenderProfiler) writefln("[nijilive] oglBeginDynamicComposite skip: pass=null");
+        return;
+    }
     auto surface = pass.surface;
-    if (surface is null || surface.textureCount == 0) return;
+    if (surface is null) {
+        debug (NijiliveRenderProfiler) writefln("[nijilive] oglBeginDynamicComposite skip: surface=null");
+        return;
+    }
+    if (surface.textureCount == 0) {
+        debug (NijiliveRenderProfiler) writefln("[nijilive] oglBeginDynamicComposite skip: textureCount=0");
+        return;
+    }
     auto tex = surface.textures[0];
-    if (tex is null) return;
+    if (tex is null) {
+        debug (NijiliveRenderProfiler) writefln("[nijilive] oglBeginDynamicComposite skip: tex[0]=null");
+        return;
+    }
 
     if (surface.framebuffer == 0) {
         GLuint newFramebuffer;
@@ -113,6 +130,15 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
     glClear(GL_COLOR_BUFFER_BIT);
     glActiveTexture(GL_TEXTURE0);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    debug (NijiliveRenderProfiler) {
+    auto beginMsg = format(
+        "[nijilive] oglBeginDynamicComposite fbo=%s tex0=%s size=%sx%s scale=%s rotZ=%s autoScaled=%s origFbo=%s origViewport=%s,%s,%s,%s cameraPos=%s cameraScale=%s cameraRot=%s",
+        surface.framebuffer, textureId(tex), tex.width, tex.height,
+        pass.scale, pass.rotationZ, pass.autoScaled,
+        pass.origBuffer, pass.origViewport[0], pass.origViewport[1], pass.origViewport[2], pass.origViewport[3],
+        camera.position, camera.scale, camera.rotation);
+    writefln(beginMsg);
+    }
 
     version (NijiliveRenderProfiler) {
         if (!compositeCpuActive) {
@@ -128,7 +154,14 @@ void oglBeginDynamicComposite(DynamicCompositePass pass) {
 }
 
 void oglEndDynamicComposite(DynamicCompositePass pass) {
-    if (pass is null || pass.surface is null) return;
+    if (pass is null) {
+        debug (NijiliveRenderProfiler) writefln("[nijilive] oglEndDynamicComposite skip: pass=null");
+        return;
+    }
+    if (pass.surface is null) {
+        debug (NijiliveRenderProfiler) writefln("[nijilive] oglEndDynamicComposite skip: surface=null");
+        return;
+    }
 
     // Rebind active attachments (respecting any swaps that happened while rendering).
     oglRebindActiveTargets();
@@ -138,6 +171,13 @@ void oglEndDynamicComposite(DynamicCompositePass pass) {
     glViewport(pass.origViewport[0], pass.origViewport[1],
         pass.origViewport[2], pass.origViewport[3]);
     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
+    debug (NijiliveRenderProfiler) {
+    auto endMsg = format(
+        "[nijilive] oglEndDynamicComposite restore origFbo=%s viewport=%s,%s,%s,%s autoScaled=%s",
+        pass.origBuffer, pass.origViewport[0], pass.origViewport[1], pass.origViewport[2], pass.origViewport[3],
+        pass.autoScaled);
+    writefln(endMsg);
+    }
     version (NijiliveRenderProfiler) {
         if (compositeTimerActive && compositeTimeQuery != 0) {
             glEndQuery(GL_TIME_ELAPSED);

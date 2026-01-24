@@ -8,7 +8,7 @@ import nijilive.core.nodes.common : inUseMultistageBlending, nlIsTripleBufferFal
     inSetBlendMode, inBlendModeBarrier;
 import nijilive.core.nodes.drawable : incDrawableBindVAO;
 import nijilive.core.render.commands : PartDrawPacket;
-import nijilive.core.runtime_state : inGetCamera, inGetViewport;
+import nijilive.core.runtime_state : inGetViewport;
 import nijilive.core.render.backends.opengl.runtime :
     oglGetFramebuffer,
     oglGetCompositeFramebuffer,
@@ -32,7 +32,6 @@ import nijilive.core.render.backends.opengl.drawable_buffers :
     oglGetSharedVertexBuffer,
     oglGetSharedUvBuffer;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
-
 package(nijilive) {
     __gshared Texture boundAlbedo;
     __gshared Shader partShader;
@@ -138,11 +137,10 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
     }
 
     auto matrix = packet.modelMatrix;
-    mat4 puppetMatrix = packet.puppetMatrix;
-    mat4 cameraMatrix = inGetCamera().matrix;
+    mat4 renderMatrix = packet.renderMatrix;
 
     if (packet.isMask) {
-        mat4 mvpMatrix = cameraMatrix * puppetMatrix * matrix;
+        mat4 mvpMatrix = renderMatrix * matrix;
 
         partMaskShader.use();
         partMaskShader.setUniform(offset, packet.origin);
@@ -155,11 +153,11 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
         renderStage(packet, false);
     } else {
         if (packet.useMultistageBlend) {
-            setupShaderStage(packet, 0, matrix, cameraMatrix, puppetMatrix);
+            setupShaderStage(packet, 0, matrix, renderMatrix);
             renderStage(packet, true);
 
             if (packet.hasEmissionOrBumpmap) {
-                setupShaderStage(packet, 1, matrix, cameraMatrix, puppetMatrix);
+                setupShaderStage(packet, 1, matrix, renderMatrix);
                 renderStage(packet, false);
             }
         } else {
@@ -223,7 +221,7 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
                     bool drawingCompositeBuffer = prev.drawFbo == oglGetCompositeFramebuffer();
 
                     if (!drawingMainBuffer && !drawingCompositeBuffer) {
-                        setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
+                        setupShaderStage(packet, 2, matrix, renderMatrix);
                         renderStage(packet, false);
                         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev.drawFbo);
                         glBindFramebuffer(GL_READ_FRAMEBUFFER, prev.readFbo);
@@ -261,7 +259,7 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
                     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, blendFramebuffer);
                     glDrawBuffers(3, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2].ptr);
                     glViewport(0, 0, viewportWidth, viewportHeight);
-                    setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
+                    setupShaderStage(packet, 2, matrix, renderMatrix);
                     renderStage(packet, false);
 
                     // Copy result back to original target.
@@ -295,7 +293,7 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
                 }
             }
 
-            setupShaderStage(packet, 2, matrix, cameraMatrix, puppetMatrix);
+            setupShaderStage(packet, 2, matrix, renderMatrix);
             renderStage(packet, false);
         }
     }
@@ -304,8 +302,8 @@ void oglExecutePartPacket(ref PartDrawPacket packet) {
     glBlendEquation(GL_FUNC_ADD);
 }
 
-private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix, mat4 cameraMatrix, mat4 puppetMatrix) {
-    mat4 mvpMatrix = cameraMatrix * puppetMatrix * matrix;
+private void setupShaderStage(ref PartDrawPacket packet, int stage, mat4 matrix, mat4 renderMatrix) {
+    mat4 mvpMatrix = renderMatrix * matrix;
 
     switch (stage) {
         case 0:

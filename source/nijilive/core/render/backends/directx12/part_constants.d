@@ -9,7 +9,7 @@ import nijilive.math : mat4, vec4;
 /// Constant buffer for VS
 struct PartVertexConstants {
     mat4 modelMatrix;
-    mat4 puppetMatrix;
+    mat4 renderMatrix;
     vec4 origin; // store origin in xy
 }
 

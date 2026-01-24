@@ -23,7 +23,6 @@ import nijilive.core.render.commands : DynamicCompositePass, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext;
 import nijilive.core.runtime_state : inGetCamera;
-import std.stdio : writefln;
 import std.math : isFinite, abs;
 import std.algorithm.comparison : min, max;
 import std.algorithm.iteration : map;
@@ -244,6 +243,39 @@ protected:
         return child.transform.matrix;
     }
 
+    private struct ScreenSpaceData {
+        mat4 renderMatrix;
+        mat4 modelMatrix;
+    }
+
+    private ScreenSpaceData screenSpaceData() {
+        auto renderSpace = currentRenderSpace();
+        auto screen = transform();
+        screen.update();
+        ScreenSpaceData data;
+        data.renderMatrix = renderSpace.matrix;
+        // textureOffset is already baked into the auto-resized mesh vertices.
+        data.modelMatrix = screen.matrix;
+        return data;
+    }
+    private mat4 offscreenRenderMatrix() {
+        auto tex = textures.length > 0 ? textures[0] : null;
+        if (tex is null) return mat4.identity;
+        float halfW = cast(float)tex.width / 2;
+        float halfH = cast(float)tex.height / 2;
+        auto onscreenMatrix = currentRenderSpace().matrix;
+        float onscreenY = onscreenMatrix[1][1];
+        // Legacy behavior: allow a wide Z range in offscreen projection,
+        // but keep z=0 centered like the camera matrix does.
+        float zHalf = cast(float)ushort.max / 2;
+        auto ortho = mat4.orthographic(-halfW, halfW, halfH, -halfH, -zHalf, zHalf);
+        if (onscreenY != 0 && (ortho[1][1] > 0) != (onscreenY > 0)) {
+            ortho = mat4.orthographic(-halfW, halfW, -halfH, halfH, -zHalf, zHalf);
+        }
+        // Offscreen Y is inverted relative to onscreen; flip here to match expected orientation.
+        return mat4.scaling(1, -1, 1) * ortho;
+    }
+
     override void fillDrawPacket(ref PartDrawPacket packet, bool isMask = false) {
         super.fillDrawPacket(packet, isMask);
         if (!packet.renderable) return;
@@ -272,34 +304,28 @@ protected:
 
         // 非ネスト時: 従来のComposite挙動（自スケール無視＋カメラ補正あり）。
         auto screen = transform();
-        auto offset = vec2(0,0); //textureOffset;
-        if (!isFinite(offset.x) || !isFinite(offset.y)) {
-            offset = vec2(0, 0);
-        }
-        screen.translation.x += offset.x;
-        screen.translation.y += offset.y;
         screen.rotation = vec3(0, 0, 0);
         screen.scale = vec2(1, 1);
         screen.update();
         packet.modelMatrix = screen.matrix;
 
-        auto cam = inGetCamera();
-        auto camMatrix = cam.matrix;
-        auto origin4 = camMatrix * packet.puppetMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
+        auto renderSpace = currentRenderSpace();
+        auto renderMatrix = packet.renderMatrix;
+        auto origin4 = renderMatrix * packet.modelMatrix * vec4(0, 0, 0, 1);
         vec2 origin = origin4.xy;
-        float invScaleX = cam.scale.x == 0 ? 1 : 1 / cam.scale.x;
-        float invScaleY = cam.scale.y == 0 ? 1 : 1 / cam.scale.y;
+        float invScaleX = renderSpace.scale.x == 0 ? 1 : 1 / renderSpace.scale.x;
+        float invScaleY = renderSpace.scale.y == 0 ? 1 : 1 / renderSpace.scale.y;
         if (!isFinite(invScaleX)) invScaleX = 1;
         if (!isFinite(invScaleY)) invScaleY = 1;
-        float rot = cam.rotation;
+        float rot = renderSpace.rotation;
         if (!isFinite(rot)) rot = 0;
-        if (cam.scale.x * cam.scale.y < 0) rot = -rot;
         auto cancel = mat4.translation(origin.x, origin.y, 0) *
             mat4.identity.rotateZ(-rot) *
             mat4.identity.scaling(invScaleX, invScaleY, 1) *
             mat4.translation(-origin.x, -origin.y, 0);
-        auto correction = camMatrix.inverse * cancel * camMatrix;
-        packet.puppetMatrix = correction * packet.puppetMatrix;
+        packet.renderMatrix = cancel * renderMatrix;
+        packet.renderScale = vec2(1, 1);
+        packet.renderRotation = 0;
     }
 
     vec4 localBoundsFromMatrix(Part child, const mat4 matrix) {
@@ -540,11 +566,19 @@ protected:
             }
         }
 
+        bool applyScreenSpace = !hasProjectableAncestor();
+        mat4 renderMatrix = applyScreenSpace ? offscreenRenderMatrix() : mat4.identity;
         foreach (Part child; subParts) {
             auto childMatrix = childOffscreenMatrix(child);
             child.setOffscreenModelMatrix(childMatrix);
+            if (applyScreenSpace) {
+                child.setOffscreenRenderMatrix(renderMatrix);
+            } else {
+                child.clearOffscreenRenderMatrix();
+            }
             child.drawOne();
             child.clearOffscreenModelMatrix();
+            child.clearOffscreenRenderMatrix();
         }
 
         version (InDoesRender) {
@@ -573,10 +607,11 @@ protected:
         }
         if (autoResizedMesh && createSimpleMesh()) {
             textureInvalidated = true;
-            writefln("[TextureInvalidate] %s %s", name, bounds.zw - bounds.xy);
         }
         queuedOffscreenParts.length = 0;
-        if (!renderEnabled() || ctx.renderGraph is null) return;
+        if (!renderEnabled() || ctx.renderGraph is null) {
+            return;
+        }
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
             reuseCachedTextureThisFrame = true;
@@ -597,9 +632,16 @@ protected:
 
         queuedOffscreenParts.length = 0;
 
+        bool applyScreenSpace = !hasProjectableAncestor();
+        mat4 renderMatrix = applyScreenSpace ? offscreenRenderMatrix() : mat4.identity;
         foreach (Part child; subParts) {
             auto finalMatrix = childOffscreenMatrix(child);
             child.setOffscreenModelMatrix(finalMatrix);
+            if (applyScreenSpace) {
+                child.setOffscreenRenderMatrix(renderMatrix);
+            } else {
+                child.clearOffscreenRenderMatrix();
+            }
             if (auto dynChild = cast(Projectable)child) {
                 dynChild.renderNestedOffscreen(ctx);
             } else {

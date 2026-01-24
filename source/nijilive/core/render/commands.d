@@ -34,7 +34,9 @@ struct PartDrawPacket {
     bool isMask;
     bool renderable;
     mat4 modelMatrix;
-    mat4 puppetMatrix;
+    mat4 renderMatrix;
+    vec2 renderScale;
+    float renderRotation;
     vec3 clampedTint;
     vec3 clampedScreen;
     float opacity;

@@ -16,12 +16,9 @@ import nijilive.core;
 import nijilive.math;
 import nijilive;
 import nijilive.core.nodes.utils;
-import std.exception;
 import std.algorithm;
 import std.algorithm.sorting;
-//import std.stdio;
 import std.array;
-import std.format;
 import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil, abs;
@@ -30,6 +27,7 @@ import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSur
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 import nijilive.core.runtime_state : inGetCamera;
+import std.stdio : writefln;
 
 package(nijilive) {
     __gshared size_t projectableFrameCounter;
@@ -183,7 +181,9 @@ protected:
     }
 
     DynamicCompositePass prepareDynamicCompositePass() {
-        if (textures.length == 0 || textures[0] is null) return null;
+        if (textures.length == 0 || textures[0] is null) {
+            return null;
+        }
         if (offscreenSurface is null) {
             offscreenSurface = new DynamicCompositeSurface();
         }
@@ -195,7 +195,9 @@ protected:
                 count = i + 1;
             }
         }
-        if (count == 0) return null;
+        if (count == 0) {
+            return null;
+        }
         offscreenSurface.textureCount = count;
         offscreenSurface.stencil = stencil;
 
@@ -814,7 +816,12 @@ public:
             textureInvalidated = true;
         }
         queuedOffscreenParts.length = 0;
-        if (!renderEnabled() || ctx.renderGraph is null) return;
+        if (!renderEnabled()) {
+            return;
+        }
+        if (ctx.renderGraph is null) {
+            return;
+        }
         updateDynamicRenderStateFlags();
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
@@ -896,7 +903,6 @@ public:
                     foreach (binding; maskBindings) {
                         if (binding.maskSrc is null) continue;
                         bool isDodge = binding.mode == MaskingMode.DodgeMask;
-                        import std.stdio : writefln;
                         debug (UnityDLLLog) writefln("[nijilive] applyMask dynComposite=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
                             this.name, this.uuid, binding.maskSrc.name, binding.maskSrc.uuid, binding.mode, isDodge);
                         emitter.applyMask(binding.maskSrc, isDodge);
@@ -911,16 +917,26 @@ public:
                 }
 
                 foreach (part; queuedForCleanup) {
-                    if (auto p = cast(Part)part) p.clearOffscreenModelMatrix();
-                    else if (auto m = cast(Mask)part) m.clearOffscreenModelMatrix();
+                    if (auto p = cast(Part)part) {
+                        p.clearOffscreenModelMatrix();
+                        p.clearOffscreenRenderMatrix();
+                    } else if (auto m = cast(Mask)part) {
+                        m.clearOffscreenModelMatrix();
+                        m.clearOffscreenRenderMatrix();
+                    }
                 }
             });
         } else {
             auto cleanupParts = queuedOffscreenParts.dup;
             enqueueRenderCommands(ctx, (RenderCommandEmitter emitter) {
                 foreach (part; cleanupParts) {
-                    if (auto p = cast(Part)part) p.clearOffscreenModelMatrix();
-                    else if (auto m = cast(Mask)part) m.clearOffscreenModelMatrix();
+                    if (auto p = cast(Part)part) {
+                        p.clearOffscreenModelMatrix();
+                        p.clearOffscreenRenderMatrix();
+                    } else if (auto m = cast(Mask)part) {
+                        m.clearOffscreenModelMatrix();
+                        m.clearOffscreenRenderMatrix();
+                    }
                 }
             });
         }

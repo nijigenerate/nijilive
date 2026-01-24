@@ -37,14 +37,11 @@ void oglDrawTextureAtPart(Texture texture, Part part) {
     ensureQuadBuffers();
 
     mat4 modelMatrix = part.immediateModelMatrix();
-    mat4 puppetMatrix = (!part.ignorePuppet && part.puppet !is null)
-        ? part.puppet.transform.matrix
-        : mat4.identity;
+    auto renderSpace = part.currentRenderSpace();
 
     partShader.use();
     partShader.setUniform(mvp,
-        inGetCamera().matrix *
-        puppetMatrix *
+        renderSpace.matrix *
         modelMatrix
     );
     partShader.setUniform(offset, part.getMesh().origin);

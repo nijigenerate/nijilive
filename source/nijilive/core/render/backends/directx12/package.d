@@ -261,10 +261,9 @@ public:
         cmdList.SetGraphicsRootDescriptorTable(1, partTextureDescriptorTable.gpuHandle);
         bindPacketTextures(cmdList, packet.textures);
 
-        auto cameraMatrix = inGetCamera().matrix;
         PartVertexConstants vertexConsts;
         vertexConsts.modelMatrix = packet.modelMatrix;
-        vertexConsts.puppetMatrix = cameraMatrix * packet.puppetMatrix;
+        vertexConsts.renderMatrix = packet.renderMatrix;
         vertexConsts.origin = vec4(packet.origin.x, packet.origin.y, 0, 0);
         auto vertexGpu = constantBufferRing.upload(&vertexConsts, PartVertexConstants.sizeof);
         cmdList.SetGraphicsRootConstantBufferView(2, vertexGpu);
@@ -434,12 +433,9 @@ public:
     void drawTextureAtPart(Texture texture, Part part) {
         if (texture is null || part is null) return;
         auto modelMatrix = part.immediateModelMatrix();
-        mat4 puppetMatrix = mat4.identity;
-        if (!part.ignorePuppet && part.puppet !is null) {
-            puppetMatrix = part.puppet.transform.matrix;
-        }
+        auto renderSpace = part.currentRenderSpace();
         auto quad = mat4.scaling(cast(float)texture.width(), cast(float)texture.height(), 1);
-        auto transform = puppetMatrix * modelMatrix * quad;
+        auto transform = renderSpace.matrix * modelMatrix * quad;
         rect uvRect = rect(0, 0, 1, 1);
         drawTextureWithTransform(texture, transform, uvRect, part.opacity, part.tint, part.screenTint, null);
     }
