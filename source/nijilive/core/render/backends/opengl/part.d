@@ -32,7 +32,6 @@ import nijilive.core.render.backends.opengl.drawable_buffers :
     oglGetSharedVertexBuffer,
     oglGetSharedUvBuffer;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
-
 package(nijilive) {
     __gshared Texture boundAlbedo;
     __gshared Shader partShader;

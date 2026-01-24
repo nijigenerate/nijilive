@@ -265,9 +265,12 @@ protected:
         float halfH = cast(float)tex.height / 2;
         auto onscreenMatrix = currentRenderSpace().matrix;
         float onscreenY = onscreenMatrix[1][1];
-        auto ortho = mat4.orthographic(-halfW, halfW, halfH, -halfH, 0, ushort.max);
+        // Legacy behavior: allow a wide Z range in offscreen projection,
+        // but keep z=0 centered like the camera matrix does.
+        float zHalf = cast(float)ushort.max / 2;
+        auto ortho = mat4.orthographic(-halfW, halfW, halfH, -halfH, -zHalf, zHalf);
         if (onscreenY != 0 && (ortho[1][1] > 0) != (onscreenY > 0)) {
-            ortho = mat4.orthographic(-halfW, halfW, -halfH, halfH, 0, ushort.max);
+            ortho = mat4.orthographic(-halfW, halfW, -halfH, halfH, -zHalf, zHalf);
         }
         // Offscreen Y is inverted relative to onscreen; flip here to match expected orientation.
         return mat4.scaling(1, -1, 1) * ortho;
