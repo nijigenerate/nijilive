@@ -7,6 +7,7 @@ import std.array : array;
 import std.stdio : writeln, writefln;
 import std.conv : to;
 import std.typecons : Nullable;
+import std.algorithm.comparison : max;
 import nijilive.core.animation.player : AnimationPlayer;
 
 import nijilive : inUpdate, inSetTimingFunc;
