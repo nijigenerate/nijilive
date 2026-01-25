@@ -6,6 +6,8 @@ import std.algorithm : min, filter;
 import std.array : array;
 import std.stdio : writeln, writefln;
 import std.conv : to;
+import std.typecons : Nullable;
+import nijilive.core.animation.player : AnimationPlayer;
 
 import nijilive : inUpdate, inSetTimingFunc;
 import nijilive.core.runtime_state : initRendererCommon, inSetRenderBackend, inSetViewport, inGetViewport;
@@ -230,6 +232,7 @@ class UnityRenderer {
     size_t compositeHandle;
     size_t createdTextures;
     size_t releasedTextures;
+    AnimationPlayer[Puppet] animPlayers;
 
     this(RenderBackend backend, UnityResourceCallbacks callbacks) {
         this.backend = backend;
@@ -549,6 +552,7 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
 extern(C) export void njgDestroyRenderer(RendererHandle handle) {
     if (handle is null) return;
     auto renderer = cast(UnityRenderer)handle;
+    renderer.animPlayers.clear();
     activeRenderers = activeRenderers.filter!(r => r !is renderer).array;
     renderer.puppets.length = 0;
     renderer.commandBuffer.length = 0;
@@ -580,6 +584,7 @@ extern(C) export NjgResult njgUnloadPuppet(RendererHandle handle, PuppetHandle p
     auto renderer = cast(UnityRenderer)handle;
     auto puppet = cast(Puppet)puppetHandle;
     renderer.puppets = renderer.puppets.filter!(p => p !is puppet).array;
+    renderer.animPlayers.remove(puppet);
     return NjgResult.Ok;
 }
 
@@ -610,6 +615,15 @@ extern(C) export NjgResult njgTickPuppet(PuppetHandle puppetHandle, double delta
     if (puppetHandle is null) return NjgResult.InvalidArgument;
     auto puppet = cast(Puppet)puppetHandle;
     unityTimeTicker += deltaSeconds;
+    // External animation control: tick per-puppet AnimationPlayer if present.
+    foreach (renderer; activeRenderers) {
+        if (renderer is null) continue;
+        if (auto player = puppet in renderer.animPlayers) {
+            if (player !is null) {
+                player.update(cast(float)deltaSeconds);
+            }
+        }
+    }
     inUpdate();
     puppet.update();
     return NjgResult.Ok;
@@ -822,6 +836,79 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
             }
         }
     }
+    return NjgResult.Ok;
+}
+
+private AnimationPlayer ensureAnimPlayer(UnityRenderer renderer, Puppet puppet) {
+    if (renderer is null || puppet is null) return null;
+    auto found = puppet in renderer.animPlayers;
+    if (found !is null) return *found;
+    auto player = new AnimationPlayer(puppet);
+    renderer.animPlayers[puppet] = player;
+    return player;
+}
+
+extern(C) export NjgResult njgPlayAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool loop, bool playLeadOut) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgPlayAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.play(loop, playLeadOut);
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgPauseAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgPauseAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.pause();
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgStopAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool immediate) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgStopAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.stop(immediate);
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, int frame) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgSeekAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.seek(frame);
     return NjgResult.Ok;
 }
 

@@ -9,7 +9,7 @@
 
 ## Unity Integration Tasks
 - [x] Export DLL lifecycle APIs (`njgCreateRenderer`, `njgDestroyRenderer`) that accept Unity’s resource callbacks so textures/FBOs are created on the C# side.
-- [ ] Add puppet/scene management exports: `njgLoadPuppet`/`njgUnloadPuppet`/`njgUpdateParameters` and log callback (`njgSetLogCallback`) are in place; animation trigger APIs are deferred to managed-side control (no native hooks).
+- [x] Add puppet/scene management exports: `njgLoadPuppet`/`njgUnloadPuppet`/`njgUpdateParameters` and log callback (`njgSetLogCallback`) are in place; animation trigger APIs provided as native exports backed by per-renderer `AnimationPlayer` instances (no core puppet changes).
 - [x] Implement frame execution exports (`njgBeginFrame`, `njgTickPuppet`, `njgEmitCommands`, `njgGetSharedBuffers`) that expose serialized `QueuedCommand` data and SOA buffer snapshots for Unity’s CommandBuffer pipeline.
 
 ## Unity/Queue Rendering Parity (match OpenGL pipeline data)
