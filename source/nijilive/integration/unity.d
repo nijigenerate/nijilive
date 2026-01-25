@@ -825,48 +825,4 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
     return NjgResult.Ok;
 }
 
-extern(C) export NjgResult njgPlayAnimation(PuppetHandle puppetHandle, const char* name, bool loop, bool playLeadOut) {
-    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
-    auto animName = to!string(name);
-    if (!puppet.playAnimation(animName, loop, playLeadOut)) {
-        unityLog("[nijilive] njgPlayAnimation failed: animation not found name=" ~ animName);
-        return NjgResult.InvalidArgument;
-    }
-    return NjgResult.Ok;
-}
-
-extern(C) export NjgResult njgPauseAnimation(PuppetHandle puppetHandle, const char* name) {
-    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
-    auto animName = to!string(name);
-    if (!puppet.pauseAnimation(animName)) {
-        unityLog("[nijilive] njgPauseAnimation failed: animation not found name=" ~ animName);
-        return NjgResult.InvalidArgument;
-    }
-    return NjgResult.Ok;
-}
-
-extern(C) export NjgResult njgStopAnimation(PuppetHandle puppetHandle, const char* name, bool immediate) {
-    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
-    auto animName = to!string(name);
-    if (!puppet.stopAnimation(animName, immediate)) {
-        unityLog("[nijilive] njgStopAnimation failed: animation not found name=" ~ animName);
-        return NjgResult.InvalidArgument;
-    }
-    return NjgResult.Ok;
-}
-
-extern(C) export NjgResult njgSeekAnimation(PuppetHandle puppetHandle, const char* name, int frame) {
-    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
-    auto animName = to!string(name);
-    if (!puppet.seekAnimation(animName, frame)) {
-        unityLog("[nijilive] njgSeekAnimation failed: animation not found name=" ~ animName);
-        return NjgResult.InvalidArgument;
-    }
-    return NjgResult.Ok;
-}
-
 }
