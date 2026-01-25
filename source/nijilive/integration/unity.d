@@ -5,9 +5,10 @@ version (UnityDLL) {
 import std.algorithm : min, filter;
 import std.array : array;
 import std.stdio : writeln, writefln;
+import std.conv : to;
 
 import nijilive : inUpdate, inSetTimingFunc;
-import nijilive.core.runtime_state : initRendererCommon, inSetRenderBackend, inSetViewport;
+import nijilive.core.runtime_state : initRendererCommon, inSetRenderBackend, inSetViewport, inGetViewport;
 import nijilive.core.render.backends : RenderBackend, RenderResourceHandle, BackendEnum;
 import nijilive.core.render.backends.queue : CommandQueueEmitter, QueuedCommand,
     RenderingBackend;
@@ -51,6 +52,8 @@ extern(C) struct UnityRendererConfig {
     int viewportWidth;
     int viewportHeight;
 }
+
+extern(C) alias NjgLogFn = void function(const(char)* message, size_t length, void* userData);
 
 extern(C) struct FrameConfig {
     int viewportWidth;
@@ -142,8 +145,11 @@ extern(C) struct NjgDynamicCompositePass {
     size_t stencil;
     vec2 scale;
     float rotationZ;
+    bool autoScaled;
     RenderResourceHandle origBuffer;
     int[4] origViewport;
+    int drawBufferCount;
+    bool hasStencil;
 }
 
 extern(C) struct NjgQueuedCommand {
@@ -163,6 +169,14 @@ extern(C) struct TextureStats {
     size_t created;
     size_t released;
     size_t current;
+}
+
+extern(C) struct NjgRenderTargets {
+    size_t renderFramebuffer;
+    size_t compositeFramebuffer;
+    size_t blendFramebuffer;
+    int viewportWidth;
+    int viewportHeight;
 }
 
 extern(C) struct NjgBufferSlice {
@@ -209,6 +223,8 @@ class UnityRenderer {
     Puppet[] puppets;
     NjgQueuedCommand[] commandBuffer;
     UnityResourceCallbacks callbacks;
+    int viewportWidth;
+    int viewportHeight;
     size_t frameSeq = 0;
     size_t renderHandle;
     size_t compositeHandle;
@@ -223,6 +239,15 @@ class UnityRenderer {
 
 __gshared double unityTimeTicker;
 __gshared UnityRenderer[] activeRenderers;
+__gshared NjgLogFn unityLogCallback;
+__gshared void* unityLogUserData;
+
+void unityLog(string msg) {
+    auto cb = unityLogCallback;
+    if (cb !is null) {
+        cb(msg.ptr, msg.length, unityLogUserData);
+    }
+}
 
 double unityNowD() {
     return unityTimeTicker;
@@ -374,8 +399,20 @@ private NjgDynamicCompositePass serializeDynamicPass(QueueBackend backend, Unity
     if (pass is null) return result;
     result.scale = pass.scale;
     result.rotationZ = pass.rotationZ;
+    result.autoScaled = pass.autoScaled;
     result.origBuffer = pass.origBuffer;
     result.origViewport = pass.origViewport;
+    result.drawBufferCount = pass.surface is null ? 0 : cast(int)max(cast(int)pass.surface.textureCount, 1);
+    result.hasStencil = pass.surface !is null && pass.surface.stencil !is null;
+    // If queue backend didn't capture a viewport, fall back to current viewport for Unity playback.
+    if (result.origViewport[2] == 0 || result.origViewport[3] == 0) {
+        int vw, vh;
+        inGetViewport(vw, vh);
+        result.origViewport[0] = 0;
+        result.origViewport[1] = 0;
+        result.origViewport[2] = vw;
+        result.origViewport[3] = vh;
+    }
     if (pass.surface !is null) {
         result.textureCount = pass.surface.textureCount;
         foreach (i; 0 .. pass.surface.textures.length) {
@@ -502,7 +539,8 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
         activeRenderers ~= renderer;
         *outHandle = cast(RendererHandle)renderer;
         return NjgResult.Ok;
-    } catch (Throwable) {
+    } catch (Throwable ex) {
+        unityLog("[nijilive] njgCreateRenderer failed: " ~ ex.msg);
         *outHandle = null;
         return NjgResult.Failure;
     }
@@ -530,7 +568,8 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
         renderer.puppets ~= puppet;
         *outPuppet = cast(PuppetHandle)puppet;
         return NjgResult.Ok;
-    } catch (Throwable) {
+    } catch (Throwable ex) {
+        unityLog("[nijilive] njgLoadPuppet failed: " ~ ex.msg);
         *outPuppet = null;
         return NjgResult.Failure;
     }
@@ -550,6 +589,10 @@ extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfi
     renderer.commandBuffer.length = 0;
     renderer.frameSeq++;
     auto res = setViewport(cast(FrameConfig*)config);
+    if (config !is null) {
+        renderer.viewportWidth = config.viewportWidth;
+        renderer.viewportHeight = config.viewportHeight;
+    }
     if (renderer.callbacks.createTexture !is null && config !is null) {
         if (renderer.renderHandle == 0 && config.viewportWidth > 0 && config.viewportHeight > 0) {
             renderer.renderHandle = renderer.callbacks.createTexture(config.viewportWidth, config.viewportHeight, 4, 1, 4, true, false, renderer.callbacks.userData);
@@ -594,15 +637,22 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
                         maskOpen = true;
                         break;
                     case RenderCommandKind.BeginMaskContent:
-                        if (!maskOpen) debug (UnityDLLLog) writefln("[nijilive] WARN: BeginMaskContent without BeginMask");
+                        if (!maskOpen) {
+                            debug (UnityDLLLog) writefln("[nijilive] WARN: BeginMaskContent without BeginMask");
+                            unityLog("[nijilive] WARN: BeginMaskContent without BeginMask");
+                        }
                         break;
                     case RenderCommandKind.EndMask:
-                        if (!maskOpen) debug (UnityDLLLog) writefln("[nijilive] WARN: EndMask without BeginMask");
+                        if (!maskOpen) {
+                            debug (UnityDLLLog) writefln("[nijilive] WARN: EndMask without BeginMask");
+                            unityLog("[nijilive] WARN: EndMask without BeginMask");
+                        }
                         maskOpen = false;
                         break;
                     case RenderCommandKind.ApplyMask:
                         if (!maskOpen) {
                             debug (UnityDLLLog) writefln("[nijilive] WARN: ApplyMask without BeginMask");
+                            unityLog("[nijilive] WARN: ApplyMask without BeginMask");
                         }
                         break;
                     default:
@@ -667,6 +717,18 @@ extern(C) export TextureStats njgGetTextureStats(RendererHandle handle) {
     return stats;
 }
 
+extern(C) export NjgRenderTargets njgGetRenderTargets(RendererHandle handle) {
+    NjgRenderTargets targets;
+    if (handle is null) return targets;
+    auto renderer = cast(UnityRenderer)handle;
+    targets.renderFramebuffer = renderer.renderHandle;
+    targets.compositeFramebuffer = renderer.compositeHandle;
+    targets.blendFramebuffer = 0; // queue backend does not manage a dedicated blend FBO
+    targets.viewportWidth = renderer.viewportWidth;
+    targets.viewportHeight = renderer.viewportHeight;
+    return targets;
+}
+
 extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBufferSnapshot* snapshot) {
     if (handle is null || snapshot is null) return NjgResult.InvalidArgument;
 
@@ -704,6 +766,11 @@ extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBuff
     }
 
     return NjgResult.Ok;
+}
+
+extern(C) export void njgSetLogCallback(NjgLogFn callback, void* userData) {
+    unityLogCallback = callback;
+    unityLogUserData = userData;
 }
 
 extern(C) export size_t njgGetGcHeapSize() {
@@ -754,6 +821,50 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
                 param.value = current;
             }
         }
+    }
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgPlayAnimation(PuppetHandle puppetHandle, const char* name, bool loop, bool playLeadOut) {
+    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    if (!puppet.playAnimation(animName, loop, playLeadOut)) {
+        unityLog("[nijilive] njgPlayAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgPauseAnimation(PuppetHandle puppetHandle, const char* name) {
+    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    if (!puppet.pauseAnimation(animName)) {
+        unityLog("[nijilive] njgPauseAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgStopAnimation(PuppetHandle puppetHandle, const char* name, bool immediate) {
+    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    if (!puppet.stopAnimation(animName, immediate)) {
+        unityLog("[nijilive] njgStopAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgSeekAnimation(PuppetHandle puppetHandle, const char* name, int frame) {
+    if (puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    if (!puppet.seekAnimation(animName, frame)) {
+        unityLog("[nijilive] njgSeekAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
     }
     return NjgResult.Ok;
 }

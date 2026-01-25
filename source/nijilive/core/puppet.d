@@ -24,6 +24,8 @@ import nijilive.utils.snapshot : Snapshot;
 import nijilive.core.render.scheduler;
 import nijilive.core.render.profiler : profileScope;
 import nijilive.core.texture_types : Filtering;
+import nijilive.core.animation.player : AnimationPlayer, AnimationPlaybackRef;
+import nijilive : deltaTime;
 
 /**
     Magic value meaning that the model has no thumbnail
@@ -246,6 +248,7 @@ private:
         A dictionary of named animations
     */
     Animation[string] animations;
+    AnimationPlayer animationPlayer;
     RenderCommandEmitter commandEmitter;
     RenderGraphBuilder renderGraph;
     package(nijilive) RenderBackend renderBackend;
@@ -505,6 +508,7 @@ public:
         } else static if (SelectedBackendIsOpenGL) {
             commandEmitter = new RenderQueue();
         }
+        animationPlayer = new AnimationPlayer(this);
         renderGraph = new RenderGraphBuilder();
         renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
@@ -531,6 +535,7 @@ public:
         } else static if (SelectedBackendIsOpenGL) {
             commandEmitter = new RenderQueue();
         }
+        animationPlayer = new AnimationPlayer(this);
         renderGraph = new RenderGraphBuilder();
         renderBackend = currentRenderBackend();
         renderScheduler = new TaskScheduler();
@@ -555,6 +560,10 @@ public:
         {
             auto profiling = profileScope("Puppet.Update.Transform");
             transform.update();
+        }
+
+        if (animationPlayer !is null) {
+            animationPlayer.update(cast(float)deltaTime());
         }
 
         // Update Automators
@@ -1072,6 +1081,43 @@ public:
     final
     ref Animation[string] getAnimations() {
         return animations;
+    }
+
+    private AnimationPlaybackRef animationPlaybackFor(string name) {
+        if (name.length == 0) return null;
+        if (name !in animations) return null;
+        if (animationPlayer is null) {
+            animationPlayer = new AnimationPlayer(this);
+        }
+        return animationPlayer.createOrGet(name);
+    }
+
+    bool playAnimation(string name, bool loop = false, bool playLeadOut = true) {
+        auto playback = animationPlaybackFor(name);
+        if (playback is null) return false;
+        playback.play(loop, playLeadOut);
+        return true;
+    }
+
+    bool pauseAnimation(string name) {
+        auto playback = animationPlaybackFor(name);
+        if (playback is null) return false;
+        playback.pause();
+        return true;
+    }
+
+    bool stopAnimation(string name, bool immediate = false) {
+        auto playback = animationPlaybackFor(name);
+        if (playback is null) return false;
+        playback.stop(immediate);
+        return true;
+    }
+
+    bool seekAnimation(string name, int frame) {
+        auto playback = animationPlaybackFor(name);
+        if (playback is null) return false;
+        playback.seek(frame);
+        return true;
     }
 
     void applyDeformToChildren() {

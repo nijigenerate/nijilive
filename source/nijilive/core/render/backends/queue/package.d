@@ -18,6 +18,7 @@ import nijilive.core.shader : Shader;
 import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 import nijilive.math.camera : Camera;
+import nijilive.core.runtime_state : inGetViewport;
 import std.algorithm : min;
 import std.exception : enforce;
 
@@ -232,7 +233,16 @@ public:
     void drawDebugLines(vec4, mat4) {}
 
     void drawPartPacket(ref PartDrawPacket) {}
-    void beginDynamicComposite(DynamicCompositePass) {}
+    void beginDynamicComposite(DynamicCompositePass pass) {
+        if (pass is null) return;
+        pass.origBuffer = framebuffer;
+        int vw, vh;
+        inGetViewport(vw, vh);
+        pass.origViewport[0] = 0;
+        pass.origViewport[1] = 0;
+        pass.origViewport[2] = vw;
+        pass.origViewport[3] = vh;
+    }
     void endDynamicComposite(DynamicCompositePass) {}
     void destroyDynamicComposite(DynamicCompositeSurface) {}
     void beginMask(bool) {}

@@ -191,9 +191,11 @@ namespace Nijilive.Unity.Managed
         private readonly Stack<RenderTargetIdentifier> _targetStack = new();
         private readonly Stack<float> _ppuStack = new();
         private readonly Stack<ProjectionState> _projectionStack = new();
+        private readonly Stack<bool> _mrtStack = new();
         private readonly List<Mesh> _meshPool = new();
         private readonly List<RenderTexture> _rtReleaseQueue = new();
         private int _frameId;
+        private bool _mrtActive;
         private static Mesh BuildMeshSkipped(string reason)
         {
             LogWarning($"[Nijilive] BuildMesh skipped: {reason}");
@@ -255,14 +257,16 @@ namespace Nijilive.Unity.Managed
             _viewportH = viewportHeight;
             _pixelsPerUnit = Mathf.Max(0.001f, pixelsPerUnit);
             _targetStack.Clear();
-                        _ppuStack.Clear();
+            _ppuStack.Clear();
             _projectionStack.Clear();
+            _mrtStack.Clear();
             _rtReleaseQueue.Clear();
             _meshPoolCursor = 0;
             _dynRtWidth = 0;
             _dynRtHeight = 0;
             _currentTarget = BuiltinRenderTextureType.CameraTarget;
             _maskDepthCounter = 0;
+            _mrtActive = false;
             _currentProjection = new ProjectionState
             {
                 Width = _viewportW,
@@ -292,6 +296,92 @@ namespace Nijilive.Unity.Managed
                 _rtReleaseQueue.Clear();
             }
             ReleaseSharedCompositeRt();
+        }
+        public void BeginDynamicComposite(CommandStream.DynamicCompositePass pass)
+        {
+            if (pass == null) return;
+            if (pass.Textures.Length == 0) return;
+#if UNITY_5_3_OR_NEWER
+            var colors = new List<RenderTargetIdentifier>();
+            RenderTexture rt0 = null;
+            foreach (var h in pass.Textures.Span)
+            {
+                if (!_textures.TryGet(h, out var binding)) continue;
+                if (binding.NativeObject is RenderTexture rt)
+                {
+                    colors.Add(new RenderTargetIdentifier(rt));
+                    rt0 ??= rt;
+                }
+            }
+            if (rt0 == null || colors.Count == 0) return;
+
+            RenderTargetIdentifier depthTarget = BuiltinRenderTextureType.None;
+            if (pass.HasStencil && _textures.TryGet(pass.Stencil, out var stencilBinding) && stencilBinding.NativeObject is RenderTexture stencilRt)
+            {
+                depthTarget = new RenderTargetIdentifier(stencilRt);
+            }
+
+            _targetStack.Push(_currentTarget);
+            _projectionStack.Push(_currentProjection);
+            _ppuStack.Push(_pixelsPerUnit);
+            _mrtStack.Push(_mrtActive);
+            _currentTarget = colors[0];
+            _dynRtWidth = rt0.width;
+            _dynRtHeight = rt0.height;
+            _currentProjection = new ProjectionState
+            {
+                Width = rt0.width,
+                Height = rt0.height,
+                PixelsPerUnit = _pixelsPerUnit,
+                RenderToTexture = true
+            };
+            ApplyProjectionState(_currentProjection);
+            if (colors.Count == 1)
+            {
+                _cb.SetRenderTarget(colors[0], depthTarget);
+            }
+            else
+            {
+                _cb.SetRenderTarget(colors, depthTarget);
+            }
+            _cb.ClearRenderTarget(true, true, Color.clear);
+            _mrtActive = colors.Count > 1;
+            if (_mrtActive) _cb.EnableShaderKeyword("NIJI_MRT"); else _cb.DisableShaderKeyword("NIJI_MRT");
+#endif
+        }
+        public void EndDynamicComposite(CommandStream.DynamicCompositePass pass)
+        {
+#if UNITY_5_3_OR_NEWER
+            if (_targetStack.Count > 0)
+            {
+                _currentTarget = _targetStack.Pop();
+            }
+            if (_projectionStack.Count > 0)
+            {
+                _currentProjection = _projectionStack.Pop();
+                ApplyProjectionState(_currentProjection);
+            }
+            if (_ppuStack.Count > 0)
+            {
+                _pixelsPerUnit = _ppuStack.Pop();
+            }
+            if (_mrtStack.Count > 0)
+            {
+                _mrtActive = _mrtStack.Pop();
+            }
+            if (pass != null && pass.Textures.Length > 0)
+            {
+                foreach (var h in pass.Textures.Span)
+                {
+                    if (!_textures.TryGet(h, out var binding)) continue;
+                    if (binding.NativeObject is RenderTexture rt && !pass.AutoScaled && rt.useMipMap)
+                    {
+                        _cb.GenerateMips(rt);
+                    }
+                }
+            }
+            _cb.SetRenderTarget(_currentTarget);
+#endif
         }
         public void BeginMask(bool usesStencil)
         {
@@ -365,6 +455,75 @@ namespace Nijilive.Unity.Managed
             _stencilActive = false;
             _maskActive = false;
             _cb.SetRenderTarget(_currentTarget);
+        }
+        public void DrawPart(CommandStream.DrawPacket part)
+        {
+            if (!part.Renderable) return;
+            if (_mrtActive) _cb.EnableShaderKeyword("NIJI_MRT"); else _cb.DisableShaderKeyword("NIJI_MRT");
+            var mesh = BuildMesh(
+                part.ModelMatrix,
+                part.PuppetMatrix,
+                part.Origin,
+                part.VertexOffset, part.VertexAtlasStride,
+                part.UvOffset, part.UvAtlasStride,
+                part.DeformOffset, part.DeformAtlasStride,
+                part.VertexCount, part.IndexCount,
+                part.Indices);
+            if (mesh == null) return;
+            _mpb.Clear();
+            BindTextures(_mpb, part.TextureHandles);
+            _mpb.SetFloat(_props.Opacity, part.Opacity);
+            _mpb.SetVector(_props.Tint, new Vector4(part.ClampedTint.X, part.ClampedTint.Y, part.ClampedTint.Z, 1));
+            _mpb.SetVector(_props.ScreenTint, new Vector4(part.ClampedScreen.X, part.ClampedScreen.Y, part.ClampedScreen.Z, 0));
+            _mpb.SetFloat(_props.MaskThreshold, part.MaskThreshold);
+            _mpb.SetFloat(_props.Emission, part.EmissionStrength);
+            _mpb.SetInt(_props.BlendMode, part.BlendingMode);
+            _mpb.SetInt(_props.UseMultistageBlend, part.UseMultistageBlend ? 1 : 0);
+            ApplyBlendToMaterial(_partMaterial, part.BlendingMode);
+            ApplyStencil(_mpb, _stencilActive ? StencilMode.TestEqual : StencilMode.Off);
+            _cb.DrawMesh(mesh, Matrix4x4.identity, _partMaterial, 0, 0, _mpb);
+        }
+        public void ApplyMask(CommandStream.MaskApplyPacket apply)
+        {
+            if (!_maskActive) return;
+            var refVal = apply.IsDodge ? 0 : 1;
+            if (apply.Kind == NijiliveNative.MaskDrawableKind.Mask)
+            {
+                var mesh = BuildMesh(
+                    apply.Mask.ModelMatrix,
+                    Matrix4x4.identity,
+                    apply.Mask.Origin,
+                    apply.Mask.VertexOffset, apply.Mask.VertexAtlasStride,
+                    0, 0,
+                    apply.Mask.DeformOffset, apply.Mask.DeformAtlasStride,
+                    apply.Mask.VertexCount, apply.Mask.IndexCount,
+                    apply.Mask.Indices);
+                if (mesh != null)
+                {
+                    _mpb.Clear();
+                    ApplyStencil(_mpb, StencilMode.WriteReplace, refVal);
+                    _cb.DrawMesh(mesh, Matrix4x4.identity, _maskWriteMaterial, 0, 0, _mpb);
+                }
+            }
+            else
+            {
+                var p = apply.Part;
+                var mesh = BuildMesh(
+                    p.ModelMatrix,
+                    p.PuppetMatrix,
+                    p.Origin,
+                    p.VertexOffset, p.VertexAtlasStride,
+                    p.UvOffset, p.UvAtlasStride,
+                    p.DeformOffset, p.DeformAtlasStride,
+                    p.VertexCount, p.IndexCount,
+                    p.Indices);
+                if (mesh != null)
+                {
+                    _mpb.Clear();
+                    ApplyStencil(_mpb, StencilMode.WriteReplace, refVal);
+                    _cb.DrawMesh(mesh, Matrix4x4.identity, _maskWriteMaterial, 0, 0, _mpb);
+                }
+            }
         }
         public void BeginComposite() { }
         public void EndComposite() { }
@@ -596,17 +755,17 @@ namespace Nijilive.Unity.Managed
             return mat;
         }
         private enum StencilMode { Off, WriteReplace, TestEqual }
-        private void ApplyStencil(MaterialPropertyBlock block, StencilMode mode)
+        private void ApplyStencil(MaterialPropertyBlock block, StencilMode mode, int refValue = 1)
         {
             switch (mode)
             {
                 case StencilMode.WriteReplace:
-                    block.SetInt(_props.StencilRef, 1);
+                    block.SetInt(_props.StencilRef, refValue);
                     block.SetInt(_props.StencilComp, (int)CompareFunction.Always);
                     block.SetInt(_props.StencilPass, (int)StencilOp.Replace);
                     break;
                 case StencilMode.TestEqual:
-                    block.SetInt(_props.StencilRef, 1);
+                    block.SetInt(_props.StencilRef, refValue);
                     block.SetInt(_props.StencilComp, (int)CompareFunction.Equal);
                     block.SetInt(_props.StencilPass, (int)StencilOp.Keep);
                     break;

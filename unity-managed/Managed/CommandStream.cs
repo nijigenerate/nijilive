@@ -69,8 +69,11 @@ namespace Nijilive.Unity.Managed
         nuint Stencil,
         NijiliveNative.Vec2 Scale,
         float RotationZ,
+        bool AutoScaled,
         nuint OrigBuffer,
-        (int X, int Y, int W, int H) OrigViewport);
+        (int X, int Y, int W, int H) OrigViewport,
+        int DrawBufferCount,
+        bool HasStencil);
 
     public static IReadOnlyList<Command> Decode(ReadOnlySpan<NijiliveNative.NjgQueuedCommand> commands)
     {
@@ -176,8 +179,11 @@ namespace Nijilive.Unity.Managed
             p.Stencil,
             p.Scale,
             p.RotationZ,
+            p.AutoScaled,
             p.OrigBuffer,
-            (p.OrigViewport0, p.OrigViewport1, p.OrigViewport2, p.OrigViewport3));
+            (p.OrigViewport0, p.OrigViewport1, p.OrigViewport2, p.OrigViewport3),
+            p.DrawBufferCount,
+            p.HasStencil);
     }
 }
 }

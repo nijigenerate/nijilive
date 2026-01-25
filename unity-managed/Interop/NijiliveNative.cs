@@ -173,11 +173,14 @@ public static class NijiliveNative
         public nuint Stencil;
         public Vec2 Scale;
         public float RotationZ;
+        [MarshalAs(UnmanagedType.I1)] public bool AutoScaled;
         public nuint OrigBuffer;
         public int OrigViewport0;
         public int OrigViewport1;
         public int OrigViewport2;
         public int OrigViewport3;
+        public int DrawBufferCount;
+        [MarshalAs(UnmanagedType.I1)] public bool HasStencil;
     }
 
     [StructLayout(LayoutKind.Sequential)]
