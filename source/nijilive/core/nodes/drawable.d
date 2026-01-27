@@ -549,6 +549,8 @@ public:
         Changes this mesh's data
     */
     void rebuffer(ref MeshData data) {
+        sharedVertexResize(this.data.vertices, data.vertices.length);
+        sharedUvResize(this.data.uvs, data.uvs.length);
         this.data = data;
         this.updateIndices();
         this.updateVertices();
