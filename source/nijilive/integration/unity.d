@@ -245,6 +245,81 @@ __gshared double unityTimeTicker;
 __gshared UnityRenderer[] activeRenderers;
 __gshared NjgLogFn unityLogCallback;
 __gshared void* unityLogUserData;
+__gshared bool runtimeInitialized;
+__gshared bool rendererInitialized;
+__gshared bool mainThreadAttached;
+private void ensureRuntimeInitialized() {
+    njgRuntimeInit();
+}
+
+/// Fallback: explicitly register core node types to ensure the AA is created
+/// even if module constructors were skipped in the host process.
+private void ensureNodeFactoriesBuilt() {
+    import nijilive.core.nodes.node : inInitNodes, inHasNodeType;
+    import nijilive.core.nodes.drawable : inInitDrawable;
+    import nijilive.core.nodes.part : inInitPart;
+    import nijilive.core.nodes.mask : inInitMask;
+    import nijilive.core.nodes.composite : inInitComposite;
+    import nijilive.core.nodes.composite.dcomposite : inInitDComposite;
+    import nijilive.core.nodes.meshgroup : inInitMeshGroup;
+    import nijilive.core.nodes.deformer.grid : inInitGridDeformer;
+    import nijilive.core.nodes.deformer.path : inInitPathDeformer;
+    import nijilive.core.param : inParameterSetFactory, Parameter;
+    import fghj : deserializeValue;
+
+    // Repeatable: these initializers are idempotent and safe to re-run.
+    inInitNodes();
+    inInitDrawable();
+    inInitPart();
+    inInitMask();
+    inInitComposite();
+    inInitMeshGroup();
+    inInitDComposite();
+    inInitGridDeformer();
+    inInitPathDeformer();
+    inParameterSetFactory((data) {
+        Parameter param = new Parameter;
+        data.deserializeValue(param);
+        return param;
+    });
+
+    if (!inHasNodeType("Node") || !inHasNodeType("Part")) {
+        unityLog("[nijilive] WARN: node registry missing entries after registration");
+    }
+}
+
+/// Explicit runtime entrypoint to be called by the host before any other API.
+extern(C) export void njgRuntimeInit() {
+    import core.runtime : Runtime, rt_init;
+    import core.thread.osthread : thread_attachThis;
+    // Druntime must be initialized before touching any Nijilive state.
+    if (!runtimeInitialized) {
+        rt_init();
+        Runtime.initialize();
+        runtimeInitialized = true;
+    }
+    if (!mainThreadAttached) {
+        thread_attachThis();
+        mainThreadAttached = true;
+    }
+    ensureNodeFactoriesBuilt();
+    // Report registry state for early diagnostics (after host sets log callback).
+    import nijilive.core.nodes.node : inHasNodeType;
+    if (unityLogCallback !is null) {
+        unityLog("[nijilive] runtime init: Node=" ~ (inHasNodeType("Node") ? "ok" : "missing") ~
+                 " Part=" ~ (inHasNodeType("Part") ? "ok" : "missing"));
+    }
+}
+
+/// Explicit runtime shutdown; optional for hosts that want deterministic teardown.
+extern(C) export void njgRuntimeTerm() {
+    import core.runtime : Runtime, rt_term;
+    if (!runtimeInitialized) return;
+    rt_term();
+    Runtime.terminate();
+    runtimeInitialized = false;
+    mainThreadAttached = false;
+}
 
 void unityLog(string msg) {
     auto cb = unityLogCallback;
@@ -527,7 +602,12 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
                                              RendererHandle* outHandle) {
     if (outHandle is null) return NjgResult.InvalidArgument;
     try {
+        ensureRuntimeInitialized();
+        // Ensure node factories are populated before any renderer setup.
+        import nijilive.core.nodes.node : inInitNodes;
+        inInitNodes();
         initRendererCommon();
+        rendererInitialized = true;
         auto backend = new RenderBackend();
         inSetRenderBackend(backend);
         backend.initializeRenderer();
@@ -563,7 +643,19 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
     if (handle is null || outPuppet is null || path is null) return NjgResult.InvalidArgument;
     auto renderer = cast(UnityRenderer)handle;
     try {
+        ensureRuntimeInitialized();
+        ensureNodeFactoriesBuilt();
+        // If renderer init somehow failed earlier, initialize core systems now.
+        if (!rendererInitialized) {
+            import nijilive.core.nodes.node : inInitNodes;
+            inInitNodes();
+            initRendererCommon();
+            rendererInitialized = true;
+        }
         import std.conv : to;
+        // Defensive: always initialize node factories before deserialization.
+        import nijilive.core.nodes.node : inInitNodes;
+        inInitNodes();
         import nijilive.fmt : inLoadPuppet;
         auto puppet = inLoadPuppet!Puppet(to!string(path));
         foreach (tex; puppet.textureSlots) {
@@ -770,13 +862,6 @@ extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBuff
             snapshot.vertexCount, snapshot.vertices.length, cast(size_t)snapshot.vertices.data,
             snapshot.uvCount, cast(size_t)snapshot.uvs.data,
             snapshot.deformCount, cast(size_t)snapshot.deform.data);
-        debug {
-            import std.algorithm : sort;
-            import std.conv : to;
-            auto handles = backend.indexBuffers.keys.array;
-            handles.sort;
-            debug (UnityDLLLog) writefln("[nijilive] Queue index buffers registered=%s", handles.to!string);
-        }
         logSnapshotCount++;
     }
 

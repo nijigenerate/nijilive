@@ -43,8 +43,6 @@ configuration "unity-dll" {
     versions "UnityDLL"
     // Use a recognizable name for Unity DLL
     targetName "nijilive-unity"
-    // Statically link D runtime for Unity DLL and disable dllimport
-    dflags "-link-defaultlib-shared=false" "--dllimport=none"
     excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
 }
 
@@ -55,7 +53,5 @@ configuration "unity-dll-macos" {
     versions "UseQueueBackend"
     versions "UnityDLL"
     targetName "nijilive-unity"
-    // Statically link D runtime for Unity DLL on macOS
-    dflags "-link-defaultlib-shared=false" "--dllimport=none"
     excludedSourceFiles "source/nijilive/core/render/backends/opengl/**.d" "source/nijilive/core/render/backends/opengl/**"
 }
