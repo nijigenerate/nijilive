@@ -998,4 +998,29 @@ extern(C) export NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle 
     return NjgResult.Ok;
 }
 
+/// Set puppet scale (x, y). Does not affect physics, only render transform.
+extern(C) export NjgResult njgSetPuppetScale(PuppetHandle puppetHandle, float sx, float sy) {
+    if (puppetHandle is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    puppet.transform.scale = vec2(sx, sy);
+    puppet.transform.update();
+    if (auto root = puppet.getPuppetRootNode()) {
+        root.transformChanged();
+    }
+    return NjgResult.Ok;
+}
+
+/// Set puppet translation (x, y). Does not affect physics, only render transform.
+extern(C) export NjgResult njgSetPuppetTranslation(PuppetHandle puppetHandle, float tx, float ty) {
+    if (puppetHandle is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    puppet.transform.translation.x = tx;
+    puppet.transform.translation.y = ty;
+    puppet.transform.update();
+    if (auto root = puppet.getPuppetRootNode()) {
+        root.transformChanged();
+    }
+    return NjgResult.Ok;
+}
+
 }
