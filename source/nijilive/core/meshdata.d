@@ -412,7 +412,9 @@ struct MeshData {
     }
 
     void dbg() {
-        import std.stdio : writefln;
-        writefln("%s %s %s", vertices.length, uvs.length, indices.length);
+        debug {
+            import std.stdio : writefln;
+            writefln("%s %s %s", vertices.length, uvs.length, indices.length);
+        }
     }
 }

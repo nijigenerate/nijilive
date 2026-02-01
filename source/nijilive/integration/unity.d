@@ -458,8 +458,6 @@ private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, UnityRendere
             packet.indexBuffer, idxPtr, result.indexCount, result.vertexCount,
             packet.vertexOffset, packet.vertexAtlasStride,
             packet.deformOffset, packet.deformAtlasStride);
-        auto dbgIndices = backend.findIndexBuffer(packet.indexBuffer);
-        writefln("[nijilive] MaskPacket backend indices len=%s ptr=%s", dbgIndices.length, dbgIndices.length ? cast(size_t)dbgIndices.ptr : 0);
         logMaskPacketCount++;
     }
     return result;
@@ -757,36 +755,6 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
         }
         emitter.clearQueue();
     }
-
-    // Dump all commands to temp file for debugging.
-    import std.file : append;
-    import std.path : buildPath;
-    import std.process : environment;
-    string temp = environment.get("TEMP", "."); // fallback to cwd
-    string path = buildPath(temp, "nijilive_cmd_native.txt");
-    import std.array : appender;
-    import std.format : formattedWrite;
-    auto app = appender!string();
-    formattedWrite(app, "Frame %s count=%s\n", renderer.frameSeq, renderer.commandBuffer.length);
-    foreach (i, cmd; renderer.commandBuffer) {
-        formattedWrite(app, "%s kind=%s usesStencil=%s\n", i, cmd.kind, cmd.usesStencil);
-        switch (cmd.kind) {
-            case NjgRenderCommandKind.ApplyMask:
-                formattedWrite(app, "  apply.kind=%s dodge=%s part.v=%s/%s mask.v=%s/%s\n",
-                    cmd.maskApplyPacket.kind, cmd.maskApplyPacket.isDodge,
-                    cmd.maskApplyPacket.partPacket.vertexCount, cmd.maskApplyPacket.partPacket.indexCount,
-                    cmd.maskApplyPacket.maskPacket.vertexCount, cmd.maskApplyPacket.maskPacket.indexCount);
-                break;
-            case NjgRenderCommandKind.DrawPart:
-                formattedWrite(app, "  part.v=%s/%s isMask=%s\n",
-                    cmd.partPacket.vertexCount, cmd.partPacket.indexCount, cmd.partPacket.isMask);
-                break;
-            default:
-                break;
-        }
-    }
-    app.put('\n');
-    append(path, app.data);
 
     outView.commands = renderer.commandBuffer.ptr;
     outView.count = renderer.commandBuffer.length;

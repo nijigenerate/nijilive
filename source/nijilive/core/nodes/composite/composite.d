@@ -599,7 +599,6 @@ protected:
 
     /// Compositeは子を素のスケール/回転のまま描き、textureOffsetだけ平行移動してオフスクリーンへ描く。
     protected override void dynamicRenderBegin(ref RenderContext ctx) {
-        import std.stdio : writefln;
         debug (UnityDLLLog) {
             import std.stdio : writefln;
             writefln("[comp] begin name=%s(%s) frame=%s autoResized=%s hasValid=%s",
@@ -640,19 +639,12 @@ protected:
         selfSort();
         auto passData = prepareDynamicCompositePass();
         if (passData is null) {
-            writefln("[comp-log] passData is null");
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
             return;
         }
         // CompositeもDynamicCompositeパスでレンダリングし、転送はdrawOne()内のdrawSelf。
         dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
-        writefln("[comp-log] pushDynamic composite=%s(%s) token=%s texCount=%s size0=%sx%s auto=%s zSort=%s",
-            name, uuid, dynamicScopeToken,
-            passData.surface.textureCount,
-            passData.surface.textureCount > 0 && passData.surface.textures[0] !is null ? passData.surface.textures[0].width : 0,
-            passData.surface.textureCount > 0 && passData.surface.textures[0] !is null ? passData.surface.textures[0].height : 0,
-            passData.autoScaled, zSort());
         dynamicScopeActive = true;
 
         queuedOffscreenParts.length = 0;
