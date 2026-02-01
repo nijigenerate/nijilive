@@ -547,6 +547,8 @@ protected:
     }
 
     override void drawContents() {
+        debug (UnityDLLLog) import std.stdio : writefln;
+        debug (UnityDLLLog) writefln("[comp] drawContents name=%s(%s)", name, uuid);
         updateDynamicRenderStateFlags();
 
         bool needsRedraw = textureInvalidated || deferred > 0;
@@ -597,6 +599,12 @@ protected:
 
     /// Compositeは子を素のスケール/回転のまま描き、textureOffsetだけ平行移動してオフスクリーンへ描く。
     protected override void dynamicRenderBegin(ref RenderContext ctx) {
+        import std.stdio : writefln;
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[comp] begin name=%s(%s) frame=%s autoResized=%s hasValid=%s",
+                name, uuid, ctx.frameCounter, autoResizedMesh, hasValidOffscreenContent);
+        }
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
@@ -609,6 +617,16 @@ protected:
             textureInvalidated = true;
         }
         queuedOffscreenParts.length = 0;
+        // In queue backend we sometimes arrive here without a valid offscreen texture.
+        // Force (re)initialization so prepareDynamicCompositePass does not return null.
+        if (textures.length == 0 || textures[0] is null) {
+            initialized = false;
+            if (!initTarget()) {
+                reuseCachedTextureThisFrame = true;
+                loggedFirstRenderAttempt = true;
+                return;
+            }
+        }
         if (!renderEnabled() || ctx.renderGraph is null) {
             return;
         }
@@ -622,12 +640,19 @@ protected:
         selfSort();
         auto passData = prepareDynamicCompositePass();
         if (passData is null) {
+            writefln("[comp-log] passData is null");
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
             return;
         }
         // CompositeもDynamicCompositeパスでレンダリングし、転送はdrawOne()内のdrawSelf。
         dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
+        writefln("[comp-log] pushDynamic composite=%s(%s) token=%s texCount=%s size0=%sx%s auto=%s zSort=%s",
+            name, uuid, dynamicScopeToken,
+            passData.surface.textureCount,
+            passData.surface.textureCount > 0 && passData.surface.textures[0] !is null ? passData.surface.textures[0].width : 0,
+            passData.surface.textureCount > 0 && passData.surface.textures[0] !is null ? passData.surface.textures[0].height : 0,
+            passData.autoScaled, zSort());
         dynamicScopeActive = true;
 
         queuedOffscreenParts.length = 0;
@@ -648,6 +673,11 @@ protected:
                 child.enqueueRenderCommands(ctx);
             }
             queuedOffscreenParts ~= child;
+        }
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[comp] pushed dynamic token=%s name=%s(%s) passTex=%s stencil=%s",
+                dynamicScopeToken, name, uuid, passData.surface.textureCount, passData.surface.stencil);
         }
     }
 }

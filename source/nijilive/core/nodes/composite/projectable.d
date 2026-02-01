@@ -23,16 +23,11 @@ import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil, abs;
 import std.format : format;
-import std.file : append, tempDir;
-import std.path : buildPath;
-import std.datetime : Clock;
-import std.conv : to;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 import nijilive.core.runtime_state : inGetCamera;
-import std.stdio : writefln;
 
 package(nijilive) {
     __gshared size_t projectableFrameCounter;
@@ -46,22 +41,8 @@ package(nijilive) {
     }
 }
 
-/// Path for dynamic composite debug log (temporary directory).
-private string dynamicLogPath() {
-    static string path;
-    if (path.length == 0) {
-        path = buildPath(tempDir(), "nijilive_dynamic_render.log");
-    }
-    return path;
-}
-
-/// Append a line to the dynamic composite log (enabled by default).
-private void logDynamicEvent(string tag, ref RenderContext ctx, string name, uint uuid, string extra = "") {
-    auto ts = Clock.currTime();
-    auto line = format("%s tag=%s frame=%s node=%s(%s)%s\n",
-        ts, tag, currentProjectableFrame(), name, uuid.to!string, extra.length ? " " ~ extra : "");
-    append(dynamicLogPath(), line);
-}
+/// NOP logging hook (previously wrote per-frame debug).
+private void logDynamicEvent(string, ref RenderContext, string, uint, string = "") { }
 
 /**
     Base class for offscreen projectable nodes.
@@ -205,18 +186,11 @@ protected:
     }
 
     DynamicCompositePass prepareDynamicCompositePass() {
-        import std.stdio : writefln;
-        writefln("[prep-log] begin name=%s(%s) texLen=%s tex0=%s stencil=%s surface=%s",
-            name, uuid, textures.length,
-            textures.length ? cast(void*)textures[0] : cast(void*)null,
-            cast(void*)stencil, cast(void*)offscreenSurface);
         if (textures.length == 0 || textures[0] is null) {
-            writefln("[prep-log] null return: no base texture name=%s(%s)", name, uuid);
             return null;
         }
         if (offscreenSurface is null) {
             offscreenSurface = new DynamicCompositeSurface();
-            writefln("[prep-log] created offscreenSurface name=%s(%s) surface=%s", name, uuid, cast(void*)offscreenSurface);
         }
         size_t count = 0;
         foreach (i; 0 .. offscreenSurface.textures.length) {
@@ -227,7 +201,6 @@ protected:
             }
         }
         if (count == 0) {
-            writefln("[prep-log] null return: texture count=0 name=%s(%s)", name, uuid);
             return null;
         }
         offscreenSurface.textureCount = count;
@@ -238,8 +211,6 @@ protected:
         pass.scale = vec2(transform.scale.x, transform.scale.y);
         pass.rotationZ = transform.rotation.z;
         pass.autoScaled = false;
-        writefln("[prep-log] ok name=%s(%s) pass=%s count=%s scale=(%s,%s) rot=%s",
-            name, uuid, cast(void*)pass, count, pass.scale.x, pass.scale.y, pass.rotationZ);
         return pass;
     }
 
@@ -271,12 +242,8 @@ protected:
             }
             worldBounds = forced;
             bounds = forced;
-            writefln("[init-target] forced bounds recalculation name=%s(%s) bounds=%s", name, uuid, worldBounds);
         }
-        import std.stdio : writefln;
-        writefln("[init-target] start name=%s(%s) bounds=%s verts=%s deform=%s", name, uuid, worldBounds, vertices.length, deformation.length);
         if (!boundsFinite(worldBounds)) {
-            writefln("[init-target] fail non-finite bounds=%s name=%s(%s)", worldBounds, name, uuid);
             return false;
         }
 
@@ -303,7 +270,6 @@ protected:
 
         vec2 size = maxPos - minPos;
         if (!sizeFinite(size) || size.x <= 0 || size.y <= 0) {
-            writefln("[init-target] fail size=%s verts=%s deform=%s name=%s(%s)", size, vertices.length, deformation.length, name, uuid);
             return false;
         }
 
@@ -314,7 +280,6 @@ protected:
 
         textures = [new Texture(texWidth, texHeight, 4, false, false), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true, false);
-        writefln("[init-target] ok size=%s tex=%sx%s bounds=%s name=%s(%s)", size, texWidth, texHeight, worldBounds, name, uuid);
         if (prevTexture !is null) {
             prevTexture.dispose();
         }
