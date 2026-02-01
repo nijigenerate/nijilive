@@ -22,6 +22,11 @@ import std.array;
 import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil, abs;
+import std.format : format;
+import std.file : append, tempDir;
+import std.path : buildPath;
+import std.datetime : Clock;
+import std.conv : to;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
@@ -39,6 +44,23 @@ package(nijilive) {
     size_t currentProjectableFrame() {
         return projectableFrameCounter;
     }
+}
+
+/// Path for dynamic composite debug log (temporary directory).
+private string dynamicLogPath() {
+    static string path;
+    if (path.length == 0) {
+        path = buildPath(tempDir(), "nijilive_dynamic_render.log");
+    }
+    return path;
+}
+
+/// Append a line to the dynamic composite log (enabled by default).
+private void logDynamicEvent(string tag, ref RenderContext ctx, string name, uint uuid, string extra = "") {
+    auto ts = Clock.currTime();
+    auto line = format("%s tag=%s frame=%s node=%s(%s)%s\n",
+        ts, tag, currentProjectableFrame(), name, uuid.to!string, extra.length ? " " ~ extra : "");
+    append(dynamicLogPath(), line);
 }
 
 /**
@@ -143,6 +165,8 @@ public:
     //  - Part: ignore transform by puppet.
     //  - Compose: use internal Projectable instead of Composite implementation.
     void drawSelf(bool isMask = false)() {
+        debug (UnityDLLLog) import std.stdio : writefln;
+        debug (UnityDLLLog) writefln("[proj] drawSelf name=%s(%s) mask=%s", name, uuid, isMask);
         if (children.length == 0) return;
         super.drawSelf!isMask();
     }
@@ -181,11 +205,18 @@ protected:
     }
 
     DynamicCompositePass prepareDynamicCompositePass() {
+        import std.stdio : writefln;
+        writefln("[prep-log] begin name=%s(%s) texLen=%s tex0=%s stencil=%s surface=%s",
+            name, uuid, textures.length,
+            textures.length ? cast(void*)textures[0] : cast(void*)null,
+            cast(void*)stencil, cast(void*)offscreenSurface);
         if (textures.length == 0 || textures[0] is null) {
+            writefln("[prep-log] null return: no base texture name=%s(%s)", name, uuid);
             return null;
         }
         if (offscreenSurface is null) {
             offscreenSurface = new DynamicCompositeSurface();
+            writefln("[prep-log] created offscreenSurface name=%s(%s) surface=%s", name, uuid, cast(void*)offscreenSurface);
         }
         size_t count = 0;
         foreach (i; 0 .. offscreenSurface.textures.length) {
@@ -196,6 +227,7 @@ protected:
             }
         }
         if (count == 0) {
+            writefln("[prep-log] null return: texture count=0 name=%s(%s)", name, uuid);
             return null;
         }
         offscreenSurface.textureCount = count;
@@ -206,12 +238,16 @@ protected:
         pass.scale = vec2(transform.scale.x, transform.scale.y);
         pass.rotationZ = transform.rotation.z;
         pass.autoScaled = false;
+        writefln("[prep-log] ok name=%s(%s) pass=%s count=%s scale=(%s,%s) rot=%s",
+            name, uuid, cast(void*)pass, count, pass.scale.x, pass.scale.y, pass.rotationZ);
         return pass;
     }
 
     void renderNestedOffscreen(ref RenderContext ctx) {
+        logDynamicEvent("renderNestedOffscreen.begin", ctx, name, uuid);
         dynamicRenderBegin(ctx);
         dynamicRenderEnd(ctx);
+        logDynamicEvent("renderNestedOffscreen.end", ctx, name, uuid);
     }
 
     bool initTarget() {
@@ -221,6 +257,26 @@ protected:
         updateBounds();
         vec4 worldBounds = bounds;
         if (!boundsFinite(worldBounds)) {
+            // Force a bounds recalculation even if global bounds tracking is disabled.
+            vec4 forced = vec4(transform.translation.x, transform.translation.y,
+                               transform.translation.x, transform.translation.y);
+            auto matrix = getDynamicMatrix();
+            foreach (i, vertex; vertices) {
+                vec2 pos = vertex + deformation[i];
+                vec2 vertOriented = vec2(matrix * vec4(pos, 0, 1));
+                forced.x = min(forced.x, vertOriented.x);
+                forced.y = min(forced.y, vertOriented.y);
+                forced.z = max(forced.z, vertOriented.x);
+                forced.w = max(forced.w, vertOriented.y);
+            }
+            worldBounds = forced;
+            bounds = forced;
+            writefln("[init-target] forced bounds recalculation name=%s(%s) bounds=%s", name, uuid, worldBounds);
+        }
+        import std.stdio : writefln;
+        writefln("[init-target] start name=%s(%s) bounds=%s verts=%s deform=%s", name, uuid, worldBounds, vertices.length, deformation.length);
+        if (!boundsFinite(worldBounds)) {
+            writefln("[init-target] fail non-finite bounds=%s name=%s(%s)", worldBounds, name, uuid);
             return false;
         }
 
@@ -247,6 +303,7 @@ protected:
 
         vec2 size = maxPos - minPos;
         if (!sizeFinite(size) || size.x <= 0 || size.y <= 0) {
+            writefln("[init-target] fail size=%s verts=%s deform=%s name=%s(%s)", size, vertices.length, deformation.length, name, uuid);
             return false;
         }
 
@@ -257,6 +314,7 @@ protected:
 
         textures = [new Texture(texWidth, texHeight, 4, false, false), null, null];
         stencil = new Texture(texWidth, texHeight, 1, true, false);
+        writefln("[init-target] ok size=%s tex=%sx%s bounds=%s name=%s(%s)", size, texWidth, texHeight, worldBounds, name, uuid);
         if (prevTexture !is null) {
             prevTexture.dispose();
         }
@@ -766,6 +824,8 @@ public:
     override
     void draw() {
         if (!enabled || puppet is null) return;
+        debug (UnityDLLLog) import std.stdio : writefln;
+        debug (UnityDLLLog) writefln("[proj] draw name=%s(%s)", name, uuid);
         this.drawOne();
     }
 
@@ -809,6 +869,14 @@ public:
     }
 
     protected void dynamicRenderBegin(ref RenderContext ctx) {
+        logDynamicEvent("dynamicRenderBegin", ctx, name, uuid,
+            format("textures=%s valid=%s dynActive=%s", textures.length, hasValidOffscreenContent, dynamicScopeActive));
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[proj] begin proj=%s(%s) frame=%s textures=%s valid=%s dynActive=%s",
+                name, uuid, ctx.frameCounter,
+                textures.length, hasValidOffscreenContent, dynamicScopeActive);
+        }
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
@@ -825,6 +893,8 @@ public:
         updateDynamicRenderStateFlags();
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
+            debug (UnityDLLLog) writefln("[composite] frame=%s skip redraw name=%s(%s) invalidated=%s deferred=%s hasContent=%s",
+                ctx.frameCounter, name, uuid, textureInvalidated, deferred, hasValidOffscreenContent);
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
             return;
@@ -833,12 +903,19 @@ public:
         selfSort();
         auto passData = prepareDynamicCompositePass();
         if (passData is null) {
+            debug (UnityDLLLog) writefln("[composite] frame=%s passData null name=%s(%s) tex0=%s texCount=%s",
+                ctx.frameCounter, name, uuid, textures.length ? textures[0] : null, textures.length);
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
             return;
         }
         dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
         dynamicScopeActive = true;
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[composite] frame=%s pushDynamic composite=%s(%s) texCount=%s scale=%s rot=%s auto=%s",
+                ctx.frameCounter, name, uuid, passData.surface.textureCount, passData.scale, passData.rotationZ, passData.autoScaled);
+        }
 
         queuedOffscreenParts.length = 0;
         auto translate = mat4.translation(-textureOffset.x, -textureOffset.y, 0);
@@ -871,6 +948,8 @@ public:
     }
 
     protected void dynamicRenderEnd(ref RenderContext ctx) {
+        logDynamicEvent("dynamicRenderEnd", ctx, name, uuid,
+            format("dynActive=%s queued=%s", dynamicScopeActive, queuedOffscreenParts.length));
         if (ctx.renderGraph is null) return;
         bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
@@ -898,6 +977,7 @@ public:
             }
             auto partNode = this;
             ctx.renderGraph.popDynamicComposite(dynamicScopeToken, (RenderCommandEmitter emitter) {
+                debug (UnityDLLLog) writefln("[composite] frame=%s popDynamic composite=%s(%s) masks=%s", ctx.frameCounter, this.name, this.uuid, hasMasks);
                 if (hasMasks) {
                     emitter.beginMask(useStencil);
                     foreach (binding; maskBindings) {
@@ -947,6 +1027,11 @@ public:
             if (deferred > 0) deferred--;
             hasValidOffscreenContent = true;
         }
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[proj] end   proj=%s(%s) frame=%s redrew=%s dynActive=%s",
+                name, uuid, ctx.frameCounter, redrew, dynamicScopeActive);
+        }
         loggedFirstRenderAttempt = true;
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
@@ -954,6 +1039,7 @@ public:
 
     package(nijilive)
     void delegatedRunRenderBeginTask(ref RenderContext ctx) {
+        logDynamicEvent("delegatedRunRenderBeginTask", ctx, name, uuid);
         dynamicRenderBegin(ctx);
     }
 
@@ -963,6 +1049,7 @@ public:
 
     package(nijilive)
     void delegatedRunRenderEndTask(ref RenderContext ctx) {
+        logDynamicEvent("delegatedRunRenderEndTask", ctx, name, uuid);
         dynamicRenderEnd(ctx);
     }
 
@@ -981,6 +1068,7 @@ public:
 
     override
     protected void runRenderBeginTask(ref RenderContext ctx) {
+        logDynamicEvent("runRenderBeginTask", ctx, name, uuid);
         dynamicRenderBegin(ctx);
     }
 
@@ -990,6 +1078,7 @@ public:
 
     override
     protected void runRenderEndTask(ref RenderContext ctx) {
+        logDynamicEvent("runRenderEndTask", ctx, name, uuid);
         dynamicRenderEnd(ctx);
     }
 
