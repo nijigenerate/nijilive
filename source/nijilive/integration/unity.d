@@ -589,16 +589,13 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         }
         logMaskFlowCount++;
         break;
-        case RenderCommandKind.BeginComposite:
-        case RenderCommandKind.EndComposite:
-            break;
         case RenderCommandKind.DrawCompositeQuad:
             // Serialize composite draw payload (tint / opacity / blend mode)
-            outCmd.compositePacket.valid = cmd.payload.compositeDraw.valid;
-            outCmd.compositePacket.opacity = cmd.payload.compositeDraw.opacity;
-            outCmd.compositePacket.tint = cmd.payload.compositeDraw.tint;
-            outCmd.compositePacket.screenTint = cmd.payload.compositeDraw.screenTint;
-            outCmd.compositePacket.blendingMode = cast(int)cmd.payload.compositeDraw.blendingMode;
+            outCmd.compositePacket = cmd.payload.compositePacket;
+            outCmd.compositePacket.blendingMode = cast(int)cmd.payload.compositePacket.blendingMode;
+            break;
+        case RenderCommandKind.BeginComposite:
+        case RenderCommandKind.EndComposite:
             break;
 }
     return outCmd;

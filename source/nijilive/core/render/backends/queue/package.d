@@ -29,6 +29,7 @@ struct QueuedCommand {
         PartDrawPacket partPacket;
         MaskApplyPacket maskApplyPacket;
         DynamicCompositePass dynamicPass;
+        CompositeDrawPacket compositePacket;
     }
     Payload payload;
     bool usesStencil;
@@ -70,6 +71,20 @@ public:
         record(RenderCommandKind.EndDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });
+    }
+
+    void beginComposite() {
+        record(RenderCommandKind.BeginComposite, (ref QueuedCommand cmd) {});
+    }
+
+    void drawCompositeQuad(CompositeDrawPacket packet) {
+        record(RenderCommandKind.DrawCompositeQuad, (ref QueuedCommand cmd) {
+            cmd.payload.compositePacket = packet;
+        });
+    }
+
+    void endComposite() {
+        record(RenderCommandKind.EndComposite, (ref QueuedCommand cmd) {});
     }
 
     void beginMask(bool useStencil) {
