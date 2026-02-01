@@ -134,14 +134,6 @@ extern(C) struct NjgMaskApplyPacket {
     NjgMaskDrawPacket maskPacket;
 }
 
-extern(C) struct NjgCompositeDrawPacket {
-    bool valid;
-    float opacity;
-    vec3 tint;
-    vec3 screenTint;
-    int blendingMode;
-}
-
 extern(C) struct NjgDynamicCompositePass {
     size_t[3] textures;
     size_t textureCount;
@@ -160,7 +152,6 @@ extern(C) struct NjgQueuedCommand {
     NjgPartDrawPacket partPacket;
     NjgMaskApplyPacket maskApplyPacket;
     NjgDynamicCompositePass dynamicPass;
-    NjgCompositeDrawPacket compositePacket;
     bool usesStencil;
 }
 
@@ -589,17 +580,6 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         }
         logMaskFlowCount++;
         break;
-        case RenderCommandKind.DrawCompositeQuad:
-            // Serialize composite draw payload (tint / opacity / blend mode)
-            outCmd.compositePacket.valid = cmd.payload.compositePacket.valid;
-            outCmd.compositePacket.opacity = cmd.payload.compositePacket.opacity;
-            outCmd.compositePacket.tint = cmd.payload.compositePacket.tint;
-            outCmd.compositePacket.screenTint = cmd.payload.compositePacket.screenTint;
-            outCmd.compositePacket.blendingMode = cast(int)cmd.payload.compositePacket.blendingMode;
-            break;
-        case RenderCommandKind.BeginComposite:
-        case RenderCommandKind.EndComposite:
-            break;
 }
     return outCmd;
 }

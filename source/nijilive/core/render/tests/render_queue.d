@@ -23,9 +23,9 @@ import nijilive.core.nodes.drawable : Drawable;
 import nijilive.core.render.graph_builder;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.commands : RenderCommandKind, MaskApplyPacket, PartDrawPacket,
-    MaskDrawPacket, MaskDrawableKind, CompositeDrawPacket, DynamicCompositePass,
+    MaskDrawPacket, MaskDrawableKind, DynamicCompositePass,
     DynamicCompositeSurface, makePartDrawPacket, makeMaskDrawPacket,
-    makeCompositeDrawPacket, tryMakeMaskApplyPacket;
+    tryMakeMaskApplyPacket;
 import nijilive.core.render.backends : RenderBackend, RenderGpuState;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler;
 import nijilive.core.meshdata;
