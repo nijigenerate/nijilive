@@ -160,6 +160,7 @@ extern(C) struct NjgQueuedCommand {
     NjgPartDrawPacket partPacket;
     NjgMaskApplyPacket maskApplyPacket;
     NjgDynamicCompositePass dynamicPass;
+    NjgCompositeDrawPacket compositePacket;
     bool usesStencil;
 }
 
@@ -589,9 +590,15 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         logMaskFlowCount++;
         break;
         case RenderCommandKind.BeginComposite:
-        case RenderCommandKind.DrawCompositeQuad:
         case RenderCommandKind.EndComposite:
-            // Composite commands are not emitted in the current queue backend.
+            break;
+        case RenderCommandKind.DrawCompositeQuad:
+            // Serialize composite draw payload (tint / opacity / blend mode)
+            outCmd.compositePacket.valid = cmd.payload.compositeDraw.valid;
+            outCmd.compositePacket.opacity = cmd.payload.compositeDraw.opacity;
+            outCmd.compositePacket.tint = cmd.payload.compositeDraw.tint;
+            outCmd.compositePacket.screenTint = cmd.payload.compositeDraw.screenTint;
+            outCmd.compositePacket.blendingMode = cast(int)cmd.payload.compositeDraw.blendingMode;
             break;
 }
     return outCmd;
