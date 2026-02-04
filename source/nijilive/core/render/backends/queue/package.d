@@ -19,7 +19,7 @@ import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array;
 import std.math : isFinite;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 import nijilive.math.camera : Camera;
-import nijilive.core.runtime_state : inGetViewport, inGetCamera, inSetCamera;
+import nijilive.core.runtime_state : inGetViewport, inGetCamera, inSetCamera, inPushViewport, inPopViewport;
 import std.algorithm : min;
 import std.exception : enforce;
 
@@ -84,8 +84,23 @@ public:
             : 1;
         passData.hasStencil = passData.surface.stencil !is null;
         dynStack ~= passData;
-        // Push current camera (no modification; keep original orientation/scale).
+        // Preserve current camera, then mirror OpenGL dynamic composite camera update.
         cameraStack ~= inGetCamera();
+        if (passData.surface !is null && passData.surface.textureCount > 0) {
+            auto tex = passData.surface.textures[0];
+            if (tex !is null) {
+                inPushViewport(tex.width, tex.height);
+                auto camera = inGetCamera();
+                camera.scale = vec2(1, -1);
+                float invScaleX = passData.scale.x == 0 ? 0 : 1 / passData.scale.x;
+                float invScaleY = passData.scale.y == 0 ? 0 : 1 / passData.scale.y;
+                auto scaling = mat4.identity.scaling(invScaleX, invScaleY, 1);
+                auto rotation = mat4.identity.rotateZ(-passData.rotationZ);
+                auto offsetMatrix = scaling * rotation;
+                camera.position = (offsetMatrix * -vec4(0, 0, 0, 1)).xy;
+                inSetCamera(camera);
+            }
+        }
         record(RenderCommandKind.BeginDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });
@@ -94,6 +109,12 @@ public:
     void endDynamicComposite(Projectable composite, DynamicCompositePass passData) {
         if (dynDepth > 0) dynDepth--;
         if (dynStack.length) dynStack.length -= 1;
+        if (passData !is null && passData.surface !is null && passData.surface.textureCount > 0) {
+            auto tex = passData.surface.textures[0];
+            if (tex !is null) {
+                inPopViewport();
+            }
+        }
         // Restore previous camera
         if (cameraStack.length) {
             auto prev = cameraStack[$-1];
