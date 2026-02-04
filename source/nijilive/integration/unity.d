@@ -20,6 +20,7 @@ import nijilive.core.render.shared_deform_buffer :
     sharedUvBufferData,
     sharedDeformBufferData;
 import nijilive.core.texture : ngReleaseExternalHandle;
+import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.render.commands :
     RenderCommandKind,
     MaskDrawableKind,
@@ -90,7 +91,6 @@ extern(C) struct NjgPartDrawPacket {
     bool renderable;
     mat4 modelMatrix;
     mat4 renderMatrix;
-    vec2 renderScale;
     float renderRotation;
     vec3 clampedTint;
     vec3 clampedScreen;
@@ -381,7 +381,6 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, UnityRendere
     result.renderable = packet.renderable;
     result.modelMatrix = packet.modelMatrix;
     result.renderMatrix = packet.renderMatrix;
-    result.renderScale = packet.renderScale;
     result.renderRotation = packet.renderRotation;
     result.clampedTint = packet.clampedTint;
     result.clampedScreen = packet.clampedScreen;
@@ -643,6 +642,11 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
         inInitNodes();
         import nijilive.fmt : inLoadPuppet;
         auto puppet = inLoadPuppet!Puppet(to!string(path));
+        // For DynamicComposite offscreen children, ignore puppet transform like native GL path.
+        foreach (proj; puppet.findNodesType!Projectable(puppet.actualRoot())) {
+            proj.setIgnorePuppet(true);
+        }
+        puppet.rescanNodes();
         foreach (tex; puppet.textureSlots) {
             if (tex is null) continue;
             ensureTextureHandle(renderer, tex);

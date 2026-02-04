@@ -324,7 +324,6 @@ protected:
             mat4.identity.scaling(invScaleX, invScaleY, 1) *
             mat4.translation(-origin.x, -origin.y, 0);
         packet.renderMatrix = cancel * renderMatrix;
-        packet.renderScale = vec2(1, 1);
         packet.renderRotation = 0;
     }
 

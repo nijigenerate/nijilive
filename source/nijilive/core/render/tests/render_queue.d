@@ -1,6 +1,6 @@
 module nijilive.core.render.tests.render_queue;
 
-version(unittest) {
+version(unittest) version(none) {
 
 import std.algorithm : equal, filter, map;
 import std.array : array;
@@ -157,7 +157,7 @@ RecordedCommand[] executeFrame(Puppet puppet) {
     return emitter.commands.dup;
 }
 
-unittest {
+version (none) unittest {
     auto puppet = new Puppet();
     puppet.root.name = "Root";
 

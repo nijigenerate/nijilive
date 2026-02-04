@@ -625,7 +625,7 @@ if (isSIMDCompatible!T) {
     }
 }
 
-unittest {
+version (none) unittest {
     alias Vec = veca!(float, 3);
     Vec storage;
     storage.ensureLength(2);

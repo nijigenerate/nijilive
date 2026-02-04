@@ -175,7 +175,7 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     }
 
     void drawDrawableElements(RenderResourceHandle ibo, size_t indexCount) {
-        oglDrawDrawableElements(ibo, indexCount);
+        oglDrawDrawableElements(cast(uint)ibo, indexCount);
     }
 
     bool supportsAdvancedBlend() {

@@ -16,9 +16,10 @@ import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
 import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array;
+import std.math : isFinite;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 import nijilive.math.camera : Camera;
-import nijilive.core.runtime_state : inGetViewport;
+import nijilive.core.runtime_state : inGetViewport, inGetCamera, inSetCamera;
 import std.algorithm : min;
 import std.exception : enforce;
 
@@ -40,9 +41,13 @@ private:
     QueuedCommand[] queueData;
     RenderBackend activeBackend;
     RenderGpuState* statePtr;
+    Camera currentCamera;
     // Defer BeginMask emission until we know ApplyMask is valid.
     bool pendingMask;
     bool pendingMaskUsesStencil;
+    int dynDepth;
+    DynamicCompositePass[] dynStack;
+    Camera[] cameraStack;
 
 public:
     void beginFrame(RenderBackend backend, ref RenderGpuState state) {
@@ -50,6 +55,10 @@ public:
         statePtr = &state;
         state = RenderGpuState.init;
         queueData.length = 0;
+        dynDepth = 0;
+        cameraStack.length = 0;
+        // Cache camera for this frame so packets carry camera-space transforms.
+        currentCamera = inGetCamera();
     }
 
     void drawPart(Part part, bool isMask) {
@@ -61,12 +70,36 @@ public:
     }
 
     void beginDynamicComposite(Projectable composite, DynamicCompositePass passData) {
+        dynDepth++;
+        // Capture current framebuffer/viewport for restoration on playback.
+        int vw, vh;
+        inGetViewport(vw, vh);
+        passData.origViewport[0] = 0;
+        passData.origViewport[1] = 0;
+        passData.origViewport[2] = vw;
+        passData.origViewport[3] = vh;
+        passData.origBuffer = statePtr ? statePtr.framebuffer : 0;
+        passData.drawBufferCount = passData.surface.textureCount > 0
+            ? cast(int)passData.surface.textureCount
+            : 1;
+        passData.hasStencil = passData.surface.stencil !is null;
+        dynStack ~= passData;
+        // Push current camera (no modification; keep original orientation/scale).
+        cameraStack ~= inGetCamera();
         record(RenderCommandKind.BeginDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });
     }
 
     void endDynamicComposite(Projectable composite, DynamicCompositePass passData) {
+        if (dynDepth > 0) dynDepth--;
+        if (dynStack.length) dynStack.length -= 1;
+        // Restore previous camera
+        if (cameraStack.length) {
+            auto prev = cameraStack[$-1];
+            cameraStack.length = cameraStack.length - 1;
+            inSetCamera(prev);
+        }
         record(RenderCommandKind.EndDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });

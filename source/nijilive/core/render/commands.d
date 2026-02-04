@@ -32,7 +32,6 @@ struct PartDrawPacket {
     bool renderable;
     mat4 modelMatrix;
     mat4 renderMatrix;
-    vec2 renderScale;
     float renderRotation;
     vec3 clampedTint;
     vec3 clampedScreen;
@@ -89,6 +88,8 @@ class DynamicCompositePass {
     RenderResourceHandle origBuffer;
     int[4] origViewport;
     bool autoScaled;
+    int drawBufferCount;
+    bool hasStencil;
 }
 
 PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {
