@@ -29,6 +29,45 @@ private __gshared bool drawableBuffersInitialized = false;
 private __gshared GLuint sharedDeformBuffer;
 private __gshared GLuint sharedVertexBuffer;
 private __gshared GLuint sharedUvBuffer;
+private __gshared GLuint sharedIndexBuffer;
+private __gshared size_t sharedIndexCapacity;
+private __gshared size_t sharedIndexOffset;
+private __gshared RenderResourceHandle nextIndexHandle = 1;
+
+private struct IndexRange {
+    size_t offset;
+    size_t count;
+    size_t capacity;
+    ushort[] data;
+}
+private __gshared IndexRange[RenderResourceHandle] sharedIndexRanges;
+
+private void ensureSharedIndexBuffer(size_t bytes) {
+    if (sharedIndexBuffer == 0) {
+        glGenBuffers(1, &sharedIndexBuffer);
+        sharedIndexCapacity = 0;
+        sharedIndexOffset = 0;
+    }
+    if (bytes > sharedIndexCapacity) {
+        // Grow to next power-of-two-ish to reduce realloc churn.
+        size_t newCap = sharedIndexCapacity == 0 ? 1024 : sharedIndexCapacity;
+        while (newCap < bytes) newCap *= 2;
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sharedIndexBuffer);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, newCap, null, GL_DYNAMIC_DRAW);
+        sharedIndexCapacity = newCap;
+        sharedIndexOffset = 0;
+        // Re-upload all cached index data.
+        foreach (key, ref entry; sharedIndexRanges) {
+            if (entry.data.length == 0) continue;
+            auto entryBytes = cast(size_t)entry.data.length * ushort.sizeof;
+            entry.offset = sharedIndexOffset;
+            entry.count = entry.data.length;
+            entry.capacity = entryBytes;
+            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, cast(GLintptr)entry.offset, entryBytes, entry.data.ptr);
+            sharedIndexOffset += entryBytes;
+        }
+    }
+}
 void oglInitDrawableBackend() {
     if (drawableBuffersInitialized) return;
     drawableBuffersInitialized = true;
@@ -42,16 +81,34 @@ void oglBindDrawableVao() {
 
 void oglCreateDrawableBuffers(ref RenderResourceHandle ibo) {
     oglInitDrawableBackend();
-    auto handle = cast(GLuint)ibo;
-    if (handle == 0) glGenBuffers(1, &handle);
-    ibo = cast(RenderResourceHandle)handle;
+    if (ibo == 0) {
+        ibo = nextIndexHandle++;
+    }
 }
 
 void oglUploadDrawableIndices(RenderResourceHandle ibo, ushort[] indices) {
-    auto handle = cast(GLuint)ibo;
-    if (handle == 0 || indices.length == 0) return;
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handle);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.length * ushort.sizeof, indices.ptr, GL_STATIC_DRAW);
+    if (ibo == 0 || indices.length == 0) return;
+    auto bytes = cast(size_t)indices.length * ushort.sizeof;
+    ensureSharedIndexBuffer(bytes + sharedIndexOffset);
+
+    IndexRange range;
+    auto existing = ibo in sharedIndexRanges;
+    if (existing !is null) {
+        range = *existing;
+    }
+    if (existing is null || bytes > range.capacity) {
+        // Allocate new slice in the shared IBO.
+        range.offset = sharedIndexOffset;
+        range.count = indices.length;
+        range.capacity = bytes;
+        sharedIndexOffset += bytes;
+    } else {
+        range.count = indices.length;
+    }
+    range.data = indices.dup;
+    sharedIndexRanges[ibo] = range;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sharedIndexBuffer);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, cast(GLintptr)range.offset, bytes, indices.ptr);
 }
 
 void oglUploadSharedVertexBuffer(Vec2Array vertices) {
@@ -106,8 +163,10 @@ GLuint oglGetSharedDeformBuffer() {
 }
 
 void oglDrawDrawableElements(RenderResourceHandle ibo, size_t indexCount) {
-    auto handle = cast(GLuint)ibo;
-    if (handle == 0 || indexCount == 0) return;
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handle);
-    glDrawElements(GL_TRIANGLES, cast(int)indexCount, GL_UNSIGNED_SHORT, null);
+    if (ibo == 0 || indexCount == 0) return;
+    auto rangePtr = ibo in sharedIndexRanges;
+    if (rangePtr is null || sharedIndexBuffer == 0) return;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sharedIndexBuffer);
+    auto offset = rangePtr.offset;
+    glDrawElements(GL_TRIANGLES, cast(int)indexCount, GL_UNSIGNED_SHORT, cast(void*)offset);
 }

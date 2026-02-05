@@ -11,7 +11,8 @@ import nijilive.core.shader : Shader, shaderAsset, ShaderAsset;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
 import nijilive.core.render.backends.opengl.drawable_buffers :
     oglGetSharedDeformBuffer,
-    oglGetSharedVertexBuffer;
+    oglGetSharedVertexBuffer,
+    oglDrawDrawableElements;
 
 private __gshared Shader maskShader;
 enum ShaderAsset MaskShaderSource = shaderAsset!("opengl/mask.vert","opengl/mask.frag")();
@@ -94,8 +95,7 @@ void oglExecuteMaskPacket(ref MaskDrawPacket packet) {
     glBindBuffer(GL_ARRAY_BUFFER, sharedDbo);
     glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)deformLane1Offset);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cast(GLuint)packet.indexBuffer);
-    glDrawElements(GL_TRIANGLES, cast(int)packet.indexCount, GL_UNSIGNED_SHORT, null);
+    oglDrawDrawableElements(packet.indexBuffer, packet.indexCount);
     markBufferInUse(sharedVbo);
     markBufferInUse(sharedDbo);
 
@@ -136,5 +136,4 @@ void oglExecuteMaskApplyPacket(ref MaskApplyPacket) {}
 void oglInitMaskBackend() {}
 
 }
-
 

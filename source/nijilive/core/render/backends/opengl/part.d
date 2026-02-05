@@ -30,7 +30,8 @@ import nijilive.math : mat4;
 import nijilive.core.render.backends.opengl.drawable_buffers :
     oglGetSharedDeformBuffer,
     oglGetSharedVertexBuffer,
-    oglGetSharedUvBuffer;
+    oglGetSharedUvBuffer,
+    oglDrawDrawableElements;
 import nijilive.core.render.backends.opengl.buffer_sync : markBufferInUse;
 package(nijilive) {
     __gshared Texture boundAlbedo;
@@ -394,8 +395,7 @@ private void renderStage(ref PartDrawPacket packet, bool advanced) {
     glBindBuffer(GL_ARRAY_BUFFER, deformBuffer);
     glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, 0, cast(void*)deformLane1Offset);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    glDrawElements(GL_TRIANGLES, cast(int)indexCount, GL_UNSIGNED_SHORT, null);
+    oglDrawDrawableElements(packet.indexBuffer, indexCount);
     markBufferInUse(vertexBuffer);
     markBufferInUse(uvBuffer);
     markBufferInUse(deformBuffer);
