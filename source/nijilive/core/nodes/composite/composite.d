@@ -324,7 +324,6 @@ protected:
             mat4.identity.scaling(invScaleX, invScaleY, 1) *
             mat4.translation(-origin.x, -origin.y, 0);
         packet.renderMatrix = cancel * renderMatrix;
-        packet.renderScale = vec2(1, 1);
         packet.renderRotation = 0;
     }
 
@@ -547,6 +546,8 @@ protected:
     }
 
     override void drawContents() {
+        debug (UnityDLLLog) import std.stdio : writefln;
+        debug (UnityDLLLog) writefln("[comp] drawContents name=%s(%s)", name, uuid);
         updateDynamicRenderStateFlags();
 
         bool needsRedraw = textureInvalidated || deferred > 0;
@@ -597,6 +598,11 @@ protected:
 
     /// Compositeは子を素のスケール/回転のまま描き、textureOffsetだけ平行移動してオフスクリーンへ描く。
     protected override void dynamicRenderBegin(ref RenderContext ctx) {
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[comp] begin name=%s(%s) frame=%s autoResized=%s hasValid=%s",
+                name, uuid, ctx.frameCounter, autoResizedMesh, hasValidOffscreenContent);
+        }
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
@@ -609,6 +615,16 @@ protected:
             textureInvalidated = true;
         }
         queuedOffscreenParts.length = 0;
+        // In queue backend we sometimes arrive here without a valid offscreen texture.
+        // Force (re)initialization so prepareDynamicCompositePass does not return null.
+        if (textures.length == 0 || textures[0] is null) {
+            initialized = false;
+            if (!initTarget()) {
+                reuseCachedTextureThisFrame = true;
+                loggedFirstRenderAttempt = true;
+                return;
+            }
+        }
         if (!renderEnabled() || ctx.renderGraph is null) {
             return;
         }
@@ -648,6 +664,11 @@ protected:
                 child.enqueueRenderCommands(ctx);
             }
             queuedOffscreenParts ~= child;
+        }
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[comp] pushed dynamic token=%s name=%s(%s) passTex=%s stencil=%s",
+                dynamicScopeToken, name, uuid, passData.surface.textureCount, passData.surface.stencil);
         }
     }
 }

@@ -16,8 +16,10 @@ import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.texture : Texture;
 import nijilive.core.shader : Shader;
 import nijilive.math : vec2, vec3, vec4, rect, mat4, Vec2Array, Vec3Array;
+import std.math : isFinite;
 import nijilive.core.diff_collect : DifferenceEvaluationRegion, DifferenceEvaluationResult;
 import nijilive.math.camera : Camera;
+import nijilive.core.runtime_state : inGetViewport, inGetCamera, inSetCamera, inPushViewport, inPopViewport;
 import std.algorithm : min;
 import std.exception : enforce;
 
@@ -39,9 +41,13 @@ private:
     QueuedCommand[] queueData;
     RenderBackend activeBackend;
     RenderGpuState* statePtr;
+    Camera currentCamera;
     // Defer BeginMask emission until we know ApplyMask is valid.
     bool pendingMask;
     bool pendingMaskUsesStencil;
+    int dynDepth;
+    DynamicCompositePass[] dynStack;
+    Camera[] cameraStack;
 
 public:
     void beginFrame(RenderBackend backend, ref RenderGpuState state) {
@@ -49,6 +55,10 @@ public:
         statePtr = &state;
         state = RenderGpuState.init;
         queueData.length = 0;
+        dynDepth = 0;
+        cameraStack.length = 0;
+        // Cache camera for this frame so packets carry camera-space transforms.
+        currentCamera = inGetCamera();
     }
 
     void drawPart(Part part, bool isMask) {
@@ -60,12 +70,57 @@ public:
     }
 
     void beginDynamicComposite(Projectable composite, DynamicCompositePass passData) {
+        dynDepth++;
+        // Capture current framebuffer/viewport for restoration on playback.
+        int vw, vh;
+        inGetViewport(vw, vh);
+        passData.origViewport[0] = 0;
+        passData.origViewport[1] = 0;
+        passData.origViewport[2] = vw;
+        passData.origViewport[3] = vh;
+        passData.origBuffer = statePtr ? statePtr.framebuffer : 0;
+        passData.drawBufferCount = passData.surface.textureCount > 0
+            ? cast(int)passData.surface.textureCount
+            : 1;
+        passData.hasStencil = passData.surface.stencil !is null;
+        dynStack ~= passData;
+        // Preserve current camera, then mirror OpenGL dynamic composite camera update.
+        cameraStack ~= inGetCamera();
+        if (passData.surface !is null && passData.surface.textureCount > 0) {
+            auto tex = passData.surface.textures[0];
+            if (tex !is null) {
+                inPushViewport(tex.width, tex.height);
+                auto camera = inGetCamera();
+                camera.scale = vec2(1, -1);
+                float invScaleX = passData.scale.x == 0 ? 0 : 1 / passData.scale.x;
+                float invScaleY = passData.scale.y == 0 ? 0 : 1 / passData.scale.y;
+                auto scaling = mat4.identity.scaling(invScaleX, invScaleY, 1);
+                auto rotation = mat4.identity.rotateZ(-passData.rotationZ);
+                auto offsetMatrix = scaling * rotation;
+                camera.position = (offsetMatrix * -vec4(0, 0, 0, 1)).xy;
+                inSetCamera(camera);
+            }
+        }
         record(RenderCommandKind.BeginDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });
     }
 
     void endDynamicComposite(Projectable composite, DynamicCompositePass passData) {
+        if (dynDepth > 0) dynDepth--;
+        if (dynStack.length) dynStack.length -= 1;
+        if (passData !is null && passData.surface !is null && passData.surface.textureCount > 0) {
+            auto tex = passData.surface.textures[0];
+            if (tex !is null) {
+                inPopViewport();
+            }
+        }
+        // Restore previous camera
+        if (cameraStack.length) {
+            auto prev = cameraStack[$-1];
+            cameraStack.length = cameraStack.length - 1;
+            inSetCamera(prev);
+        }
         record(RenderCommandKind.EndDynamicComposite, (ref QueuedCommand cmd) {
             cmd.payload.dynamicPass = passData;
         });
@@ -232,7 +287,16 @@ public:
     void drawDebugLines(vec4, mat4) {}
 
     void drawPartPacket(ref PartDrawPacket) {}
-    void beginDynamicComposite(DynamicCompositePass) {}
+    void beginDynamicComposite(DynamicCompositePass pass) {
+        if (pass is null) return;
+        pass.origBuffer = framebuffer;
+        int vw, vh;
+        inGetViewport(vw, vh);
+        pass.origViewport[0] = 0;
+        pass.origViewport[1] = 0;
+        pass.origViewport[2] = vw;
+        pass.origViewport[3] = vh;
+    }
     void endDynamicComposite(DynamicCompositePass) {}
     void destroyDynamicComposite(DynamicCompositeSurface) {}
     void beginMask(bool) {}

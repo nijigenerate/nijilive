@@ -22,12 +22,12 @@ import std.array;
 import std.range;
 import std.algorithm.comparison : min, max;
 import std.math : isFinite, ceil, abs;
+import std.format : format;
 version (NijiliveRenderProfiler) import nijilive.core.render.profiler : profileScope;
 import nijilive.core.render.commands : DynamicCompositePass, DynamicCompositeSurface, PartDrawPacket;
 import nijilive.core.render.command_emitter : RenderCommandEmitter;
 import nijilive.core.render.scheduler : RenderContext, TaskScheduler, TaskOrder, TaskKind;
 import nijilive.core.runtime_state : inGetCamera;
-import std.stdio : writefln;
 
 package(nijilive) {
     __gshared size_t projectableFrameCounter;
@@ -40,6 +40,9 @@ package(nijilive) {
         return projectableFrameCounter;
     }
 }
+
+/// NOP logging hook (previously wrote per-frame debug).
+private void logDynamicEvent(string, ref RenderContext, string, uint, string = "") { }
 
 /**
     Base class for offscreen projectable nodes.
@@ -143,6 +146,8 @@ public:
     //  - Part: ignore transform by puppet.
     //  - Compose: use internal Projectable instead of Composite implementation.
     void drawSelf(bool isMask = false)() {
+        debug (UnityDLLLog) import std.stdio : writefln;
+        debug (UnityDLLLog) writefln("[proj] drawSelf name=%s(%s) mask=%s", name, uuid, isMask);
         if (children.length == 0) return;
         super.drawSelf!isMask();
     }
@@ -210,8 +215,10 @@ protected:
     }
 
     void renderNestedOffscreen(ref RenderContext ctx) {
+        logDynamicEvent("renderNestedOffscreen.begin", ctx, name, uuid);
         dynamicRenderBegin(ctx);
         dynamicRenderEnd(ctx);
+        logDynamicEvent("renderNestedOffscreen.end", ctx, name, uuid);
     }
 
     bool initTarget() {
@@ -220,6 +227,22 @@ protected:
 
         updateBounds();
         vec4 worldBounds = bounds;
+        if (!boundsFinite(worldBounds)) {
+            // Force a bounds recalculation even if global bounds tracking is disabled.
+            vec4 forced = vec4(transform.translation.x, transform.translation.y,
+                               transform.translation.x, transform.translation.y);
+            auto matrix = getDynamicMatrix();
+            foreach (i, vertex; vertices) {
+                vec2 pos = vertex + deformation[i];
+                vec2 vertOriented = vec2(matrix * vec4(pos, 0, 1));
+                forced.x = min(forced.x, vertOriented.x);
+                forced.y = min(forced.y, vertOriented.y);
+                forced.z = max(forced.z, vertOriented.x);
+                forced.w = max(forced.w, vertOriented.y);
+            }
+            worldBounds = forced;
+            bounds = forced;
+        }
         if (!boundsFinite(worldBounds)) {
             return false;
         }
@@ -766,6 +789,8 @@ public:
     override
     void draw() {
         if (!enabled || puppet is null) return;
+        debug (UnityDLLLog) import std.stdio : writefln;
+        debug (UnityDLLLog) writefln("[proj] draw name=%s(%s)", name, uuid);
         this.drawOne();
     }
 
@@ -809,6 +834,14 @@ public:
     }
 
     protected void dynamicRenderBegin(ref RenderContext ctx) {
+        logDynamicEvent("dynamicRenderBegin", ctx, name, uuid,
+            format("textures=%s valid=%s dynActive=%s", textures.length, hasValidOffscreenContent, dynamicScopeActive));
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[proj] begin proj=%s(%s) frame=%s textures=%s valid=%s dynActive=%s",
+                name, uuid, ctx.frameCounter,
+                textures.length, hasValidOffscreenContent, dynamicScopeActive);
+        }
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
         reuseCachedTextureThisFrame = false;
@@ -825,6 +858,8 @@ public:
         updateDynamicRenderStateFlags();
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
+            debug (UnityDLLLog) writefln("[composite] frame=%s skip redraw name=%s(%s) invalidated=%s deferred=%s hasContent=%s",
+                ctx.frameCounter, name, uuid, textureInvalidated, deferred, hasValidOffscreenContent);
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
             return;
@@ -833,12 +868,19 @@ public:
         selfSort();
         auto passData = prepareDynamicCompositePass();
         if (passData is null) {
+            debug (UnityDLLLog) writefln("[composite] frame=%s passData null name=%s(%s) tex0=%s texCount=%s",
+                ctx.frameCounter, name, uuid, textures.length ? textures[0] : null, textures.length);
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
             return;
         }
         dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
         dynamicScopeActive = true;
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[composite] frame=%s pushDynamic composite=%s(%s) texCount=%s scale=%s rot=%s auto=%s",
+                ctx.frameCounter, name, uuid, passData.surface.textureCount, passData.scale, passData.rotationZ, passData.autoScaled);
+        }
 
         queuedOffscreenParts.length = 0;
         auto translate = mat4.translation(-textureOffset.x, -textureOffset.y, 0);
@@ -871,6 +913,8 @@ public:
     }
 
     protected void dynamicRenderEnd(ref RenderContext ctx) {
+        logDynamicEvent("dynamicRenderEnd", ctx, name, uuid,
+            format("dynActive=%s queued=%s", dynamicScopeActive, queuedOffscreenParts.length));
         if (ctx.renderGraph is null) return;
         bool redrew = dynamicScopeActive;
         if (dynamicScopeActive) {
@@ -898,6 +942,7 @@ public:
             }
             auto partNode = this;
             ctx.renderGraph.popDynamicComposite(dynamicScopeToken, (RenderCommandEmitter emitter) {
+                debug (UnityDLLLog) writefln("[composite] frame=%s popDynamic composite=%s(%s) masks=%s", ctx.frameCounter, this.name, this.uuid, hasMasks);
                 if (hasMasks) {
                     emitter.beginMask(useStencil);
                     foreach (binding; maskBindings) {
@@ -947,6 +992,11 @@ public:
             if (deferred > 0) deferred--;
             hasValidOffscreenContent = true;
         }
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[proj] end   proj=%s(%s) frame=%s redrew=%s dynActive=%s",
+                name, uuid, ctx.frameCounter, redrew, dynamicScopeActive);
+        }
         loggedFirstRenderAttempt = true;
         dynamicScopeActive = false;
         dynamicScopeToken = size_t.max;
@@ -954,6 +1004,7 @@ public:
 
     package(nijilive)
     void delegatedRunRenderBeginTask(ref RenderContext ctx) {
+        logDynamicEvent("delegatedRunRenderBeginTask", ctx, name, uuid);
         dynamicRenderBegin(ctx);
     }
 
@@ -963,6 +1014,7 @@ public:
 
     package(nijilive)
     void delegatedRunRenderEndTask(ref RenderContext ctx) {
+        logDynamicEvent("delegatedRunRenderEndTask", ctx, name, uuid);
         dynamicRenderEnd(ctx);
     }
 
@@ -981,6 +1033,7 @@ public:
 
     override
     protected void runRenderBeginTask(ref RenderContext ctx) {
+        logDynamicEvent("runRenderBeginTask", ctx, name, uuid);
         dynamicRenderBegin(ctx);
     }
 
@@ -990,6 +1043,7 @@ public:
 
     override
     protected void runRenderEndTask(ref RenderContext ctx) {
+        logDynamicEvent("runRenderEndTask", ctx, name, uuid);
         dynamicRenderEnd(ctx);
     }
 

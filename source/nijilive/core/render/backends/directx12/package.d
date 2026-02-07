@@ -427,7 +427,7 @@ public:
         maskStencilRef = 1;
     }
     void beginComposite() {}
-    void drawCompositeQuad(ref CompositeDrawPacket) {}
+    // CompositeDrawPacket removed; legacy no-op dropped.
     void endComposite() {}
 
     void drawTextureAtPart(Texture texture, Part part) {

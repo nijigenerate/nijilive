@@ -717,6 +717,11 @@ public:
         space.matrix = cam.matrix * puppetMatrix;
         space.scale = vec2(sx, sy);
         space.rotation = rot;
+        debug (UnityDLLLog) {
+            import std.stdio : writefln;
+            writefln("[renderSpace] part=%s ignorePuppet=%s forceIgnore=%s usePuppet=%s puppetScale=%s camScale=%s",
+                name, ignorePuppet, forceIgnorePuppet, usePuppet, puppetScale, cam.scale);
+        }
         return space;
     }
 
@@ -726,15 +731,14 @@ public:
 
         mat4 modelMatrix = immediateModelMatrix();
         packet.modelMatrix = modelMatrix;
+        // respect per-part ignorePuppet flag when building render space
         auto renderSpace = currentRenderSpace();
         packet.renderMatrix = renderSpace.matrix;
-        packet.renderScale = renderSpace.scale;
         packet.renderRotation = renderSpace.rotation;
         if (hasOffscreenModelMatrix) {
             // Use explicit offscreen render matrix when provided; otherwise keep current render space.
             if (hasOffscreenRenderMatrix) {
                 packet.renderMatrix = offscreenRenderMatrix;
-                packet.renderScale = vec2(1, 1);
                 packet.renderRotation = 0;
             }
         }

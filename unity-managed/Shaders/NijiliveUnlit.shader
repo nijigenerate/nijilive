@@ -23,98 +23,6 @@ Shader "Nijilive/UnlitURP"
     }
     SubShader
     {
-        Tags { "RenderType"="Transparent" "Queue"="Transparent" "IgnoreProjector"="True" }
-        Pass
-        {
-            Name "NijiliveUnlitBuiltIn"
-            Blend [_SrcBlend] [_DstBlend]
-            BlendOp [_BlendOp]
-            ZWrite [_ZWrite]
-            Cull Off
-            Stencil
-            {
-                Ref [_StencilRef]
-                Comp [_StencilComp]
-                Pass [_StencilPass]
-            }
-
-            CGPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma multi_compile_fog
-
-            #include "UnityCG.cginc"
-
-            sampler2D _BaseMap; float4 _BaseMap_ST;
-            sampler2D _MaskTex;
-            sampler2D _ExtraTex;
-
-            float4 _BaseColor;
-            float4 _ScreenTint;
-            float4 _EmissionColor;
-            float _BaseColorAlpha;
-            float _MaskThreshold;
-            int _BlendMode;
-            int _UseMultistageBlend;
-            int _UsesStencil;
-
-            struct appdata
-            {
-                float4 vertex : POSITION;
-                float2 uv : TEXCOORD0;
-            };
-
-            struct v2f
-            {
-                float2 uv : TEXCOORD0;
-                UNITY_FOG_COORDS(1)
-                float4 vertex : SV_POSITION;
-            };
-
-            v2f vert (appdata v)
-            {
-                v2f o;
-                o.vertex = UnityObjectToClipPos(v.vertex);
-                o.uv = TRANSFORM_TEX(v.uv, _BaseMap);
-                //o.uv.y = 1.0 - o.uv.y; // Flip Y for consistency with URP shader logic
-                UNITY_TRANSFER_FOG(o,o.vertex);
-                return o;
-            }
-
-            fixed4 frag (v2f i) : SV_Target
-            {
-                float2 uv = i.uv;
-                if (any(uv < 0.0) || any(uv > 1.0)) return fixed4(0,0,0,0);
-                fixed4 baseSample = tex2D(_BaseMap, uv);
-                fixed4 maskSample = tex2D(_MaskTex, uv);
-                fixed4 extraSample = tex2D(_ExtraTex, uv);
-
-                float maskFactor = maskSample.r >= _MaskThreshold ? 1.0 : 0.0;
-                float alpha = baseSample.a * _BaseColorAlpha * maskFactor;
-
-                float3 color = baseSample.rgb * _BaseColor.rgb;
-
-                if (_UseMultistageBlend != 0)
-                {
-                    color = lerp(color, color + extraSample.rgb, saturate(extraSample.a));
-                }
-
-                color *= alpha;
-
-                /*
-                color += _ScreenTint.rgb;
-                color += _EmissionColor.rgb;
-                */
-
-                UNITY_APPLY_FOG(i.fogCoord, color);
-                return fixed4(color, alpha);
-            }
-            ENDCG
-        }
-    }
-
-    SubShader
-    {
         Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="Transparent" "Queue"="Transparent" }
         Pass
         {
@@ -132,8 +40,8 @@ Shader "Nijilive/UnlitURP"
 
             HLSLINCLUDE
             #pragma vertex vert
-            #pragma fragment frag
             #pragma multi_compile_fog
+            #pragma multi_compile __ NIJI_MRT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
@@ -172,32 +80,64 @@ Shader "Nijilive/UnlitURP"
                 return OUT;
             }
 
-            float4 frag(Varyings IN) : SV_Target
-            {
-                float2 uv = IN.uv;
-                if (any(uv < 0.0) || any(uv > 1.0)) return float4(0,0,0,0);
+            #if defined(NIJI_MRT)
+                struct FragOut
+                {
+                    float4 c0 : SV_Target0;
+                    float4 c1 : SV_Target1;
+                    float4 c2 : SV_Target2;
+                };
+            #endif
 
+            float3 computeColor(float2 uv, float fogCoord, out float alpha)
+            {
                 float4 baseSample  = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv);
                 float4 maskSample  = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, uv);
                 float4 extraSample = SAMPLE_TEXTURE2D(_ExtraTex, sampler_ExtraTex, uv);
 
                 float maskFactor = maskSample.r >= _MaskThreshold ? 1.0 : 0.0;
-                float alpha = baseSample.a * _BaseColorAlpha * maskFactor;
+                alpha = baseSample.a * _BaseColorAlpha * maskFactor;
 
                 float3 color = baseSample.rgb * _BaseColor.rgb;
-
                 if (_UseMultistageBlend != 0)
                 {
                     color = lerp(color, color + extraSample.rgb, saturate(extraSample.a));
                 }
-                /*
-                color += _ScreenTint.rgb;
-                color += _EmissionColor.rgb;
-                */
-                UNITY_APPLY_FOG(IN.fogCoord, color);
-                return float4(color, alpha);
+                UNITY_APPLY_FOG(fogCoord, color);
+                return color;
             }
+
+            #if defined(NIJI_MRT)
+                FragOut frag(Varyings IN)
+                {
+                    FragOut o;
+                    float2 uv = IN.uv;
+                    if (any(uv < 0.0) || any(uv > 1.0))
+                    {
+                        o.c0 = float4(0,0,0,0);
+                        o.c1 = float4(0,0,0,0);
+                        o.c2 = float4(0,0,0,0);
+                        return o;
+                    }
+                    float alpha;
+                    float3 color = computeColor(uv, IN.fogCoord, alpha);
+                    o.c0 = float4(color, alpha);
+                    o.c1 = float4(color, alpha); // emissive/extra placeholder
+                    o.c2 = float4(0,0,0,0);
+                    return o;
+                }
+            #else
+                float4 frag(Varyings IN) : SV_Target
+                {
+                    float2 uv = IN.uv;
+                    if (any(uv < 0.0) || any(uv > 1.0)) return float4(0,0,0,0);
+                    float alpha;
+                    float3 color = computeColor(uv, IN.fogCoord, alpha);
+                    return float4(color, alpha);
+                }
+            #endif
             ENDHLSL
+            #pragma fragment frag
         }
     }
 }

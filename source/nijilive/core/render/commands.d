@@ -20,9 +20,6 @@ enum RenderCommandKind {
     ApplyMask,
     BeginMaskContent,
     EndMask,
-    BeginComposite,
-    DrawCompositeQuad,
-    EndComposite,
 }
 
 enum MaskDrawableKind {
@@ -35,7 +32,6 @@ struct PartDrawPacket {
     bool renderable;
     mat4 modelMatrix;
     mat4 renderMatrix;
-    vec2 renderScale;
     float renderRotation;
     vec3 clampedTint;
     vec3 clampedScreen;
@@ -78,14 +74,6 @@ struct MaskApplyPacket {
     MaskDrawPacket maskPacket;
 }
 
-struct CompositeDrawPacket {
-    bool valid;
-    float opacity;
-    vec3 tint;
-    vec3 screenTint;
-    BlendMode blendingMode;
-}
-
 class DynamicCompositeSurface {
     Texture[3] textures;
     size_t textureCount;
@@ -100,6 +88,8 @@ class DynamicCompositePass {
     RenderResourceHandle origBuffer;
     int[4] origViewport;
     bool autoScaled;
+    int drawBufferCount;
+    bool hasStencil;
 }
 
 PartDrawPacket makePartDrawPacket(Part part, bool isMask = false) {
@@ -180,33 +170,4 @@ bool tryMakeMaskApplyPacket(Drawable drawable, bool isDodge, out MaskApplyPacket
         return true;
     }
     return false;
-}
-
-CompositeDrawPacket makeCompositeDrawPacket(Composite composite) {
-    CompositeDrawPacket packet;
-    if (composite !is null) {
-        packet.valid = true;
-        float offsetOpacity = composite.getValue("opacity");
-        packet.opacity = composite.opacity * offsetOpacity;
-
-        vec3 clampedTint = composite.tint;
-        float offsetTintR = composite.getValue("tint.r");
-        float offsetTintG = composite.getValue("tint.g");
-        float offsetTintB = composite.getValue("tint.b");
-        if (!offsetTintR.isNaN) clampedTint.x = clamp(composite.tint.x * offsetTintR, 0, 1);
-        if (!offsetTintG.isNaN) clampedTint.y = clamp(composite.tint.y * offsetTintG, 0, 1);
-        if (!offsetTintB.isNaN) clampedTint.z = clamp(composite.tint.z * offsetTintB, 0, 1);
-        packet.tint = clampedTint;
-
-        vec3 clampedScreenTint = composite.screenTint;
-        float offsetScreenTintR = composite.getValue("screenTint.r");
-        float offsetScreenTintG = composite.getValue("screenTint.g");
-        float offsetScreenTintB = composite.getValue("screenTint.b");
-        if (!offsetScreenTintR.isNaN) clampedScreenTint.x = clamp(composite.screenTint.x + offsetScreenTintR, 0, 1);
-        if (!offsetScreenTintG.isNaN) clampedScreenTint.y = clamp(composite.screenTint.y + offsetScreenTintG, 0, 1);
-        if (!offsetScreenTintB.isNaN) clampedScreenTint.z = clamp(composite.screenTint.z + offsetScreenTintB, 0, 1);
-        packet.screenTint = clampedScreenTint;
-        packet.blendingMode = composite.blendingMode;
-    }
-    return packet;
 }

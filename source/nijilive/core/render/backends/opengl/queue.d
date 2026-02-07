@@ -23,6 +23,7 @@ import nijilive.core.render.shared_deform_buffer :
 version (RenderBackendDirectX12) {
     import nijilive.core.render.backends.directx12.frame : dxBeginFrame, dxEndFrame;
 }
+import nijilive.math : mat4;
 
 version (InDoesRender) {
 
@@ -31,6 +32,7 @@ final class RenderQueue : RenderCommandEmitter {
 private:
     RenderBackend activeBackend;
     RenderGpuState* frameState;
+    int dynDepth;
 
     bool ready() const {
         return activeBackend !is null && frameState !is null;
@@ -66,6 +68,7 @@ public:
         activeBackend = backend;
         frameState = &state;
         state = RenderGpuState.init;
+        dynDepth = 0;
         version (RenderBackendDirectX12) {
             dxBeginFrame(frameState);
         }
@@ -88,11 +91,13 @@ public:
 
     void beginDynamicComposite(Projectable, DynamicCompositePass passData) {
         if (!ready() || passData is null) return;
+        dynDepth++;
         activeBackend.beginDynamicComposite(passData);
     }
 
     void endDynamicComposite(Projectable, DynamicCompositePass passData) {
         if (!ready() || passData is null) return;
+        if (dynDepth > 0) dynDepth--;
         activeBackend.endDynamicComposite(passData);
     }
 

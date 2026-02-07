@@ -23,9 +23,7 @@ import nijilive.core.render.backends.opengl.runtime :
     oglGetBlendFramebuffer,
     oglGetBlendAlbedo,
     oglGetBlendEmissive,
-    oglGetBlendBump,
-    oglBeginComposite,
-    oglEndComposite;
+    oglGetBlendBump;
 import nijilive.core.render.backends.opengl.debug_renderer :
     oglInitDebugRenderer,
     oglSetDebugPointSize,
@@ -80,7 +78,6 @@ import nijilive.core.render.backends.opengl.blend :
     oglBlendToBuffer;
 import nijilive.core.render.backends.opengl.draw_texture :
     oglDrawTextureAtPart, oglDrawTextureAtPosition, oglDrawTextureAtRect;
-import nijilive.core.render.backends.opengl.composite : oglDrawCompositeQuad;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.render.profiler : profileScope, renderProfilerFrameCompleted;
 import nijilive.core.render.backends.opengl.shader_backend :
@@ -178,7 +175,7 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     }
 
     void drawDrawableElements(RenderResourceHandle ibo, size_t indexCount) {
-        oglDrawDrawableElements(ibo, indexCount);
+        oglDrawDrawableElements(cast(uint)ibo, indexCount);
     }
 
     bool supportsAdvancedBlend() {

@@ -271,43 +271,14 @@ void oglBeginScene() {
 /**
     Begins a composition step
 */
-void oglBeginComposite() {
-
-    CompositeFrameState frameState;
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &frameState.framebuffer);
-    glGetIntegerv(GL_VIEWPORT, frameState.viewport.ptr);
-    compositeScopeStack ~= frameState;
-    isCompositing = true;
-
-    immutable(GLenum[3]) attachments = [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2];
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cfBuffer);
-    glDrawBuffers(cast(GLsizei)attachments.length, attachments.ptr);
-    glClearColor(0, 0, 0, 0);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-}
+// Legacy composite entry points (dynamic composite handles the current path).
+// Retained as no-op to avoid GL state churn/confusion.
+void oglBeginComposite() {}
 
 /**
     Ends a composition step, re-binding the internal framebuffer
 */
-void oglEndComposite() {
-    if (compositeScopeStack.length == 0) return;
-
-    auto frameState = compositeScopeStack[$ - 1];
-    compositeScopeStack.length -= 1;
-
-    immutable(GLenum[3]) attachments = [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2];
-    glBindFramebuffer(GL_FRAMEBUFFER, frameState.framebuffer);
-    glViewport(frameState.viewport[0], frameState.viewport[1], frameState.viewport[2], frameState.viewport[3]);
-    glDrawBuffers(cast(GLsizei)attachments.length, attachments.ptr);
-
-    if (compositeScopeStack.length == 0) {
-        glFlush();
-        isCompositing = false;
-    }
-}
+void oglEndComposite() {}
 /**
     Ends rendering to the framebuffer
 */

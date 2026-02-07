@@ -5,9 +5,13 @@ version (UnityDLL) {
 import std.algorithm : min, filter;
 import std.array : array;
 import std.stdio : writeln, writefln;
+import std.conv : to;
+import std.typecons : Nullable;
+import std.algorithm.comparison : max;
+import nijilive.core.animation.player : AnimationPlayer;
 
 import nijilive : inUpdate, inSetTimingFunc;
-import nijilive.core.runtime_state : initRendererCommon, inSetRenderBackend, inSetViewport;
+import nijilive.core.runtime_state : initRendererCommon, inSetRenderBackend, inSetViewport, inGetViewport;
 import nijilive.core.render.backends : RenderBackend, RenderResourceHandle, BackendEnum;
 import nijilive.core.render.backends.queue : CommandQueueEmitter, QueuedCommand,
     RenderingBackend;
@@ -16,6 +20,7 @@ import nijilive.core.render.shared_deform_buffer :
     sharedUvBufferData,
     sharedDeformBufferData;
 import nijilive.core.texture : ngReleaseExternalHandle;
+import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.render.commands :
     RenderCommandKind,
     MaskDrawableKind,
@@ -52,6 +57,8 @@ extern(C) struct UnityRendererConfig {
     int viewportHeight;
 }
 
+extern(C) alias NjgLogFn = void function(const(char)* message, size_t length, void* userData);
+
 extern(C) struct FrameConfig {
     int viewportWidth;
     int viewportHeight;
@@ -84,7 +91,6 @@ extern(C) struct NjgPartDrawPacket {
     bool renderable;
     mat4 modelMatrix;
     mat4 renderMatrix;
-    vec2 renderScale;
     float renderRotation;
     vec3 clampedTint;
     vec3 clampedScreen;
@@ -128,22 +134,17 @@ extern(C) struct NjgMaskApplyPacket {
     NjgMaskDrawPacket maskPacket;
 }
 
-extern(C) struct NjgCompositeDrawPacket {
-    bool valid;
-    float opacity;
-    vec3 tint;
-    vec3 screenTint;
-    int blendingMode;
-}
-
 extern(C) struct NjgDynamicCompositePass {
     size_t[3] textures;
     size_t textureCount;
     size_t stencil;
     vec2 scale;
     float rotationZ;
+    bool autoScaled;
     RenderResourceHandle origBuffer;
     int[4] origViewport;
+    int drawBufferCount;
+    bool hasStencil;
 }
 
 extern(C) struct NjgQueuedCommand {
@@ -163,6 +164,14 @@ extern(C) struct TextureStats {
     size_t created;
     size_t released;
     size_t current;
+}
+
+extern(C) struct NjgRenderTargets {
+    size_t renderFramebuffer;
+    size_t compositeFramebuffer;
+    size_t blendFramebuffer;
+    int viewportWidth;
+    int viewportHeight;
 }
 
 extern(C) struct NjgBufferSlice {
@@ -209,11 +218,14 @@ class UnityRenderer {
     Puppet[] puppets;
     NjgQueuedCommand[] commandBuffer;
     UnityResourceCallbacks callbacks;
+    int viewportWidth;
+    int viewportHeight;
     size_t frameSeq = 0;
     size_t renderHandle;
     size_t compositeHandle;
     size_t createdTextures;
     size_t releasedTextures;
+    AnimationPlayer[Puppet] animPlayers;
 
     this(RenderBackend backend, UnityResourceCallbacks callbacks) {
         this.backend = backend;
@@ -223,6 +235,90 @@ class UnityRenderer {
 
 __gshared double unityTimeTicker;
 __gshared UnityRenderer[] activeRenderers;
+__gshared NjgLogFn unityLogCallback;
+__gshared void* unityLogUserData;
+__gshared bool runtimeInitialized;
+__gshared bool rendererInitialized;
+__gshared bool mainThreadAttached;
+private void ensureRuntimeInitialized() {
+    njgRuntimeInit();
+}
+
+/// Fallback: explicitly register core node types to ensure the AA is created
+/// even if module constructors were skipped in the host process.
+private void ensureNodeFactoriesBuilt() {
+    import nijilive.core.nodes.node : inInitNodes, inHasNodeType;
+    import nijilive.core.nodes.drawable : inInitDrawable;
+    import nijilive.core.nodes.part : inInitPart;
+    import nijilive.core.nodes.mask : inInitMask;
+    import nijilive.core.nodes.composite : inInitComposite;
+    import nijilive.core.nodes.composite.dcomposite : inInitDComposite;
+    import nijilive.core.nodes.meshgroup : inInitMeshGroup;
+    import nijilive.core.nodes.deformer.grid : inInitGridDeformer;
+    import nijilive.core.nodes.deformer.path : inInitPathDeformer;
+    import nijilive.core.param : inParameterSetFactory, Parameter;
+    import fghj : deserializeValue;
+
+    // Repeatable: these initializers are idempotent and safe to re-run.
+    inInitNodes();
+    inInitDrawable();
+    inInitPart();
+    inInitMask();
+    inInitComposite();
+    inInitMeshGroup();
+    inInitDComposite();
+    inInitGridDeformer();
+    inInitPathDeformer();
+    inParameterSetFactory((data) {
+        Parameter param = new Parameter;
+        data.deserializeValue(param);
+        return param;
+    });
+
+    if (!inHasNodeType("Node") || !inHasNodeType("Part")) {
+        unityLog("[nijilive] WARN: node registry missing entries after registration");
+    }
+}
+
+/// Explicit runtime entrypoint to be called by the host before any other API.
+extern(C) export void njgRuntimeInit() {
+    import core.runtime : Runtime, rt_init;
+    import core.thread.osthread : thread_attachThis;
+    // Druntime must be initialized before touching any Nijilive state.
+    if (!runtimeInitialized) {
+        rt_init();
+        Runtime.initialize();
+        runtimeInitialized = true;
+    }
+    if (!mainThreadAttached) {
+        thread_attachThis();
+        mainThreadAttached = true;
+    }
+    ensureNodeFactoriesBuilt();
+    // Report registry state for early diagnostics (after host sets log callback).
+    import nijilive.core.nodes.node : inHasNodeType;
+    if (unityLogCallback !is null) {
+        unityLog("[nijilive] runtime init: Node=" ~ (inHasNodeType("Node") ? "ok" : "missing") ~
+                 " Part=" ~ (inHasNodeType("Part") ? "ok" : "missing"));
+    }
+}
+
+/// Explicit runtime shutdown; optional for hosts that want deterministic teardown.
+extern(C) export void njgRuntimeTerm() {
+    import core.runtime : Runtime, rt_term;
+    if (!runtimeInitialized) return;
+    rt_term();
+    Runtime.terminate();
+    runtimeInitialized = false;
+    mainThreadAttached = false;
+}
+
+void unityLog(string msg) {
+    auto cb = unityLogCallback;
+    if (cb !is null) {
+        cb(msg.ptr, msg.length, unityLogUserData);
+    }
+}
 
 double unityNowD() {
     return unityTimeTicker;
@@ -285,7 +381,6 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, UnityRendere
     result.renderable = packet.renderable;
     result.modelMatrix = packet.modelMatrix;
     result.renderMatrix = packet.renderMatrix;
-    result.renderScale = packet.renderScale;
     result.renderRotation = packet.renderRotation;
     result.clampedTint = packet.clampedTint;
     result.clampedScreen = packet.clampedScreen;
@@ -362,8 +457,6 @@ private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, UnityRendere
             packet.indexBuffer, idxPtr, result.indexCount, result.vertexCount,
             packet.vertexOffset, packet.vertexAtlasStride,
             packet.deformOffset, packet.deformAtlasStride);
-        auto dbgIndices = backend.findIndexBuffer(packet.indexBuffer);
-        writefln("[nijilive] MaskPacket backend indices len=%s ptr=%s", dbgIndices.length, dbgIndices.length ? cast(size_t)dbgIndices.ptr : 0);
         logMaskPacketCount++;
     }
     return result;
@@ -374,8 +467,20 @@ private NjgDynamicCompositePass serializeDynamicPass(QueueBackend backend, Unity
     if (pass is null) return result;
     result.scale = pass.scale;
     result.rotationZ = pass.rotationZ;
+    result.autoScaled = pass.autoScaled;
     result.origBuffer = pass.origBuffer;
     result.origViewport = pass.origViewport;
+    result.drawBufferCount = pass.surface is null ? 0 : cast(int)max(cast(int)pass.surface.textureCount, 1);
+    result.hasStencil = pass.surface !is null && pass.surface.stencil !is null;
+    // If queue backend didn't capture a viewport, fall back to current viewport for Unity playback.
+    if (result.origViewport[2] == 0 || result.origViewport[3] == 0) {
+        int vw, vh;
+        inGetViewport(vw, vh);
+        result.origViewport[0] = 0;
+        result.origViewport[1] = 0;
+        result.origViewport[2] = vw;
+        result.origViewport[3] = vh;
+    }
     if (pass.surface !is null) {
         result.textureCount = pass.surface.textureCount;
         foreach (i; 0 .. pass.surface.textures.length) {
@@ -472,11 +577,6 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         }
         logMaskFlowCount++;
         break;
-        case RenderCommandKind.BeginComposite:
-        case RenderCommandKind.DrawCompositeQuad:
-        case RenderCommandKind.EndComposite:
-            // Composite commands are not emitted in the current queue backend.
-            break;
 }
     return outCmd;
 }
@@ -486,7 +586,12 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
                                              RendererHandle* outHandle) {
     if (outHandle is null) return NjgResult.InvalidArgument;
     try {
+        ensureRuntimeInitialized();
+        // Ensure node factories are populated before any renderer setup.
+        import nijilive.core.nodes.node : inInitNodes;
+        inInitNodes();
         initRendererCommon();
+        rendererInitialized = true;
         auto backend = new RenderBackend();
         inSetRenderBackend(backend);
         backend.initializeRenderer();
@@ -502,7 +607,8 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
         activeRenderers ~= renderer;
         *outHandle = cast(RendererHandle)renderer;
         return NjgResult.Ok;
-    } catch (Throwable) {
+    } catch (Throwable ex) {
+        unityLog("[nijilive] njgCreateRenderer failed: " ~ ex.msg);
         *outHandle = null;
         return NjgResult.Failure;
     }
@@ -511,6 +617,7 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
 extern(C) export void njgDestroyRenderer(RendererHandle handle) {
     if (handle is null) return;
     auto renderer = cast(UnityRenderer)handle;
+    renderer.animPlayers.clear();
     activeRenderers = activeRenderers.filter!(r => r !is renderer).array;
     renderer.puppets.length = 0;
     renderer.commandBuffer.length = 0;
@@ -520,9 +627,26 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
     if (handle is null || outPuppet is null || path is null) return NjgResult.InvalidArgument;
     auto renderer = cast(UnityRenderer)handle;
     try {
+        ensureRuntimeInitialized();
+        ensureNodeFactoriesBuilt();
+        // If renderer init somehow failed earlier, initialize core systems now.
+        if (!rendererInitialized) {
+            import nijilive.core.nodes.node : inInitNodes;
+            inInitNodes();
+            initRendererCommon();
+            rendererInitialized = true;
+        }
         import std.conv : to;
+        // Defensive: always initialize node factories before deserialization.
+        import nijilive.core.nodes.node : inInitNodes;
+        inInitNodes();
         import nijilive.fmt : inLoadPuppet;
         auto puppet = inLoadPuppet!Puppet(to!string(path));
+        // For DynamicComposite offscreen children, ignore puppet transform like native GL path.
+        foreach (proj; puppet.findNodesType!Projectable(puppet.actualRoot())) {
+            proj.setIgnorePuppet(true);
+        }
+        puppet.rescanNodes();
         foreach (tex; puppet.textureSlots) {
             if (tex is null) continue;
             ensureTextureHandle(renderer, tex);
@@ -530,7 +654,8 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
         renderer.puppets ~= puppet;
         *outPuppet = cast(PuppetHandle)puppet;
         return NjgResult.Ok;
-    } catch (Throwable) {
+    } catch (Throwable ex) {
+        unityLog("[nijilive] njgLoadPuppet failed: " ~ ex.msg);
         *outPuppet = null;
         return NjgResult.Failure;
     }
@@ -541,6 +666,7 @@ extern(C) export NjgResult njgUnloadPuppet(RendererHandle handle, PuppetHandle p
     auto renderer = cast(UnityRenderer)handle;
     auto puppet = cast(Puppet)puppetHandle;
     renderer.puppets = renderer.puppets.filter!(p => p !is puppet).array;
+    renderer.animPlayers.remove(puppet);
     return NjgResult.Ok;
 }
 
@@ -550,6 +676,10 @@ extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfi
     renderer.commandBuffer.length = 0;
     renderer.frameSeq++;
     auto res = setViewport(cast(FrameConfig*)config);
+    if (config !is null) {
+        renderer.viewportWidth = config.viewportWidth;
+        renderer.viewportHeight = config.viewportHeight;
+    }
     if (renderer.callbacks.createTexture !is null && config !is null) {
         if (renderer.renderHandle == 0 && config.viewportWidth > 0 && config.viewportHeight > 0) {
             renderer.renderHandle = renderer.callbacks.createTexture(config.viewportWidth, config.viewportHeight, 4, 1, 4, true, false, renderer.callbacks.userData);
@@ -567,6 +697,15 @@ extern(C) export NjgResult njgTickPuppet(PuppetHandle puppetHandle, double delta
     if (puppetHandle is null) return NjgResult.InvalidArgument;
     auto puppet = cast(Puppet)puppetHandle;
     unityTimeTicker += deltaSeconds;
+    // External animation control: tick per-puppet AnimationPlayer if present.
+    foreach (renderer; activeRenderers) {
+        if (renderer is null) continue;
+        if (auto player = puppet in renderer.animPlayers) {
+            if (player !is null) {
+                player.update(cast(float)deltaSeconds);
+            }
+        }
+    }
     inUpdate();
     puppet.update();
     return NjgResult.Ok;
@@ -594,15 +733,22 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
                         maskOpen = true;
                         break;
                     case RenderCommandKind.BeginMaskContent:
-                        if (!maskOpen) debug (UnityDLLLog) writefln("[nijilive] WARN: BeginMaskContent without BeginMask");
+                        if (!maskOpen) {
+                            debug (UnityDLLLog) writefln("[nijilive] WARN: BeginMaskContent without BeginMask");
+                            unityLog("[nijilive] WARN: BeginMaskContent without BeginMask");
+                        }
                         break;
                     case RenderCommandKind.EndMask:
-                        if (!maskOpen) debug (UnityDLLLog) writefln("[nijilive] WARN: EndMask without BeginMask");
+                        if (!maskOpen) {
+                            debug (UnityDLLLog) writefln("[nijilive] WARN: EndMask without BeginMask");
+                            unityLog("[nijilive] WARN: EndMask without BeginMask");
+                        }
                         maskOpen = false;
                         break;
                     case RenderCommandKind.ApplyMask:
                         if (!maskOpen) {
                             debug (UnityDLLLog) writefln("[nijilive] WARN: ApplyMask without BeginMask");
+                            unityLog("[nijilive] WARN: ApplyMask without BeginMask");
                         }
                         break;
                     default:
@@ -613,36 +759,6 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
         }
         emitter.clearQueue();
     }
-
-    // Dump all commands to temp file for debugging.
-    import std.file : append;
-    import std.path : buildPath;
-    import std.process : environment;
-    string temp = environment.get("TEMP", "."); // fallback to cwd
-    string path = buildPath(temp, "nijilive_cmd_native.txt");
-    import std.array : appender;
-    import std.format : formattedWrite;
-    auto app = appender!string();
-    formattedWrite(app, "Frame %s count=%s\n", renderer.frameSeq, renderer.commandBuffer.length);
-    foreach (i, cmd; renderer.commandBuffer) {
-        formattedWrite(app, "%s kind=%s usesStencil=%s\n", i, cmd.kind, cmd.usesStencil);
-        switch (cmd.kind) {
-            case NjgRenderCommandKind.ApplyMask:
-                formattedWrite(app, "  apply.kind=%s dodge=%s part.v=%s/%s mask.v=%s/%s\n",
-                    cmd.maskApplyPacket.kind, cmd.maskApplyPacket.isDodge,
-                    cmd.maskApplyPacket.partPacket.vertexCount, cmd.maskApplyPacket.partPacket.indexCount,
-                    cmd.maskApplyPacket.maskPacket.vertexCount, cmd.maskApplyPacket.maskPacket.indexCount);
-                break;
-            case NjgRenderCommandKind.DrawPart:
-                formattedWrite(app, "  part.v=%s/%s isMask=%s\n",
-                    cmd.partPacket.vertexCount, cmd.partPacket.indexCount, cmd.partPacket.isMask);
-                break;
-            default:
-                break;
-        }
-    }
-    app.put('\n');
-    append(path, app.data);
 
     outView.commands = renderer.commandBuffer.ptr;
     outView.count = renderer.commandBuffer.length;
@@ -665,6 +781,18 @@ extern(C) export TextureStats njgGetTextureStats(RendererHandle handle) {
     stats.released = renderer.releasedTextures;
     stats.current = renderer.createdTextures - renderer.releasedTextures;
     return stats;
+}
+
+extern(C) export NjgRenderTargets njgGetRenderTargets(RendererHandle handle) {
+    NjgRenderTargets targets;
+    if (handle is null) return targets;
+    auto renderer = cast(UnityRenderer)handle;
+    targets.renderFramebuffer = renderer.renderHandle;
+    targets.compositeFramebuffer = renderer.compositeHandle;
+    targets.blendFramebuffer = 0; // queue backend does not manage a dedicated blend FBO
+    targets.viewportWidth = renderer.viewportWidth;
+    targets.viewportHeight = renderer.viewportHeight;
+    return targets;
 }
 
 extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBufferSnapshot* snapshot) {
@@ -693,17 +821,15 @@ extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBuff
             snapshot.vertexCount, snapshot.vertices.length, cast(size_t)snapshot.vertices.data,
             snapshot.uvCount, cast(size_t)snapshot.uvs.data,
             snapshot.deformCount, cast(size_t)snapshot.deform.data);
-        debug {
-            import std.algorithm : sort;
-            import std.conv : to;
-            auto handles = backend.indexBuffers.keys.array;
-            handles.sort;
-            debug (UnityDLLLog) writefln("[nijilive] Queue index buffers registered=%s", handles.to!string);
-        }
         logSnapshotCount++;
     }
 
     return NjgResult.Ok;
+}
+
+extern(C) export void njgSetLogCallback(NjgLogFn callback, void* userData) {
+    unityLogCallback = callback;
+    unityLogUserData = userData;
 }
 
 extern(C) export size_t njgGetGcHeapSize() {
@@ -754,6 +880,104 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
                 param.value = current;
             }
         }
+    }
+    return NjgResult.Ok;
+}
+
+private AnimationPlayer ensureAnimPlayer(UnityRenderer renderer, Puppet puppet) {
+    if (renderer is null || puppet is null) return null;
+    auto found = puppet in renderer.animPlayers;
+    if (found !is null) return *found;
+    auto player = new AnimationPlayer(puppet);
+    renderer.animPlayers[puppet] = player;
+    return player;
+}
+
+extern(C) export NjgResult njgPlayAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool loop, bool playLeadOut) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgPlayAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.play(loop, playLeadOut);
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgPauseAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgPauseAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.pause();
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgStopAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool immediate) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgStopAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.stop(immediate);
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, int frame) {
+    if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
+    auto animName = to!string(name);
+    auto player = ensureAnimPlayer(renderer, puppet);
+    if (player is null) return NjgResult.Failure;
+    auto playback = player.createOrGet(animName);
+    if (playback is null) {
+        unityLog("[nijilive] njgSeekAnimation failed: animation not found name=" ~ animName);
+        return NjgResult.InvalidArgument;
+    }
+    playback.seek(frame);
+    return NjgResult.Ok;
+}
+
+/// Set puppet scale (x, y). Does not affect physics, only render transform.
+extern(C) export NjgResult njgSetPuppetScale(PuppetHandle puppetHandle, float sx, float sy) {
+    if (puppetHandle is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    puppet.transform.scale = vec2(sx, sy);
+    puppet.transform.update();
+    if (auto root = puppet.getPuppetRootNode()) {
+        root.transformChanged();
+    }
+    return NjgResult.Ok;
+}
+
+/// Set puppet translation (x, y). Does not affect physics, only render transform.
+extern(C) export NjgResult njgSetPuppetTranslation(PuppetHandle puppetHandle, float tx, float ty) {
+    if (puppetHandle is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
+    puppet.transform.translation.x = tx;
+    puppet.transform.translation.y = ty;
+    puppet.transform.update();
+    if (auto root = puppet.getPuppetRootNode()) {
+        root.transformChanged();
     }
     return NjgResult.Ok;
 }
