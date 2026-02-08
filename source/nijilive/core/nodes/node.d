@@ -1121,19 +1121,30 @@ public:
     */
     vec4 getCombinedBounds(bool reupdate = false, bool countPuppet=false)() {
         vec4 combined = getInitialBoundsSize();
+        bool hasCombined = false;
         
         // Get Bounds as drawable
         if (Drawable drawable = cast(Drawable)this) {
             if (reupdate) drawable.updateBounds();
-            combined = drawable.bounds;
+            if (drawable.vertices.length > 0 || children.length == 0) {
+                combined = drawable.bounds;
+                hasCombined = true;
+            }
+        } else {
+            hasCombined = children.length == 0;
         }
 
         foreach(child; children) {
             vec4 cbounds = child.getCombinedBounds!(reupdate)();
-            if (cbounds.x < combined.x) combined.x = cbounds.x;
-            if (cbounds.y < combined.y) combined.y = cbounds.y;
-            if (cbounds.z > combined.z) combined.z = cbounds.z;
-            if (cbounds.w > combined.w) combined.w = cbounds.w;
+            if (!hasCombined) {
+                combined = cbounds;
+                hasCombined = true;
+            } else {
+                if (cbounds.x < combined.x) combined.x = cbounds.x;
+                if (cbounds.y < combined.y) combined.y = cbounds.y;
+                if (cbounds.z > combined.z) combined.z = cbounds.z;
+                if (cbounds.w > combined.w) combined.w = cbounds.w;
+            }
         }
 
         static if (countPuppet) {
