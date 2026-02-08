@@ -1,6 +1,7 @@
 module nijilive.core.render.shared_deform_buffer;
 
 import std.algorithm : min;
+import core.memory : GC;
 
 import nijilive.math : Vec2Array;
 
@@ -41,6 +42,11 @@ private struct SharedVecAtlas {
                 lookup[bindings[idx].target] = idx;
             }
             bindings.length = last;
+            if (GC.inFinalizer) {
+                // Avoid any GC allocation from object finalizers.
+                dirty = true;
+                return;
+            }
             rebuild();
         }
     }
