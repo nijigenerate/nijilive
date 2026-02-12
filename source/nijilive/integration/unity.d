@@ -6,6 +6,7 @@ import std.algorithm : min, filter;
 import std.array : array;
 import std.stdio : writeln, writefln;
 import std.conv : to;
+import std.string : fromStringz;
 import std.typecons : Nullable;
 import std.algorithm.comparison : max;
 import nijilive.core.animation.player : AnimationPlayer;
@@ -881,6 +882,34 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
             }
         }
     }
+    return NjgResult.Ok;
+}
+
+extern(C) export NjgResult njgGetPuppetExtData(PuppetHandle puppetHandle,
+                                               const char* key,
+                                               const(ubyte)** outData,
+                                               size_t* outLength) {
+    if (puppetHandle is null || key is null || outData is null || outLength is null) {
+        return NjgResult.InvalidArgument;
+    }
+    *outData = null;
+    *outLength = 0;
+
+    auto puppet = cast(Puppet)puppetHandle;
+    auto k = fromStringz(key);
+    if (!(k in puppet.extData)) {
+        return NjgResult.Failure;
+    }
+
+    // Keep returned pointer stable until next call.
+    static __gshared ubyte[] sExtScratch;
+    sExtScratch = puppet.extData[k].dup;
+    if (sExtScratch.length == 0) {
+        return NjgResult.Failure;
+    }
+
+    *outData = sExtScratch.ptr;
+    *outLength = sExtScratch.length;
     return NjgResult.Ok;
 }
 
