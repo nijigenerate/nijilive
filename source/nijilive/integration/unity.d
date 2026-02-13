@@ -648,6 +648,9 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
             proj.setIgnorePuppet(true);
         }
         puppet.rescanNodes();
+        if (auto root = puppet.actualRoot()) {
+            root.build(true);
+        }
         foreach (tex; puppet.textureSlots) {
             if (tex is null) continue;
             ensureTextureHandle(renderer, tex);
