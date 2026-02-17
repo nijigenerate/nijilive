@@ -126,6 +126,76 @@ Use this order every frame:
 
 If this order is broken, results are undefined or stale.
 
+### 1.4 Call sequence diagrams (App / DLL / Backend)
+
+The following sequence diagrams show how your host app, `nijilive-unity.dll`,
+and backend rendering layer interact.
+
+#### 1.4.1 Startup and load sequence
+
+```mermaid
+sequenceDiagram
+    participant App as Host App
+    participant DLL as nijilive-unity.dll
+    participant Backend as Host Backend/Resource Layer
+
+    App->>DLL: njgSetLogCallback(LogFn, userData)
+    App->>DLL: njgRuntimeInit()
+    App->>DLL: njgCreateRenderer(config, callbacks, &renderer)
+    Note over App,DLL: callbacks includes createTexture/updateTexture/releaseTexture
+
+    App->>DLL: njgLoadPuppet(renderer, path, &puppet)
+    DLL->>Backend: createTexture(...) [0..N]
+    DLL->>Backend: updateTexture(handle, data, ...)
+    DLL-->>App: puppet handle returned
+```
+
+#### 1.4.2 Frame loop sequence
+
+```mermaid
+sequenceDiagram
+    participant App as Host App
+    participant DLL as nijilive-unity.dll
+    participant Backend as Host Backend/Renderer
+
+    loop each frame
+        App->>DLL: njgBeginFrame(renderer, &frameCfg)
+        App->>DLL: njgTickPuppet(puppet, deltaSeconds) [per puppet]
+        App->>DLL: njgEmitCommands(renderer, &view)
+        App->>DLL: njgGetSharedBuffers(renderer, &snapshot)
+        App->>Backend: RenderWithHost(view, snapshot)
+        App->>DLL: njgFlushCommandBuffer(renderer)
+    end
+```
+
+#### 1.4.3 Runtime callback direction for texture resources
+
+```mermaid
+sequenceDiagram
+    participant DLL as nijilive-unity.dll
+    participant Backend as Host Resource Callbacks
+
+    DLL->>Backend: createTexture(width,height,...)
+    Backend-->>DLL: size_t handle
+    DLL->>Backend: updateTexture(handle, data, dataLen, ...)
+    Note over DLL,Backend: Later on release
+    DLL->>Backend: releaseTexture(handle, userData)
+```
+
+#### 1.4.4 Teardown sequence
+
+```mermaid
+sequenceDiagram
+    participant App as Host App
+    participant DLL as nijilive-unity.dll
+    participant Backend as Host Backend/Resource Layer
+
+    App->>DLL: njgUnloadPuppet(renderer, puppet) [for each puppet]
+    DLL->>Backend: releaseTexture(handle, userData) [as needed]
+    App->>DLL: njgDestroyRenderer(renderer)
+    App->>DLL: njgRuntimeTerm() [usually once at process shutdown]
+```
+
 ## 2. API Quick List
 
 ### 2.1 Runtime
@@ -168,6 +238,13 @@ If this order is broken, results are undefined or stale.
 - [`NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, int frame)`](#api-njgseekanimation)
 
 ## 3. Detailed API Reference
+
+Type references used in this section:
+
+- Handles: [`RendererHandle`](#type-rendererhandle-puppethandle), [`PuppetHandle`](#type-rendererhandle-puppethandle)
+- Config/callbacks: [`UnityRendererConfig`](#struct-unityrendererconfig), [`FrameConfig`](#struct-frameconfig), [`UnityResourceCallbacks`](#struct-unityresourcecallbacks)
+- Queue/buffers: [`CommandQueueView`](#struct-commandqueueview), [`SharedBufferSnapshot`](#struct-sharedbuffersnapshot), [`NjgRenderTargets`](#struct-njgrendertargets), [`TextureStats`](#struct-texturestats)
+- Parameters: [`NjgParameterInfo`](#struct-njgparameterinfo), [`PuppetParameterUpdate`](#struct-puppetparameterupdate)
 
 ## 3.1 Return codes
 
@@ -301,6 +378,12 @@ Purpose:
 - This is the entry point that binds host texture callbacks to SDK resource
   lifecycle.
 
+Related types:
+
+- [`UnityRendererConfig`](#struct-unityrendererconfig)
+- [`UnityResourceCallbacks`](#struct-unityresourcecallbacks)
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+
 Parameters:
 
 - `config`: optional pointer to initial renderer configuration.
@@ -369,6 +452,11 @@ Purpose:
 - This call performs deserialization and node graph preparation required for
   frame updates and command emission.
 
+Related types:
+
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+- [`PuppetHandle`](#type-rendererhandle-puppethandle)
+
 Parameters:
 
 - `handle`: required target renderer handle.
@@ -407,6 +495,11 @@ Purpose:
 - Detach a previously loaded puppet from renderer ownership and active draw set.
 - Intended usage scene: despawn, model replacement, or reducing active workload.
 
+Related types:
+
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+- [`PuppetHandle`](#type-rendererhandle-puppethandle)
+
 Parameters:
 
 - `handle`: required renderer that currently owns this puppet registration.
@@ -436,6 +529,11 @@ Purpose:
 - Intended usage scene: first call in every render loop iteration before ticking
   puppets and emitting commands.
 - Prepares per-frame state and viewport-dependent render targets.
+
+Related types:
+
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+- [`FrameConfig`](#struct-frameconfig)
 
 Parameters:
 
@@ -500,6 +598,12 @@ Purpose:
 - Provides backend-agnostic draw packets and state transitions for host
   renderer execution.
 
+Related types:
+
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+- [`CommandQueueView`](#struct-commandqueueview)
+- [`NjgQueuedCommand`](#struct-njgqueuedcommand)
+
 Parameters:
 
 - `handle`: required renderer handle to emit from.
@@ -562,6 +666,12 @@ Purpose:
 - Intended usage scene: immediately after `njgEmitCommands`, when host resolves
   packet offsets/strides into actual vertex/uv/deform streams.
 
+Related types:
+
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+- [`SharedBufferSnapshot`](#struct-sharedbuffersnapshot)
+- [`NjgBufferSlice`](#struct-njgbufferslice)
+
 Parameters:
 
 - `handle`: required renderer handle.
@@ -590,6 +700,11 @@ Purpose:
 - Intended usage scene: host backend integration that needs current target
   handles generated via texture callbacks.
 
+Related types:
+
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+- [`NjgRenderTargets`](#struct-njgrendertargets)
+
 Parameters:
 
 - `handle`: renderer handle to query.
@@ -614,6 +729,11 @@ Purpose:
 - Return texture lifecycle counters observed by the renderer.
 - Intended usage scene: diagnosing callback imbalance, leaked texture handles,
   and resource churn under load.
+
+Related types:
+
+- [`RendererHandle`](#type-rendererhandle-puppethandle)
+- [`TextureStats`](#struct-texturestats)
 
 Parameters:
 
@@ -642,6 +762,11 @@ Purpose:
   binding.
 - Intended usage scene: startup parameter discovery, editor inspector
   population, and runtime control mapping.
+
+Related types:
+
+- [`PuppetHandle`](#type-rendererhandle-puppethandle)
+- [`NjgParameterInfo`](#struct-njgparameterinfo)
 
 Parameters:
 
@@ -680,6 +805,11 @@ Purpose:
 - Apply one or more parameter value updates to a puppet.
 - Intended usage scene: driving expressions/rig from tracking input, gameplay
   logic, or external control protocols.
+
+Related types:
+
+- [`PuppetHandle`](#type-rendererhandle-puppethandle)
+- [`PuppetParameterUpdate`](#struct-puppetparameterupdate)
 
 Parameters:
 
@@ -924,6 +1054,7 @@ can map it to real rendering code without guessing.
 
 ## 4.1 Handle and enum fundamentals
 
+<a id="type-rendererhandle-puppethandle"></a>
 ### `RendererHandle` / `PuppetHandle`
 
 Purpose:
@@ -975,6 +1106,7 @@ Lifetime:
 - `PuppetHandle` is valid from successful `njgLoadPuppet` until
   `njgUnloadPuppet` or owning renderer destruction.
 
+<a id="enum-njgrendercommandkind"></a>
 ### `NjgRenderCommandKind`
 
 Purpose:
@@ -1001,12 +1133,22 @@ Host rule:
 
 ---
 
+<a id="struct-unityrendererconfig"></a>
 ### `UnityRendererConfig`
 
 Purpose:
 
 - Initial configuration for `njgCreateRenderer`.
 - Used to seed renderer viewport before first frame.
+
+Definition:
+
+```c
+extern(C) struct UnityRendererConfig {
+    int viewportWidth;
+    int viewportHeight;
+}
+```
 
 Fields:
 
@@ -1024,11 +1166,21 @@ Common usage:
 
 ---
 
+<a id="struct-frameconfig"></a>
 ### `FrameConfig`
 
 Purpose:
 
 - Per-frame viewport input for `njgBeginFrame`.
+
+Definition:
+
+```c
+extern(C) struct FrameConfig {
+    int viewportWidth;
+    int viewportHeight;
+}
+```
 
 Fields:
 
@@ -1046,6 +1198,7 @@ Behavior notes:
 
 ---
 
+<a id="struct-unityresourcecallbacks"></a>
 ### `UnityResourceCallbacks`
 
 Purpose:
@@ -1053,6 +1206,17 @@ Purpose:
 - Bridge between SDK texture lifecycle and host graphics resources.
 - Lets SDK request texture creation/update/release while host owns actual GPU
   object allocation policy.
+
+Definition:
+
+```c
+extern(C) struct UnityResourceCallbacks {
+    void* userData;
+    size_t function(int width, int height, int channels, int mipLevels, int format, bool renderTarget, bool stencil, void* userData) createTexture;
+    void function(size_t handle, const(ubyte)* data, size_t dataLen, int width, int height, int channels, void* userData) updateTexture;
+    void function(size_t handle, void* userData) releaseTexture;
+}
+```
 
 Fields:
 
@@ -1081,11 +1245,24 @@ Contract notes:
 
 ---
 
+<a id="struct-njgqueuedcommand"></a>
 ### `NjgQueuedCommand`
 
 Purpose:
 
 - One serialized render command entry emitted by `njgEmitCommands`.
+
+Definition:
+
+```c
+extern(C) struct NjgQueuedCommand {
+    NjgRenderCommandKind kind;
+    NjgPartDrawPacket partPacket;
+    NjgMaskApplyPacket maskApplyPacket;
+    NjgDynamicCompositePass dynamicPass;
+    bool usesStencil;
+}
+```
 
 Fields:
 
@@ -1107,11 +1284,21 @@ Host rule:
 
 ---
 
+<a id="struct-commandqueueview"></a>
 ### `CommandQueueView`
 
 Purpose:
 
 - Lightweight view returned by `njgEmitCommands`.
+
+Definition:
+
+```c
+extern(C) struct CommandQueueView {
+    const(NjgQueuedCommand)* commands;
+    size_t count;
+}
+```
 
 Fields:
 
@@ -1130,12 +1317,45 @@ Lifetime:
 
 ---
 
+<a id="struct-njgpartdrawpacket"></a>
 ### `NjgPartDrawPacket`
 
 Purpose:
 
 - Full draw payload for one renderable part.
 - Contains transform, shading, textures, and geometry slice references.
+
+Definition:
+
+```c
+extern(C) struct NjgPartDrawPacket {
+    bool isMask;
+    bool renderable;
+    mat4 modelMatrix;
+    mat4 renderMatrix;
+    float renderRotation;
+    vec3 clampedTint;
+    vec3 clampedScreen;
+    float opacity;
+    float emissionStrength;
+    float maskThreshold;
+    int blendingMode;
+    bool useMultistageBlend;
+    bool hasEmissionOrBumpmap;
+    size_t[3] textureHandles;
+    size_t textureCount;
+    vec2 origin;
+    size_t vertexOffset;
+    size_t vertexAtlasStride;
+    size_t uvOffset;
+    size_t uvAtlasStride;
+    size_t deformOffset;
+    size_t deformAtlasStride;
+    const(ushort)* indices;
+    size_t indexCount;
+    size_t vertexCount;
+}
+```
 
 Fields:
 
@@ -1200,11 +1420,29 @@ Geometry interpretation:
 
 ---
 
+<a id="struct-njgmaskdrawpacket"></a>
 ### `NjgMaskDrawPacket`
 
 Purpose:
 
 - Geometry/transform payload used for mask shape drawing.
+
+Definition:
+
+```c
+extern(C) struct NjgMaskDrawPacket {
+    mat4 modelMatrix;
+    mat4 mvp;
+    vec2 origin;
+    size_t vertexOffset;
+    size_t vertexAtlasStride;
+    size_t deformOffset;
+    size_t deformAtlasStride;
+    const(ushort)* indices;
+    size_t indexCount;
+    size_t vertexCount;
+}
+```
 
 Fields:
 
@@ -1231,12 +1469,24 @@ Fields:
 
 ---
 
+<a id="struct-njgmaskapplypacket"></a>
 ### `NjgMaskApplyPacket`
 
 Purpose:
 
 - Payload for `ApplyMask` command.
 - Can carry either part packet or mask packet, selected by `kind`.
+
+Definition:
+
+```c
+extern(C) struct NjgMaskApplyPacket {
+    MaskDrawableKind kind;
+    bool isDodge;
+    NjgPartDrawPacket partPacket;
+    NjgMaskDrawPacket maskPacket;
+}
+```
 
 Fields:
 
@@ -1255,11 +1505,29 @@ Host rule:
 
 ---
 
+<a id="struct-njgdynamiccompositepass"></a>
 ### `NjgDynamicCompositePass`
 
 Purpose:
 
 - Describes dynamic composite render-target context switches.
+
+Definition:
+
+```c
+extern(C) struct NjgDynamicCompositePass {
+    size_t[3] textures;
+    size_t textureCount;
+    size_t stencil;
+    vec2 scale;
+    float rotationZ;
+    bool autoScaled;
+    RenderResourceHandle origBuffer;
+    int[4] origViewport;
+    int drawBufferCount;
+    bool hasStencil;
+}
+```
 
 Fields:
 
@@ -1288,11 +1556,22 @@ Fields:
 
 ---
 
+<a id="struct-texturestats"></a>
 ### `TextureStats`
 
 Purpose:
 
 - Aggregated texture lifecycle counters for diagnostics.
+
+Definition:
+
+```c
+extern(C) struct TextureStats {
+    size_t created;
+    size_t released;
+    size_t current;
+}
+```
 
 Fields:
 
@@ -1310,11 +1589,24 @@ Use cases:
 
 ---
 
+<a id="struct-njgrendertargets"></a>
 ### `NjgRenderTargets`
 
 Purpose:
 
 - Snapshot of renderer's external target handles and active viewport.
+
+Definition:
+
+```c
+extern(C) struct NjgRenderTargets {
+    size_t renderFramebuffer;
+    size_t compositeFramebuffer;
+    size_t blendFramebuffer;
+    int viewportWidth;
+    int viewportHeight;
+}
+```
 
 Fields:
 
@@ -1338,11 +1630,21 @@ Notes:
 
 ---
 
+<a id="struct-njgbufferslice"></a>
 ### `NjgBufferSlice`
 
 Purpose:
 
 - Generic pointer-length pair for float array slices.
+
+Definition:
+
+```c
+extern(C) struct NjgBufferSlice {
+    const(float)* data;
+    size_t length;
+}
+```
 
 Fields:
 
@@ -1353,11 +1655,25 @@ Fields:
 
 ---
 
+<a id="struct-sharedbuffersnapshot"></a>
 ### `SharedBufferSnapshot`
 
 Purpose:
 
 - Frame-local view of shared SoA geometry buffers used by queue packets.
+
+Definition:
+
+```c
+extern(C) struct SharedBufferSnapshot {
+    NjgBufferSlice vertices;
+    NjgBufferSlice uvs;
+    NjgBufferSlice deform;
+    size_t vertexCount;
+    size_t uvCount;
+    size_t deformCount;
+}
+```
 
 Fields:
 
@@ -1388,11 +1704,26 @@ Lifetime:
 
 ---
 
+<a id="struct-njgparameterinfo"></a>
 ### `NjgParameterInfo`
 
 Purpose:
 
 - Metadata record returned by `njgGetParameters` for one parameter.
+
+Definition:
+
+```c
+extern(C) struct NjgParameterInfo {
+    uint uuid;
+    bool isVec2;
+    vec2 min;
+    vec2 max;
+    vec2 defaults;
+    const(char)* name;
+    size_t nameLength;
+}
+```
 
 Fields:
 
@@ -1419,11 +1750,21 @@ Notes:
 
 ---
 
+<a id="struct-puppetparameterupdate"></a>
 ### `PuppetParameterUpdate`
 
 Purpose:
 
 - Input record used by `njgUpdateParameters` to set one parameter value.
+
+Definition:
+
+```c
+extern(C) struct PuppetParameterUpdate {
+    uint parameterUuid;
+    vec2 value;
+}
+```
 
 Fields:
 
