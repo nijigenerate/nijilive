@@ -490,6 +490,235 @@ Notes:
 - OpenGL emitter (`core/render/backends/opengl/queue.d`) dispatches backend API calls immediately.
 - Queue backend (`core/render/backends/queue/package.d`) records equivalent command kinds/payloads.
 
+### 6.4 OpenGL Backend Flow (same template)
+
+Entry point:
+
+- OpenGL `RenderBackend` method entry points (called from emitter):
+  - shared upload path: `uploadSharedVertexBuffer`, `uploadSharedUvBuffer`, `uploadSharedDeformBuffer`
+  - draw path: `drawPartPacket`
+  - dynamic composite path: `beginDynamicComposite`, `endDynamicComposite`
+  - mask path: `beginMask`, `applyMask`, `beginMaskContent`, `endMask`
+
+Preconditions:
+
+- OpenGL backend object is active (`core/render/backends/opengl/package.d`).
+- Emitter is OpenGL `RenderQueue` (`core/render/backends/opengl/queue.d`).
+- Render graph playback is invoking emitter callbacks for the current frame.
+
+Execution logic:
+
+- `beginFrame`:
+  - emitter stores backend/state pointers
+  - resets `RenderGpuState`
+  - uploads shared buffers only when dirty:
+    - `uploadSharedVertexBuffer`
+    - `uploadSharedUvBuffer`
+    - `uploadSharedDeformBuffer`
+- `playback`:
+  - `drawPart` -> `makePartDrawPacket` -> `backend.drawPartPacket`
+  - `beginDynamicComposite/endDynamicComposite` -> backend dynamic pass calls
+  - mask calls forward to backend (`beginMask`, `applyMask`, `beginMaskContent`, `endMask`)
+- `endFrame`:
+  - clears emitter-side backend/state references
+
+Emitted effects (OpenGL path):
+
+- No intermediate queue array is produced in this emitter.
+- Render operations are dispatched to backend APIs immediately during playback.
+
+#### 6.4.1 Frame-level sequence (OpenGL emitter path)
+
+```mermaid
+sequenceDiagram
+    participant Graph as RenderGraphBuilder
+    participant Emitter as OpenGL RenderQueue emitter
+    participant Backend as OpenGL RenderBackend
+    Emitter->>Emitter: beginFrame(backend, gpuState)
+    Emitter->>Backend: uploadShared*Buffer() [dirty only]
+    Graph->>Emitter: playback callbacks
+    Graph->>Emitter: draw/mask/dynamic callbacks
+    Emitter->>Backend: drawPartPacket / beginDynamicComposite / endDynamicComposite / beginMask / applyMask / beginMaskContent / endMask
+    Emitter->>Emitter: endFrame(backend, gpuState)
+```
+
+#### 6.4.2 OpenGL RenderBackend internal call path (per method)
+
+##### 6.4.2.1 `drawPartPacket(ref PartDrawPacket packet)`
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Part as oglExecutePartPacket
+    participant GL as OpenGL API
+    Caller->>Backend: drawPartPacket(packet)
+    Backend->>Part: oglDrawPartPacket(packet)
+    Part->>GL: glActiveTexture
+    Part->>GL: glBindTexture
+    Part->>GL: glBlendEquation
+    Part->>GL: glBlendFunc
+    Part->>GL: glDrawBuffers
+    Part->>GL: glEnableVertexAttribArray
+    Part->>GL: glBindBuffer
+    Part->>GL: glVertexAttribPointer
+    Part->>GL: glDrawElements
+    Part->>GL: glDisableVertexAttribArray
+```
+
+Fallback branches inside the same method may additionally call:
+`glGetIntegerv`, `glGetFloatv`, `glGetBooleanv`, `glIsEnabled`,
+`glBindFramebuffer`, `glReadBuffer`, `glDrawBuffer`, `glBlitFramebuffer`,
+`glViewport`, `glClearColor`, `glBlendEquationSeparate`, `glBlendFuncSeparate`,
+`glColorMask`, `glEnable`, `glDisable`.
+
+##### 6.4.2.2 `beginDynamicComposite(DynamicCompositePass pass)`
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Dyn as oglBeginDynamicComposite
+    participant GL as OpenGL API
+    Caller->>Backend: beginDynamicComposite(pass)
+    Backend->>Dyn: oglBeginDynamicComposite(pass)
+    Dyn->>GL: glGenFramebuffers
+    Dyn->>GL: glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING)
+    Dyn->>GL: glGetIntegerv(GL_VIEWPORT)
+    Dyn->>GL: glBindFramebuffer
+    Dyn->>GL: glFramebufferTexture2D
+    Dyn->>GL: glClear(GL_STENCIL_BUFFER_BIT)
+    Dyn->>GL: glDrawBuffers
+    Dyn->>GL: glViewport
+    Dyn->>GL: glClearColor
+    Dyn->>GL: glClear(GL_COLOR_BUFFER_BIT)
+    Dyn->>GL: glActiveTexture
+    Dyn->>GL: glBlendFunc
+```
+
+##### 6.4.2.3 `endDynamicComposite(DynamicCompositePass pass)`
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Dyn as oglEndDynamicComposite
+    participant GL as OpenGL API
+    Caller->>Backend: endDynamicComposite(pass)
+    Backend->>Dyn: oglEndDynamicComposite(pass)
+    Dyn->>GL: glBindFramebuffer
+    Dyn->>GL: glViewport
+    Dyn->>GL: glDrawBuffers
+    Dyn->>GL: glEndQuery
+    Dyn->>GL: glGetQueryObjectui64v
+```
+
+##### 6.4.2.4 `beginMask(bool useStencil)`
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Mask as oglBeginMask
+    participant GL as OpenGL API
+    Caller->>Backend: beginMask(useStencil)
+    Backend->>Mask: oglBeginMask(useStencil)
+    Mask->>GL: glEnable(GL_STENCIL_TEST)
+    Mask->>GL: glClearStencil
+    Mask->>GL: glClear(GL_STENCIL_BUFFER_BIT)
+    Mask->>GL: glStencilMask
+    Mask->>GL: glStencilFunc
+    Mask->>GL: glStencilOp
+```
+
+##### 6.4.2.5 `applyMask(ref MaskApplyPacket packet)`
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Mask as oglExecuteMaskApplyPacket
+    participant GL as OpenGL API
+    Caller->>Backend: applyMask(packet)
+    Backend->>Mask: oglExecuteMaskApplyPacket(packet)
+    Mask->>GL: glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE)
+    Mask->>GL: glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE)
+    Mask->>GL: glStencilFunc(GL_ALWAYS, dodge?0:1, 0xFF)
+    Mask->>GL: glStencilMask(0xFF)
+    alt packet.kind == Part
+        Mask->>GL: glActiveTexture
+        Mask->>GL: glBindTexture
+        Mask->>GL: glDrawBuffers
+        Mask->>GL: glEnableVertexAttribArray
+        Mask->>GL: glBindBuffer
+        Mask->>GL: glVertexAttribPointer
+        Mask->>GL: glDrawElements
+        Mask->>GL: glDisableVertexAttribArray
+    else packet.kind == Mask
+        Mask->>GL: glEnableVertexAttribArray
+        Mask->>GL: glBindBuffer
+        Mask->>GL: glVertexAttribPointer
+        Mask->>GL: glDrawElements
+        Mask->>GL: glDisableVertexAttribArray
+    end
+    Mask->>GL: glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+```
+
+##### 6.4.2.6 `beginMaskContent()`
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Mask as oglBeginMaskContent
+    participant GL as OpenGL API
+    Caller->>Backend: beginMaskContent()
+    Backend->>Mask: oglBeginMaskContent()
+    Mask->>GL: glStencilFunc(GL_EQUAL, 1, 0xFF)
+    Mask->>GL: glStencilMask(0x00)
+```
+
+##### 6.4.2.7 `endMask()`
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Mask as oglEndMask
+    participant GL as OpenGL API
+    Caller->>Backend: endMask()
+    Backend->>Mask: oglEndMask()
+    Mask->>GL: glStencilMask(0xFF)
+    Mask->>GL: glStencilFunc(GL_ALWAYS, 1, 0xFF)
+    Mask->>GL: glDisable(GL_STENCIL_TEST)
+```
+
+##### 6.4.2.8 Shared buffer uploads (`uploadSharedVertexBuffer`, `uploadSharedUvBuffer`, `uploadSharedDeformBuffer`)
+
+```mermaid
+sequenceDiagram
+    participant Caller as OpenGL emitter
+    participant Backend as RenderingBackend(OpenGL)
+    participant Upload as oglUploadShared*Buffer
+    participant SoA as glUploadFloatVecArray
+    participant GL as OpenGL API
+    Caller->>Backend: uploadSharedVertexBuffer / uploadSharedUvBuffer / uploadSharedDeformBuffer
+    Backend->>Upload: oglUploadShared*Buffer(data)
+    Upload->>GL: glGenBuffers (if buffer == 0)
+    Upload->>SoA: glUploadFloatVecArray(buffer, data, GL_DYNAMIC_DRAW, label)
+    SoA->>GL: glBindBuffer(GL_ARRAY_BUFFER, buffer)
+    SoA->>GL: glBufferData(GL_ARRAY_BUFFER, bytes, ptr, GL_DYNAMIC_DRAW)
+```
+
+Implementation note:
+
+- `RenderingBackend` methods in `source/nijilive/core/render/backends/opengl/package.d` are thin delegates to `ogl*` functions.
+- Actual OpenGL state changes and draw calls are implemented in:
+  - `source/nijilive/core/render/backends/opengl/part.d`
+  - `source/nijilive/core/render/backends/opengl/mask.d`
+  - `source/nijilive/core/render/backends/opengl/dynamic_composite.d`
+  - `source/nijilive/core/render/backends/opengl/drawable_buffers.d`
+
 ---
 
 ## 7. Frame-to-Frame Reuse Layer (2025-11 addendum)
