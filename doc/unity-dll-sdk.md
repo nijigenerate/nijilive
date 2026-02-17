@@ -15,6 +15,58 @@ This guide is the authoritative developer documentation for
 
 ## 1. Overview
 
+### 1.0 C ABI type shape (exact representation)
+
+For host-language binding authors, the public ABI-level shape is:
+
+```c
+typedef void*  RendererHandle;   // opaque pointer token
+typedef void*  PuppetHandle;     // opaque pointer token
+
+typedef enum NjgResult { Ok = 0, InvalidArgument = 1, Failure = 2 } NjgResult;
+typedef enum NjgRenderCommandKind : unsigned int { ... } NjgRenderCommandKind;
+```
+
+Key primitive mappings used across the API:
+
+- `size_t`: unsigned integer (pointer-width; 64-bit on typical x64 builds)
+- `int`: 32-bit signed integer
+- `float`: 32-bit IEEE 754 floating point
+- `double`: 64-bit IEEE 754 floating point
+- `bool`: C ABI boolean used by the compiler toolchain for this DLL
+- `const char*`: UTF-8 byte pointer (may be non-null-terminated when paired
+  with explicit length)
+
+Important:
+
+- `RendererHandle` / `PuppetHandle` are pointer-typed (`void*`), not integer IDs.
+- Fields such as `size_t renderFramebuffer` / `size_t textureHandles[i]` are
+  integer-like host resource handles, not SDK object pointers.
+
+Ownership and release rules (critical):
+
+- Ownership of memory behind `RendererHandle` and `PuppetHandle` stays in the SDK.
+- Host must never call `free`, `delete`, `delete[]`, `CoTaskMemFree`, or any
+  custom allocator on these handle values.
+- Valid release path is API-only:
+  - `PuppetHandle` -> `njgUnloadPuppet(renderer, puppet)`
+  - `RendererHandle` -> `njgDestroyRenderer(renderer)`
+- Recommended destruction order:
+  1. unload puppets for a renderer
+  2. destroy renderer
+  3. terminate runtime (`njgRuntimeTerm`) at process shutdown
+- Reason:
+  - `PuppetHandle` is renderer-associated in usage/lifecycle.
+  - `njgUnloadPuppet` requires both renderer and puppet handles.
+  - after `njgDestroyRenderer`, that renderer handle is invalid, so targeted
+    puppet unload is no longer possible.
+- Minimum guarantee:
+  - destroying renderer invalidates renderer-scoped state and makes all puppets
+    in that renderer unusable from host perspective.
+  - however, for deterministic per-puppet teardown, unload puppets first.
+- After unload/destroy, the handle becomes invalid and must not be reused.
+- Passing an invalidated handle to any API is undefined behavior.
+
 ### 1.1 Goal
 
 The SDK exposes a native C ABI that lets a host application:
@@ -33,7 +85,7 @@ The host performs final rendering from command packets and shared buffers.
 The API has two primary opaque handles:
 
 - `RendererHandle`
-  - Backed by `UnityRenderer*`
+  - Backed by `UnityRenderer*` (defined in `source/nijilive/integration/unity.d`)
   - Holds renderer-scoped state:
     - loaded puppets list
     - emitted command buffer
@@ -51,6 +103,15 @@ Important behavior:
 
 - `njgLoadPuppet(renderer, ...)` registers the puppet into that renderer.
 - `njgEmitCommands(renderer, ...)` emits commands for all puppets loaded in that renderer.
+
+Important clarification:
+
+- `RendererHandle` is an opaque pointer-like token to a DLL-internal
+  `UnityRenderer` instance.
+- It is not a GPU framebuffer/texture handle and not interchangeable with
+  `NjgRenderTargets.*Framebuffer`.
+- It is only valid inside the same process and only during its lifetime
+  (`njgCreateRenderer` to `njgDestroyRenderer`).
 
 ### 1.3 Typical per-frame order
 
@@ -870,6 +931,38 @@ Purpose:
 - Opaque C handles returned by the SDK.
 - Host treats them as identifiers only and must never dereference/cast them.
 
+Concrete internal backing:
+
+- `RendererHandle`:
+  - Public type is `alias RendererHandle = void*`.
+  - Internally points to a `UnityRenderer` object allocated by
+    `njgCreateRenderer`.
+  - `UnityRenderer` stores renderer-level state such as:
+    - puppet list
+    - command buffer
+    - texture callback table
+    - viewport fields and frame sequence
+    - animation players mapped per puppet
+- `PuppetHandle`:
+  - Public type is `alias PuppetHandle = void*`.
+  - Internally points to a loaded `Puppet` object.
+
+What this is not:
+
+- Not a graphics API resource handle.
+- Not stable across process restart.
+- Not valid after destroy/unload APIs.
+
+Ownership summary:
+
+- Allocated by SDK:
+  - `RendererHandle` from `njgCreateRenderer`
+  - `PuppetHandle` from `njgLoadPuppet`
+- Released by SDK (triggered by host API call):
+  - renderer object via `njgDestroyRenderer`
+  - puppet object via `njgUnloadPuppet`
+- Never released directly by host allocator calls.
+
 Usage:
 
 - `RendererHandle`: pass to frame/queue APIs.
@@ -1347,35 +1440,88 @@ Batch usage:
 
 ## 5. Usage Examples
 
+Before reading the examples, assume the following host-side helper functions
+exist. These are pseudo-code helpers, not SDK exports.
+
+```cpp
+// Receives SDK log callback messages.
+// Parameters:
+//   message: UTF-8 bytes (not guaranteed null-terminated)
+//   length:  message byte length
+//   userData: host-defined logger/context pointer
+// Returns:
+//   None
+void LogFn(const char* message, size_t length, void* userData);
+// Reference in nijiv:
+//   - callback implementation: nijiv/source/app.d (logCallback)
+//   - registration call site:  nijiv/source/app.d (api.setLogCallback)
+
+// Converts SDK command packets + shared SoA buffers into backend draw calls.
+// Parameters:
+//   view: command list emitted by njgEmitCommands
+//   snapshot: geometry/deform buffers matching the same frame
+// Returns:
+//   None
+void RenderWithHost(const CommandQueueView& view, const SharedBufferSnapshot& snapshot);
+// Reference in nijiv:
+//   - call site:               nijiv/source/app.d (gfx.renderCommands)
+//   - OpenGL implementation:   nijiv/source/opengl/opengl_backend.d (renderCommands)
+//   - Vulkan implementation:   nijiv/source/vulkan/vulkan_backend.d (renderCommands)
+//   - DirectX implementation:  nijiv/source/directx/directx_backend.d (renderCommands)
+
+// Demo-only lookup helper to find parameter UUID by readable name.
+// Parameters:
+//   params: parameter table from njgGetParameters
+//   name: target parameter name, e.g. "ParamAngleX"
+// Returns:
+//   UUID on success. Host should define fallback behavior for "not found".
+uint FindParamUuid(const std::vector<NjgParameterInfo>& params, const char* name);
+// Reference in nijiv:
+//   - no direct equivalent helper found in current nijiv source.
+//   - implement in host app as a small linear search over NjgParameterInfo.name.
+```
+
 ## 5.1 Minimal startup and frame loop
 
 ```cpp
+// 1) Register diagnostics output before initialization so startup/load errors
+// are visible in host logs.
 njgSetLogCallback(LogFn, userData);
+
+// 2) Initialize SDK runtime once per process lifetime.
 njgRuntimeInit();
 
+// 3) Create one renderer context. This owns frame state and command buffers.
 RendererHandle renderer{};
 UnityRendererConfig rcfg{1280, 720};
 njgCreateRenderer(&rcfg, &callbacks, &renderer);
 
+// 4) Load one puppet and register it into this renderer.
 PuppetHandle puppet{};
 njgLoadPuppet(renderer, inxPath, &puppet);
 
 while (running) {
+  // 5) Begin frame with current host viewport size in pixels.
   FrameConfig fcfg{viewportW, viewportH};
   njgBeginFrame(renderer, &fcfg);
 
+  // 6) Advance puppet simulation/animation by frame delta time (seconds).
   njgTickPuppet(puppet, deltaSec);
 
+  // 7) Emit draw commands and fetch shared geometry for this same frame.
   CommandQueueView view{};
   SharedBufferSnapshot snapshot{};
   njgEmitCommands(renderer, &view);
   njgGetSharedBuffers(renderer, &snapshot);
 
+  // 8) Host backend consumes packets and snapshot to submit GPU work.
   RenderWithHost(view, snapshot);
 
+  // 9) Release transient command memory after host finished consuming it.
   njgFlushCommandBuffer(renderer);
 }
 
+// 10) Deterministic teardown order: puppet -> renderer -> runtime.
 njgUnloadPuppet(renderer, puppet);
 njgDestroyRenderer(renderer);
 njgRuntimeTerm();
@@ -1384,34 +1530,50 @@ njgRuntimeTerm();
 ## 5.2 Parameter update pattern
 
 ```cpp
+// First call: query required parameter array size.
 size_t count = 0;
 njgGetParameters(puppet, nullptr, 0, &count);
 
+// Second call: fetch full parameter metadata table.
 std::vector<NjgParameterInfo> params(count);
 njgGetParameters(puppet, params.data(), params.size(), &count);
 
+// Host helper resolves UUID from name for demonstration.
+// In production, prefer caching UUIDs once at load time.
 PuppetParameterUpdate u{};
 u.parameterUuid = FindParamUuid(params, "ParamAngleX");
+
+// value.x is used for scalar parameters; value.y is ignored in that case.
 u.value = {0.2f, 0.0f};
+
+// Apply one update entry.
 njgUpdateParameters(puppet, &u, 1);
 ```
 
 ## 5.3 Multiple puppets in one renderer
 
 ```cpp
+// Two puppets registered into the same renderer.
 PuppetHandle p1{}, p2{};
 njgLoadPuppet(renderer, path1, &p1);
 njgLoadPuppet(renderer, path2, &p2);
 
+// Both puppets are updated, then one emission contains both command sets.
 njgBeginFrame(renderer, &fcfg);
 njgTickPuppet(p1, dt);
 njgTickPuppet(p2, dt);
 njgEmitCommands(renderer, &view); // includes both p1 and p2
 ```
 
+Behavior note:
+
+- This pattern is useful when host wants one combined command stream.
+- Per-puppet visibility filtering is not provided by current API.
+
 ## 5.4 One puppet per renderer
 
 ```cpp
+// Independent renderer domains for strict isolation.
 RendererHandle r1{}, r2{};
 njgCreateRenderer(&cfg, &callbacks, &r1);
 njgCreateRenderer(&cfg, &callbacks, &r2);
