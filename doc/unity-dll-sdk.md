@@ -15,6 +15,58 @@ This guide is the authoritative developer documentation for
 
 ## 1. Overview
 
+### 1.01 Architecture and design philosophy
+
+This SDK is designed around a strict separation:
+
+- DLL side (`nijilive-unity.dll`):
+  - loads and updates puppets
+  - evaluates animation/parameters
+  - serializes backend-agnostic render commands
+  - exposes shared geometry buffers
+- Host side (app/engine/backend):
+  - owns actual graphics API objects
+  - allocates/releases textures via callbacks
+  - executes final GPU draw calls
+  - controls app lifecycle and threading policy
+
+Core architectural idea:
+
+- "Simulation and command generation in DLL, final rendering in host backend."
+- The DLL does not directly own your engine's renderer objects.
+- The host does not directly mutate DLL internals; it uses the C ABI.
+
+Why this design exists:
+
+- Backend portability: one command format can be consumed by different host
+  backends.
+- Integration flexibility: Unity/native/custom engines can keep their own
+  render loop and resource lifetime rules.
+- Operational clarity: ownership is explicit (`RendererHandle`/`PuppetHandle`
+  via APIs, resource handles via callbacks).
+
+Conceptual data flow:
+
+1. Host creates renderer and loads puppet through DLL APIs.
+2. Each frame, host asks DLL to update state and emit command queue.
+3. Host reads command queue + shared buffers and performs actual draws.
+4. Host notifies DLL to flush transient queue data.
+
+Conceptual lifecycle:
+
+1. Runtime init
+2. Renderer create
+3. Puppet load
+4. Frame loop (begin, tick, emit, consume, flush)
+5. Puppet unload
+6. Renderer destroy
+7. Runtime term
+
+If you remember only one model:
+
+- DLL = "authoritative puppet runtime + command producer"
+- Host backend = "authoritative GPU executor"
+
 ### 1.0 C ABI type shape (exact representation)
 
 For host-language binding authors, the public ABI-level shape is:
