@@ -12,7 +12,7 @@ and to visualise how TaskScheduler, RenderQueue, and the Node tree interact.
 - The TaskScheduler executes a fixed `TaskOrder` sequence and, during render phases, accumulates GPU commands in the RenderQueue.
 - `RenderGraphBuilder` keeps separate `RenderPass` entries for Root / DynamicComposite targets, then sorts commands
   by `zSort` (descending) and submission order before forwarding them to the backend.
-- DynamicComposite nodes declare scopes via `pushDynamicComposite/popDynamicComposite`, confining child drawing into their own FBOs before handing them to the parent target. MaskingとDynamicComposite再描画判定もこのスコープで処理する。
+- DynamicComposite nodes declare scopes via `pushDynamicComposite/popDynamicComposite`, confining child drawing into their own FBOs before handing them to the parent target. Masking and DynamicComposite redraw decisions are also handled within this scope.
 
 ```mermaid
 graph TD
