@@ -110,6 +110,7 @@ extern(C) struct NjgPartDrawPacket {
     size_t uvAtlasStride;
     size_t deformOffset;
     size_t deformAtlasStride;
+    size_t indexHandle;
     const(ushort)* indices;
     size_t indexCount;
     size_t vertexCount;
@@ -123,6 +124,7 @@ extern(C) struct NjgMaskDrawPacket {
     size_t vertexAtlasStride;
     size_t deformOffset;
     size_t deformAtlasStride;
+    size_t indexHandle;
     const(ushort)* indices;
     size_t indexCount;
     size_t vertexCount;
@@ -406,6 +408,7 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, UnityRendere
     result.uvAtlasStride = packet.uvAtlasStride;
     result.deformOffset = packet.deformOffset;
     result.deformAtlasStride = packet.deformAtlasStride;
+    result.indexHandle = packet.indexBuffer;
 
     auto indices = backend.findIndexBuffer(packet.indexBuffer);
     result.indexCount = indices.length ? min(packet.indexCount, indices.length) : 0;
@@ -440,6 +443,7 @@ private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, UnityRendere
     result.vertexAtlasStride = packet.vertexAtlasStride;
     result.deformOffset = packet.deformOffset;
     result.deformAtlasStride = packet.deformAtlasStride;
+    result.indexHandle = packet.indexBuffer;
 
     auto indices = backend.findIndexBuffer(packet.indexBuffer);
     result.indexCount = indices.length ? min(packet.indexCount, indices.length) : 0;
@@ -517,9 +521,6 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
     final switch (cmd.kind) {
         case RenderCommandKind.DrawPart:
             outCmd.partPacket = serializePartPacket(backend, renderer, cmd.payload.partPacket);
-            break;
-        case RenderCommandKind.DrawMask:
-            // Queue backend no longer emits DrawMask; keep stub for exhaustive switch.
             break;
         case RenderCommandKind.BeginDynamicComposite:
         case RenderCommandKind.EndDynamicComposite:

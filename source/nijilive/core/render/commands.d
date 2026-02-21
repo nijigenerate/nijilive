@@ -13,7 +13,6 @@ import nijilive.core.render.passes : RenderPassKind;
 /// GPU command kinds; backends switch on these during rendering.
 enum RenderCommandKind {
     DrawPart,
-    DrawMask,
     BeginDynamicComposite,
     EndDynamicComposite,
     BeginMask,
