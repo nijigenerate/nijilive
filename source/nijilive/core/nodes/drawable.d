@@ -436,11 +436,17 @@ public:
         if (!doGenerateBounds) return;
 
         // Calculate bounds
-        Transform wtransform = transform;
-        bounds = vec4(wtransform.translation.xyxy);
         mat4 matrix = getDynamicMatrix();
-        foreach(i, vertex; vertices) {
-            vec2 vertOriented = vec2(matrix * vec4(vertex+deformation[i], 0, 1));
+        if (vertices.length == 0) {
+            Transform wtransform = transform;
+            bounds = vec4(wtransform.translation.xyxy);
+            return;
+        }
+
+        vec2 first = vec2(matrix * vec4(vertices[0] + deformation[0], 0, 1));
+        bounds = vec4(first.xyxy);
+        for (size_t i = 1; i < vertices.length; ++i) {
+            vec2 vertOriented = vec2(matrix * vec4(vertices[i] + deformation[i], 0, 1));
             if (vertOriented.x < bounds.x) bounds.x = vertOriented.x;
             if (vertOriented.y < bounds.y) bounds.y = vertOriented.y;
             if (vertOriented.x > bounds.z) bounds.z = vertOriented.x;
