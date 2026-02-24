@@ -110,6 +110,7 @@ extern(C) struct NjgPartDrawPacket {
     size_t uvAtlasStride;
     size_t deformOffset;
     size_t deformAtlasStride;
+    size_t indexHandle;
     const(ushort)* indices;
     size_t indexCount;
     size_t vertexCount;
@@ -123,6 +124,7 @@ extern(C) struct NjgMaskDrawPacket {
     size_t vertexAtlasStride;
     size_t deformOffset;
     size_t deformAtlasStride;
+    size_t indexHandle;
     const(ushort)* indices;
     size_t indexCount;
     size_t vertexCount;
@@ -406,6 +408,7 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, UnityRendere
     result.uvAtlasStride = packet.uvAtlasStride;
     result.deformOffset = packet.deformOffset;
     result.deformAtlasStride = packet.deformAtlasStride;
+    result.indexHandle = packet.indexBuffer;
 
     auto indices = backend.findIndexBuffer(packet.indexBuffer);
     result.indexCount = indices.length ? min(packet.indexCount, indices.length) : 0;
@@ -421,7 +424,7 @@ private NjgPartDrawPacket serializePartPacket(QueueBackend backend, UnityRendere
     }
     if (logPartPacketCount < 3) {
         auto idxPtr = result.indices is null ? 0 : cast(size_t)result.indices;
-        debug (UnityDLLLog) writefln("[nijilive] PartPacket idxHandle=%s idxPtr=%s idxCount=%s vCount=%s vOff/Stride=%s/%s uvOff/Stride=%s/%s deformOff/Stride=%s/%s",
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] PartPacket idxHandle=%s idxPtr=%s idxCount=%s vCount=%s vOff/Stride=%s/%s uvOff/Stride=%s/%s deformOff/Stride=%s/%s",
             packet.indexBuffer, idxPtr, result.indexCount, result.vertexCount,
             packet.vertexOffset, packet.vertexAtlasStride,
             packet.uvOffset, packet.uvAtlasStride,
@@ -440,6 +443,7 @@ private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, UnityRendere
     result.vertexAtlasStride = packet.vertexAtlasStride;
     result.deformOffset = packet.deformOffset;
     result.deformAtlasStride = packet.deformAtlasStride;
+    result.indexHandle = packet.indexBuffer;
 
     auto indices = backend.findIndexBuffer(packet.indexBuffer);
     result.indexCount = indices.length ? min(packet.indexCount, indices.length) : 0;
@@ -454,7 +458,7 @@ private NjgMaskDrawPacket serializeMaskPacket(QueueBackend backend, UnityRendere
     }
     if (logMaskPacketCount < 3) {
         auto idxPtr = result.indices is null ? 0 : cast(size_t)result.indices;
-        debug (UnityDLLLog) writefln("[nijilive] MaskPacket idxHandle=%s idxPtr=%s idxCount=%s vCount=%s vOff/Stride=%s/%s deformOff/Stride=%s/%s",
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] MaskPacket idxHandle=%s idxPtr=%s idxCount=%s vCount=%s vOff/Stride=%s/%s deformOff/Stride=%s/%s",
             packet.indexBuffer, idxPtr, result.indexCount, result.vertexCount,
             packet.vertexOffset, packet.vertexAtlasStride,
             packet.deformOffset, packet.deformAtlasStride);
@@ -511,15 +515,12 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
     outCmd.usesStencil = cmd.usesStencil;
     if (logCmdSeq < 400) {
         import std.stdio : writefln;
-        debug (UnityDLLLog) writefln("[nijilive] cmd[%s] kind=%s usesStencil=%s", logCmdSeq, cmd.kind, cmd.usesStencil);
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] cmd[%s] kind=%s usesStencil=%s", logCmdSeq, cmd.kind, cmd.usesStencil);
     }
     logCmdSeq++;
     final switch (cmd.kind) {
         case RenderCommandKind.DrawPart:
             outCmd.partPacket = serializePartPacket(backend, renderer, cmd.payload.partPacket);
-            break;
-        case RenderCommandKind.DrawMask:
-            // Queue backend no longer emits DrawMask; keep stub for exhaustive switch.
             break;
         case RenderCommandKind.BeginDynamicComposite:
         case RenderCommandKind.EndDynamicComposite:
@@ -527,19 +528,19 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
             break;
         case RenderCommandKind.BeginMask:
             if (logMaskFlowCount < 200) {
-                debug (UnityDLLLog) writefln("[nijilive] BeginMask usesStencil=%s", cmd.usesStencil);
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] BeginMask usesStencil=%s", cmd.usesStencil);
             }
             logMaskFlowCount++;
             break;
         case RenderCommandKind.BeginMaskContent:
             if (logMaskFlowCount < 200) {
-                debug (UnityDLLLog) writefln("[nijilive] BeginMaskContent");
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] BeginMaskContent");
             }
             logMaskFlowCount++;
             break;
         case RenderCommandKind.EndMask:
             if (logMaskFlowCount < 200) {
-                debug (UnityDLLLog) writefln("[nijilive] EndMask");
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] EndMask");
             }
             logMaskFlowCount++;
             break;
@@ -559,7 +560,7 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
              (apply.maskPacket.vertexCount == 0 || apply.maskPacket.indexCount == 0)))
         {
             if (logApplyMaskCount < 200) {
-                debug (UnityDLLLog) writefln("[nijilive] ApplyMask skipped: empty geometry kind=%s part.v=%s/%s mask.v=%s/%s",
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] ApplyMask skipped: empty geometry kind=%s part.v=%s/%s mask.v=%s/%s",
                     apply.kind,
                     apply.partPacket.vertexCount, apply.partPacket.indexCount,
                     apply.maskPacket.vertexCount, apply.maskPacket.indexCount);
@@ -570,7 +571,7 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         }
         outCmd.maskApplyPacket = apply;
         if (logApplyMaskCount < 200) {
-            debug (UnityDLLLog) writefln("[nijilive] ApplyMask kind=%s dodge=%s part.v=%s/%s mask.v=%s/%s",
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] ApplyMask kind=%s dodge=%s part.v=%s/%s mask.v=%s/%s",
                 apply.kind, apply.isDodge,
                 apply.partPacket.vertexCount, apply.partPacket.indexCount,
                 apply.maskPacket.vertexCount, apply.maskPacket.indexCount);
@@ -738,20 +739,20 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
                         break;
                     case RenderCommandKind.BeginMaskContent:
                         if (!maskOpen) {
-                            debug (UnityDLLLog) writefln("[nijilive] WARN: BeginMaskContent without BeginMask");
+                            version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] WARN: BeginMaskContent without BeginMask");
                             unityLog("[nijilive] WARN: BeginMaskContent without BeginMask");
                         }
                         break;
                     case RenderCommandKind.EndMask:
                         if (!maskOpen) {
-                            debug (UnityDLLLog) writefln("[nijilive] WARN: EndMask without BeginMask");
+                            version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] WARN: EndMask without BeginMask");
                             unityLog("[nijilive] WARN: EndMask without BeginMask");
                         }
                         maskOpen = false;
                         break;
                     case RenderCommandKind.ApplyMask:
                         if (!maskOpen) {
-                            debug (UnityDLLLog) writefln("[nijilive] WARN: ApplyMask without BeginMask");
+                            version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] WARN: ApplyMask without BeginMask");
                             unityLog("[nijilive] WARN: ApplyMask without BeginMask");
                         }
                         break;
@@ -821,7 +822,7 @@ extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBuff
     snapshot.deform.length = dRaw.length;
     snapshot.deformCount = deform.length;
     if (logSnapshotCount < 3) {
-        debug (UnityDLLLog) writefln("[nijilive] SharedBuffers V:%s(U:%s) ptr=%s U:%s ptr=%s D:%s ptr=%s",
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] SharedBuffers V:%s(U:%s) ptr=%s U:%s ptr=%s D:%s ptr=%s",
             snapshot.vertexCount, snapshot.vertices.length, cast(size_t)snapshot.vertices.data,
             snapshot.uvCount, cast(size_t)snapshot.uvs.data,
             snapshot.deformCount, cast(size_t)snapshot.deform.data);

@@ -615,7 +615,7 @@ public:
                     if (binding.maskSrc is null) continue;
                     bool isDodge = binding.mode == MaskingMode.DodgeMask;
                     import std.stdio : writefln;
-                    debug (UnityDLLLog) writefln("[nijilive] applyMask part=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
+                    version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] applyMask part=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
                         partNode.name, partNode.uuid,
                         binding.maskSrc.name, binding.maskSrc.uuid,
                         binding.mode, isDodge);
@@ -717,7 +717,7 @@ public:
         space.matrix = cam.matrix * puppetMatrix;
         space.scale = vec2(sx, sy);
         space.rotation = rot;
-        debug (UnityDLLLog) {
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
             import std.stdio : writefln;
             writefln("[renderSpace] part=%s ignorePuppet=%s forceIgnore=%s usePuppet=%s puppetScale=%s camScale=%s",
                 name, ignorePuppet, forceIgnorePuppet, usePuppet, puppetScale, cam.scale);

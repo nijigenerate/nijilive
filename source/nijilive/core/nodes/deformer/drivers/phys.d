@@ -7,7 +7,11 @@ import std.typecons : tuple; // Import for tuple
 import nijilive; // Import for deltaTime
 import std.algorithm;
 import std.array;
-import std.stdio : writeln;
+version(NijiliveEnableDebugLog) import std.stdio : writeln;
+
+private void physLog(Args...)(Args args) {
+    version(NijiliveEnableDebugLog) writeln(args);
+}
 import std.conv : to;
 import fghj;
 
@@ -261,7 +265,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
             angles ~= angle;
             lengths ~= length;
             if (!isFinite(length) || length <= lengthEpsilon) {
-                writeln("[PhysicsPendulum][DegenerateSegment] node=",
+                physLog("[PhysicsPendulum][DegenerateSegment] node=",
                         deformer ? deformer.name : "<null>",
                         " segment=", i - 1, "->", i,
                         " length=", length,
@@ -296,7 +300,7 @@ class ConnectedPendulumDriver : PhysicsDriver {
         float externalTorque = externalForce.x * timeStep * lengths[0]; // Simplified external torque calculation
         for (int i = 0; i < angles.length; i++) {
             if (!isFinite(lengths[i]) || lengths[i] <= lengthEpsilon) {
-                writeln("[PhysicsPendulum][DegenerateUpdate] node=",
+                physLog("[PhysicsPendulum][DegenerateUpdate] node=",
                         deformer ? deformer.name : "<null>",
                         " index=", i,
                         " restLength=", lengths[i]);
@@ -398,7 +402,7 @@ class ConnectedSpringPendulumDriver : PhysicsDriver {
             float len = diff.length;
             lengths[i] = len;
             if (!isFinite(len) || len <= lengthEpsilon) {
-                writeln("[PhysicsSpringPendulum][DegenerateSegment] node=",
+                physLog("[PhysicsSpringPendulum][DegenerateSegment] node=",
                         deformer ? deformer.name : "<null>",
                         " segment=", i, "->", i + 1,
                         " length=", len,
@@ -525,7 +529,7 @@ private:
                 }
                 float diffLen = diff.length;
                 if (!isFinite(diffLen) || diffLen <= lengthEpsilon) {
-                    writeln("[PhysicsSpringPendulum][DegenerateUpdate] node=",
+                    physLog("[PhysicsSpringPendulum][DegenerateUpdate] node=",
                             deformer ? deformer.name : "<null>",
                             " segment=", i - 1, "->", i,
                             " diffLen=", diffLen,
@@ -544,7 +548,7 @@ private:
                 }
                 float diffLen = diff.length;
                 if (!isFinite(diffLen) || diffLen <= lengthEpsilon) {
-                    writeln("[PhysicsSpringPendulum][DegenerateUpdate] node=",
+                    physLog("[PhysicsSpringPendulum][DegenerateUpdate] node=",
                             deformer ? deformer.name : "<null>",
                             " segment=", i, "->", i + 1,
                             " diffLen=", diffLen,

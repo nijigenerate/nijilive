@@ -5,8 +5,8 @@ version (NijiliveRenderProfiler) {
 import core.time : MonoTime, Duration, seconds, dur;
 import std.algorithm : sort;
 import std.array : array;
-import std.format : format;
-import std.stdio : writeln;
+version (NijiliveEnableDebugLog) import std.format : format;
+version (NijiliveEnableDebugLog) import std.stdio : writeln;
 
 private class RenderProfiler {
     long[string] accumUsec;
@@ -38,9 +38,10 @@ private class RenderProfiler {
 
 private:
     void report(Duration interval) {
+        version (NijiliveEnableDebugLog) {
         double secondsElapsed = interval.total!"usecs" / 1_000_000.0;
-            writeln(format!"[RenderProfiler] %.3fs window (%s frames)"(
-                secondsElapsed, frameCount));
+        writeln(format!"[RenderProfiler] %.3fs window (%s frames)"(
+            secondsElapsed, frameCount));
         auto entries = accumUsec.byKeyValue.array;
         sort!((a, b) => a.value > b.value)(entries);
         foreach (entry; entries) {
@@ -53,6 +54,7 @@ private:
         }
         if (entries.length == 0) {
             writeln("  (no instrumented passes recorded)");
+        }
         }
     }
 }
