@@ -546,8 +546,8 @@ protected:
     }
 
     override void drawContents() {
-        debug (UnityDLLLog) import std.stdio : writefln;
-        debug (UnityDLLLog) writefln("[comp] drawContents name=%s(%s)", name, uuid);
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) import std.stdio : writefln;
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[comp] drawContents name=%s(%s)", name, uuid);
         updateDynamicRenderStateFlags();
 
         bool needsRedraw = textureInvalidated || deferred > 0;
@@ -598,7 +598,7 @@ protected:
 
     /// Compositeは子を素のスケール/回転のまま描き、textureOffsetだけ平行移動してオフスクリーンへ描く。
     protected override void dynamicRenderBegin(ref RenderContext ctx) {
-        debug (UnityDLLLog) {
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
             import std.stdio : writefln;
             writefln("[comp] begin name=%s(%s) frame=%s autoResized=%s hasValid=%s",
                 name, uuid, ctx.frameCounter, autoResizedMesh, hasValidOffscreenContent);
@@ -665,7 +665,7 @@ protected:
             }
             queuedOffscreenParts ~= child;
         }
-        debug (UnityDLLLog) {
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
             import std.stdio : writefln;
             writefln("[comp] pushed dynamic token=%s name=%s(%s) passTex=%s stencil=%s",
                 dynamicScopeToken, name, uuid, passData.surface.textureCount, passData.surface.stencil);

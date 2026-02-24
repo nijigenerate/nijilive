@@ -36,6 +36,10 @@ configuration "queue-backend" {
     versions "UseQueueBackend"
 }
 
+configuration "debug-log" {
+    versions "NijiliveEnableDebugLog"
+}
+
 configuration "unity-dll" {
     targetType "dynamicLibrary"
     platforms "windows"

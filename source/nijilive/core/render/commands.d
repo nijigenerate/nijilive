@@ -121,18 +121,18 @@ bool tryMakeMaskApplyPacket(Drawable drawable, bool isDodge, out MaskApplyPacket
                 if (idx > maxIdx) maxIdx = idx;
             }
             if (maxIdx >= mesh.vertices.length) {
-                debug (UnityDLLLog) {
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
                     import std.stdio : writefln;
-                    debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: mask name=%s uuid=%s index out of range max=%s verts=%s",
+                    version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: mask name=%s uuid=%s index out of range max=%s verts=%s",
                         mask.name, mask.uuid, maxIdx, mesh.vertices.length);
                 }
                 return false;
             }
         }
         if (packet.maskPacket.indexCount == 0 || packet.maskPacket.indexBuffer == RenderResourceHandle.init) {
-            debug (UnityDLLLog) {
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
                 import std.stdio : writefln;
-                debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: mask ibo=%s idxCount=%s", packet.maskPacket.indexBuffer, packet.maskPacket.indexCount);
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: mask ibo=%s idxCount=%s", packet.maskPacket.indexBuffer, packet.maskPacket.indexCount);
             }
             return false;
         }
@@ -150,9 +150,9 @@ bool tryMakeMaskApplyPacket(Drawable drawable, bool isDodge, out MaskApplyPacket
                 if (idx > maxIdx) maxIdx = idx;
             }
             if (maxIdx >= mesh.vertices.length) {
-                debug (UnityDLLLog) {
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
                     import std.stdio : writefln;
-                    debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: part name=%s uuid=%s index out of range max=%s verts=%s",
+                    version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: part name=%s uuid=%s index out of range max=%s verts=%s",
                         part.name, part.uuid, maxIdx, mesh.vertices.length);
                 }
                 return false;
@@ -160,9 +160,9 @@ bool tryMakeMaskApplyPacket(Drawable drawable, bool isDodge, out MaskApplyPacket
         }
         // index buffer resource must be valid before issuing commands
         if (packet.partPacket.indexCount == 0 || packet.partPacket.indexBuffer == RenderResourceHandle.init) {
-            debug (UnityDLLLog) {
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
                 import std.stdio : writefln;
-                debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: part ibo=%s idxCount=%s", packet.partPacket.indexBuffer, packet.partPacket.indexCount);
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] tryMakeMaskApplyPacket skip: part ibo=%s idxCount=%s", packet.partPacket.indexBuffer, packet.partPacket.indexCount);
             }
             return false;
         }

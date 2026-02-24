@@ -146,8 +146,8 @@ public:
     //  - Part: ignore transform by puppet.
     //  - Compose: use internal Projectable instead of Composite implementation.
     void drawSelf(bool isMask = false)() {
-        debug (UnityDLLLog) import std.stdio : writefln;
-        debug (UnityDLLLog) writefln("[proj] drawSelf name=%s(%s) mask=%s", name, uuid, isMask);
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) import std.stdio : writefln;
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[proj] drawSelf name=%s(%s) mask=%s", name, uuid, isMask);
         if (children.length == 0) return;
         super.drawSelf!isMask();
     }
@@ -789,8 +789,8 @@ public:
     override
     void draw() {
         if (!enabled || puppet is null) return;
-        debug (UnityDLLLog) import std.stdio : writefln;
-        debug (UnityDLLLog) writefln("[proj] draw name=%s(%s)", name, uuid);
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) import std.stdio : writefln;
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[proj] draw name=%s(%s)", name, uuid);
         this.drawOne();
     }
 
@@ -836,7 +836,7 @@ public:
     protected void dynamicRenderBegin(ref RenderContext ctx) {
         logDynamicEvent("dynamicRenderBegin", ctx, name, uuid,
             format("textures=%s valid=%s dynActive=%s", textures.length, hasValidOffscreenContent, dynamicScopeActive));
-        debug (UnityDLLLog) {
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
             import std.stdio : writefln;
             writefln("[proj] begin proj=%s(%s) frame=%s textures=%s valid=%s dynActive=%s",
                 name, uuid, ctx.frameCounter,
@@ -858,7 +858,7 @@ public:
         updateDynamicRenderStateFlags();
         bool needsRedraw = textureInvalidated || deferred > 0;
         if (!needsRedraw) {
-            debug (UnityDLLLog) writefln("[composite] frame=%s skip redraw name=%s(%s) invalidated=%s deferred=%s hasContent=%s",
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[composite] frame=%s skip redraw name=%s(%s) invalidated=%s deferred=%s hasContent=%s",
                 ctx.frameCounter, name, uuid, textureInvalidated, deferred, hasValidOffscreenContent);
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
@@ -868,7 +868,7 @@ public:
         selfSort();
         auto passData = prepareDynamicCompositePass();
         if (passData is null) {
-            debug (UnityDLLLog) writefln("[composite] frame=%s passData null name=%s(%s) tex0=%s texCount=%s",
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[composite] frame=%s passData null name=%s(%s) tex0=%s texCount=%s",
                 ctx.frameCounter, name, uuid, textures.length ? textures[0] : null, textures.length);
             reuseCachedTextureThisFrame = true;
             loggedFirstRenderAttempt = true;
@@ -876,7 +876,7 @@ public:
         }
         dynamicScopeToken = ctx.renderGraph.pushDynamicComposite(this, passData, zSort());
         dynamicScopeActive = true;
-        debug (UnityDLLLog) {
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
             import std.stdio : writefln;
             writefln("[composite] frame=%s pushDynamic composite=%s(%s) texCount=%s scale=%s rot=%s auto=%s",
                 ctx.frameCounter, name, uuid, passData.surface.textureCount, passData.scale, passData.rotationZ, passData.autoScaled);
@@ -942,13 +942,13 @@ public:
             }
             auto partNode = this;
             ctx.renderGraph.popDynamicComposite(dynamicScopeToken, (RenderCommandEmitter emitter) {
-                debug (UnityDLLLog) writefln("[composite] frame=%s popDynamic composite=%s(%s) masks=%s", ctx.frameCounter, this.name, this.uuid, hasMasks);
+                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[composite] frame=%s popDynamic composite=%s(%s) masks=%s", ctx.frameCounter, this.name, this.uuid, hasMasks);
                 if (hasMasks) {
                     emitter.beginMask(useStencil);
                     foreach (binding; maskBindings) {
                         if (binding.maskSrc is null) continue;
                         bool isDodge = binding.mode == MaskingMode.DodgeMask;
-                        debug (UnityDLLLog) writefln("[nijilive] applyMask dynComposite=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
+                        version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] applyMask dynComposite=%s(%s) maskSrc=%s(%s) mode=%s dodge=%s",
                             this.name, this.uuid, binding.maskSrc.name, binding.maskSrc.uuid, binding.mode, isDodge);
                         emitter.applyMask(binding.maskSrc, isDodge);
                     }
@@ -992,7 +992,7 @@ public:
             if (deferred > 0) deferred--;
             hasValidOffscreenContent = true;
         }
-        debug (UnityDLLLog) {
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
             import std.stdio : writefln;
             writefln("[proj] end   proj=%s(%s) frame=%s redrew=%s dynActive=%s",
                 name, uuid, ctx.frameCounter, redrew, dynamicScopeActive);

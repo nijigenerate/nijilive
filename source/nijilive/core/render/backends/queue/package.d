@@ -262,9 +262,9 @@ public:
             if (existing.data !is null) GC.free(existing.data);
         }
         indexBuffers[ibo] = IndexBufferData(ptr, indices.length);
-        debug (UnityDLLLog) {
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) {
             import std.stdio : writefln;
-            debug (UnityDLLLog) writefln("[nijilive] uploadDrawableIndices ibo=%s len=%s ptr=%s", ibo, indices.length, cast(size_t)ptr);
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] uploadDrawableIndices ibo=%s len=%s ptr=%s", ibo, indices.length, cast(size_t)ptr);
         }
     }
     void uploadSharedVertexBuffer(Vec2Array) {}
