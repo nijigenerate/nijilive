@@ -22,6 +22,7 @@ import nijilive.math.camera : Camera;
 import nijilive.core.runtime_state : inGetViewport, inGetCamera, inSetCamera, inPushViewport, inPopViewport;
 import std.algorithm : min;
 import std.exception : enforce;
+import std.stdio : writeln;
 
 /// Captured command information emitted sequentially.
 struct QueuedCommand {
@@ -70,6 +71,10 @@ public:
     }
 
     void beginDynamicComposite(Projectable composite, DynamicCompositePass passData) {
+        if (composite !is null) {
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog)
+                writeln("[nijilive] queue.beginDynamic name=", composite.name, " uuid=", composite.uuid);
+        }
         dynDepth++;
         // Capture current framebuffer/viewport for restoration on playback.
         int vw, vh;
@@ -107,6 +112,10 @@ public:
     }
 
     void endDynamicComposite(Projectable composite, DynamicCompositePass passData) {
+        if (composite !is null) {
+            version(NijiliveEnableDebugLog) debug (UnityDLLLog)
+                writeln("[nijilive] queue.endDynamic name=", composite.name, " uuid=", composite.uuid);
+        }
         if (dynDepth > 0) dynDepth--;
         if (dynStack.length) dynStack.length -= 1;
         if (passData !is null && passData.surface !is null && passData.surface.textureCount > 0) {

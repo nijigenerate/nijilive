@@ -1178,6 +1178,14 @@ public:
 
     override
     void notifyChange(Node target, NotifyReason reason = NotifyReason.Transformed) {
+        import std.algorithm.searching : canFind;
+        import std.string : toLower;
+        bool isIris = name.toLower.canFind("iris");
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) if (isIris) {
+            import std.stdio : writefln;
+            writefln("[nijilive] iris.notify self=%s(%s) target=%s reason=%s before invalid=%s valid=%s deferred=%s",
+                name, uuid, target is null ? 0 : target.uuid, reason, textureInvalidated, hasValidOffscreenContent, deferred);
+        }
         bool markBoundsDirty = false;
         if (target != this) {
             if (reason == NotifyReason.AttributeChanged) {
@@ -1219,6 +1227,11 @@ public:
             }
         }
         super.notifyChange(target, reason);
+        version(NijiliveEnableDebugLog) debug (UnityDLLLog) if (isIris) {
+            import std.stdio : writefln;
+            writefln("[nijilive] iris.notify.after self=%s(%s) invalid=%s valid=%s deferred=%s",
+                name, uuid, textureInvalidated, hasValidOffscreenContent, deferred);
+        }
     }
 
     override
