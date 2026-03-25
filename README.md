@@ -29,6 +29,12 @@ This repository is purely for the standard and is not useful if you're an end us
 
 &nbsp;
 
+# For Game and Web Developer
+C++ implementation of nijilive, named [nicxlive](https://github.com/nijigenerate/nicxlive), is developing.
+Currently it works with OpenGL, Vulkan, DirectX, Unity and WebGL. If you are interested in the development for development in those platform, look in the project.
+
+&nbsp;
+
 # Documentation
 Documentation is currently in the process of being written for the spec and the official tools. You can find the official documentation page [here](https://docs.github.com/nijigenerate).
 
