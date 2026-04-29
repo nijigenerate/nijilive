@@ -34,6 +34,16 @@ struct BindTarget {
     string name;
 }
 
+private T cloneBindingValue(T)(T value) {
+    return value;
+}
+
+private Deformation cloneBindingValue(Deformation value) {
+    Deformation cloned;
+    cloned.vertexOffsets = value.vertexOffsets.dup;
+    return cloned;
+}
+
 /**
     A binding to a parameter, of a given value type
 */
@@ -382,7 +392,7 @@ public:
         Sets value at specified keypoint
     */
     void setValue(vec2u point, T value) {
-        values[point.x][point.y] = value;
+        values[point.x][point.y] = cloneBindingValue(value);
         isSet_[point.x][point.y] = true;
         
         reInterpolate();
@@ -503,8 +513,8 @@ public:
             else return newlySet[maj][min];
         }
         T get(uint maj, uint min) {
-            if (yMajor) return values[min][maj];
-            else return values[maj][min];
+            if (yMajor) return cloneBindingValue(values[min][maj]);
+            else return cloneBindingValue(values[maj][min]);
         }
         float getDistance(uint maj, uint min) {
             if (yMajor) return interpDistance[min][maj];
@@ -514,13 +524,13 @@ public:
             if (yMajor) {
                 //debug writefln("set (%d, %d) -> %s", min, maj, val);
                 assert(!valid[min][maj]);
-                values[min][maj] = val;
+                values[min][maj] = cloneBindingValue(val);
                 interpDistance[min][maj] = distance;
                 newlySet[min][maj] = true;
             } else {
                 //debug writefln("set (%d, %d) -> %s", maj, min, val);
                 assert(!valid[maj][min]);
-                values[maj][min] = val;
+                values[maj][min] = cloneBindingValue(val);
                 interpDistance[maj][min] = distance;
                 newlySet[maj][min] = true;
             }
@@ -608,7 +618,7 @@ public:
                 T base = values[baseX][baseY];
                 T dX = values[baseX + offX][baseY] + (base * -1f);
                 T dY = values[baseX][baseY + offY] + (base * -1f);
-                values[baseX + offX][baseY + offY] = base + dX + dY;
+                values[baseX + offX][baseY + offY] = cloneBindingValue(base + dX + dY);
                 commitPoints ~= vec2u(baseX + offX, baseY + offY);
             }
 
@@ -933,13 +943,13 @@ public:
         if (auto o = cast(ParameterBindingImpl!(T))(other)) {
             bool thisSet = isSet(src);
             bool otherSet = other.isSet(dest);
-            T thisVal = getValue(src);
-            T otherVal = o.getValue(dest);
+            T thisVal = cloneBindingValue(getValue(src));
+            T otherVal = cloneBindingValue(o.getValue(dest));
 
             // Swap directly, to avoid clobbering by update
-            o.values[dest.x][dest.y] = thisVal;
+            o.values[dest.x][dest.y] = cloneBindingValue(thisVal);
             o.isSet_[dest.x][dest.y] = thisSet;
-            values[src.x][src.y] = otherVal;
+            values[src.x][src.y] = cloneBindingValue(otherVal);
             isSet_[src.x][src.y] = otherSet;
 
             reInterpolate();

@@ -22,6 +22,11 @@ struct Deformation {
         vertexOffsets = vertexOffsets.dup;
     }
 
+    ref Deformation opAssign(const Deformation other) return @safe pure nothrow {
+        vertexOffsets = other.vertexOffsets.dup;
+        return this;
+    }
+
     Deformation opUnary(string op : "-")() @safe pure nothrow {
         Deformation new_;
 
