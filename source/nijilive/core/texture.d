@@ -18,8 +18,78 @@ import std.algorithm : clamp;
 import nijilive.core.nodes : inCreateUUID;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.render.backends : RenderTextureHandle;
+import core.memory : GC;
+import core.stdc.stdlib : malloc, free;
 version (InDoesRender) {
     import nijilive.core.runtime_state : currentRenderBackend, tryRenderBackend;
+}
+
+private {
+    struct PendingTextureDisposal {
+        RenderTextureHandle handle;
+        size_t externalHandle;
+        PendingTextureDisposal* next;
+    }
+
+    __gshared Object pendingTextureDisposalLock;
+    __gshared PendingTextureDisposal* pendingTextureDisposals;
+
+    shared static this() {
+        pendingTextureDisposalLock = new Object();
+    }
+
+    void enqueueTextureDisposal(RenderTextureHandle handle, size_t externalHandle) {
+        if (handle is null && externalHandle == 0) return;
+
+        auto node = cast(PendingTextureDisposal*)malloc(PendingTextureDisposal.sizeof);
+        if (node is null) return;
+        node.handle = handle;
+        node.externalHandle = externalHandle;
+        if (handle !is null) GC.addRoot(cast(void*)handle);
+
+        synchronized (pendingTextureDisposalLock) {
+            node.next = pendingTextureDisposals;
+            pendingTextureDisposals = node;
+        }
+    }
+}
+
+void inDrainPendingTextureDisposals() {
+    version (InDoesRender) {
+        PendingTextureDisposal* list;
+        synchronized (pendingTextureDisposalLock) {
+            list = pendingTextureDisposals;
+            pendingTextureDisposals = null;
+        }
+
+        auto backend = tryRenderBackend();
+        if (backend is null) {
+            synchronized (pendingTextureDisposalLock) {
+                while (list !is null) {
+                    auto next = list.next;
+                    list.next = pendingTextureDisposals;
+                    pendingTextureDisposals = list;
+                    list = next;
+                }
+            }
+            return;
+        }
+
+        while (list !is null) {
+            auto node = list;
+            list = node.next;
+            scope(exit) {
+                if (node.handle !is null) GC.removeRoot(cast(void*)node.handle);
+                free(node);
+            }
+            if (node.handle !is null) backend.destroyTextureHandle(node.handle);
+            version (UseQueueBackend) {
+                if (node.externalHandle && ngReleaseExternalHandle !is null) {
+                    ngReleaseExternalHandle(node.externalHandle);
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -424,10 +494,18 @@ public:
         Disposes texture from GL
     */
     void dispose() {
+        if (GC.inFinalizer) {
+            enqueueTextureDisposal(handle, externalHandle);
+            handle = null;
+            externalHandle = 0;
+            return;
+        }
+
         version (InDoesRender) {
-            if (handle is null) return;
-            auto backend = tryRenderBackend();
-            if (backend !is null) backend.destroyTextureHandle(handle);
+            if (handle !is null) {
+                auto backend = tryRenderBackend();
+                if (backend !is null) backend.destroyTextureHandle(handle);
+            }
             handle = null;
         }
         version (UseQueueBackend) {

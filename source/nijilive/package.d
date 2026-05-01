@@ -13,6 +13,7 @@ public import nijilive.fmt;
 public import nijilive.core;
 public import nijilive.ver;
 public import nijilive.utils.snapshot;
+import nijilive.core.texture : inDrainPendingTextureDisposals;
 
 private double currentTime_ = 0;
 private double lastTime_ = 0;
@@ -39,6 +40,7 @@ void inUpdate() {
     currentTime_ = tfunc_();
     deltaTime_ = currentTime_-lastTime_;
     lastTime_ = currentTime_;
+    inDrainPendingTextureDisposals();
 }
 
 /**
