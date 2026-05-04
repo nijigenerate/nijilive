@@ -305,6 +305,33 @@ public:
     abstract void renderMask(bool dodge = false);
 
     /**
+        Matrix used when drawing mesh overlay points/lines.
+
+        Mesh overlay input points are the exact points sent to the debug draw
+        buffer: vertices - data.origin + deformation. The origin offset is
+        already applied to those points, so this returns only the transform
+        passed to inDbgDrawLines/inDbgDrawPoints.
+    */
+    mat4 meshOverlayMatrix() {
+        auto trans = getDynamicMatrix();
+        if (oneTimeTransform !is null)
+            trans = (*oneTimeTransform) * trans;
+        return trans;
+    }
+
+    /**
+        Points used when drawing mesh overlay points.
+    */
+    Vec2Array meshOverlayPoints() {
+        Vec2Array points;
+        points.length = vertices.length;
+        foreach (i, point; vertices) {
+            points[i] = point - data.origin + deformation[i];
+        }
+        return points;
+    }
+
+    /**
         Constructs a new drawable surface
     */
     this(Node parent = null) {
