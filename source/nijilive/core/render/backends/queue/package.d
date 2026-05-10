@@ -432,6 +432,9 @@ public:
         return tex is null ? 0 : tex.id;
     }
 
+    void destroyTextureNativeHandle(size_t) {
+    }
+
     package(nijilive) const(ushort)[] findIndexBuffer(RenderResourceHandle handle) {
         if (auto found = handle in indexBuffers) {
             if (found.data is null || found.length == 0) return null;

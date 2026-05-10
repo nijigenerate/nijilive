@@ -26,7 +26,7 @@ version (InDoesRender) {
 
 private {
     struct PendingTextureDisposal {
-        RenderTextureHandle handle;
+        size_t textureHandle;
         size_t externalHandle;
         PendingTextureDisposal* next;
     }
@@ -41,11 +41,20 @@ private {
     void enqueueTextureDisposal(RenderTextureHandle handle, size_t externalHandle) {
         if (handle is null && externalHandle == 0) return;
 
+        size_t textureHandle;
+        version (InDoesRender) {
+            if (handle !is null) {
+                auto backend = tryRenderBackend();
+                if (backend !is null) textureHandle = backend.textureNativeHandle(handle);
+            }
+        }
+        if (textureHandle == 0 && externalHandle == 0) return;
+
         auto node = cast(PendingTextureDisposal*)malloc(PendingTextureDisposal.sizeof);
         if (node is null) return;
-        node.handle = handle;
+        node.textureHandle = textureHandle;
         node.externalHandle = externalHandle;
-        if (handle !is null) GC.addRoot(cast(void*)handle);
+        node.next = null;
 
         synchronized (pendingTextureDisposalLock) {
             node.next = pendingTextureDisposals;
@@ -79,10 +88,9 @@ void inDrainPendingTextureDisposals() {
             auto node = list;
             list = node.next;
             scope(exit) {
-                if (node.handle !is null) GC.removeRoot(cast(void*)node.handle);
                 free(node);
             }
-            if (node.handle !is null) backend.destroyTextureHandle(node.handle);
+            if (node.textureHandle != 0) backend.destroyTextureNativeHandle(node.textureHandle);
             version (UseQueueBackend) {
                 if (node.externalHandle && ngReleaseExternalHandle !is null) {
                     ngReleaseExternalHandle(node.externalHandle);

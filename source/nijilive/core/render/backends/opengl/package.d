@@ -94,6 +94,7 @@ import nijilive.core.render.backends.opengl.shader_backend :
     oglSetUniformVec4,
     oglSetUniformMat4;
 import nijilive.core.render.backends.opengl.texture_backend :
+    GLId,
     oglCreateTextureHandle,
     oglDeleteTextureHandle,
     oglBindTextureHandle,
@@ -466,6 +467,11 @@ class RenderingBackend(BackendEnum backendType : BackendEnum.OpenGL) {
     size_t textureNativeHandle(RenderTextureHandle texture) {
         auto handle = requireGLTexture(texture);
         return handle.id;
+    }
+
+    void destroyTextureNativeHandle(size_t texture) {
+        auto id = cast(GLId)texture;
+        if (id != 0) oglDeleteTextureHandle(id);
     }
 }
 

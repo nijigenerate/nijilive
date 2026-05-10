@@ -623,6 +623,9 @@ public:
         return handle is null || handle.resource is null ? 0 : cast(size_t)cast(void*)handle.resource.value;
     }
 
+    void destroyTextureNativeHandle(size_t) {
+    }
+
 private:
     void initializeDescriptorHeaps() {
         if (descriptorHeapsInitialized) return;

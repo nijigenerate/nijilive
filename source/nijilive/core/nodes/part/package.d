@@ -859,6 +859,10 @@ package(nijilive) bool backendRenderable() {
     override
     void normalizeUV(MeshData* data) {
         auto tex = textures[0];
+        if (tex is null || tex.width == 0 || tex.height == 0) {
+            super.normalizeUV(data);
+            return;
+        }
         foreach (i; 0..data.uvs.length) {
             data.uvs[i].x /= cast(float)tex.width;
             data.uvs[i].y /= cast(float)tex.height;
