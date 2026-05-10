@@ -690,6 +690,12 @@ public:
             }
             float width = maxX - minX;
             float height = maxY - minY;
+            if (width == 0 || height == 0) {
+                foreach(i; 0..data.uvs.length) {
+                    data.uvs[i] = vec2(0.5, 0.5);
+                }
+                return;
+            }
             float centerX = (minX + maxX) / 2 / width;
             float centerY = (minY + maxY) / 2 / height;
             foreach(i; 0..data.uvs.length) {
