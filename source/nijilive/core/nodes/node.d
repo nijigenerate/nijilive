@@ -458,7 +458,7 @@ public:
         Constructs a new node with an UUID
     */
     this(uint uuid, Node parent = null) {
-        this.parent = parent;
+        this.insertInto(parent, OFFSET_END);
         this.uuid_ = uuid;
     }
 
@@ -526,7 +526,7 @@ public:
         You should call this before reparenting nodes.
     */
     void setRelativeTo(Node to) {
-        setRelativeTo(to.transformNoLock.matrix);
+        setRelativeTo(to.transform.matrix);
         this.zSort = this.zSortNoOffset-to.zSortNoOffset;
     }
 
@@ -557,6 +557,43 @@ public:
     vec3 getRelativePositionInv(mat4 m1, mat4 m2) {
         mat4 cm = (m2 * m1.inverse).translation;
         return vec3(cm.matrix[0][3], cm.matrix[1][3], cm.matrix[2][3]);
+    }
+
+    unittest {
+        auto root = new Node(cast(Node)null);
+        root.name = "Root";
+        root.localTransform.translation = vec3(100, -50, 0);
+        root.localTransform.update();
+        root.transformChanged();
+
+        auto dynamicParent = new Node(cast(Node)null);
+        dynamicParent.name = "DynamicParent";
+        dynamicParent.localTransform.translation = vec3(20, 30, 0);
+        dynamicParent.localTransform.update();
+        dynamicParent.transformChanged();
+        dynamicParent.parent = root;
+
+        auto child = new Node(cast(Node)null);
+        child.name = "Child";
+        child.localTransform.translation = vec3(5, 7, 0);
+        child.localTransform.update();
+        child.transformChanged();
+        child.parent = root;
+
+        auto original = child.transform.translation;
+        foreach (_; 0 .. 5) {
+            child.parent = dynamicParent;
+            auto inDynamic = child.transform.translation;
+            assert(abs(inDynamic.x - original.x) <= 0.001f &&
+                   abs(inDynamic.y - original.y) <= 0.001f,
+                "parent setter must preserve world transform when entering a DynamicComposite-like parent");
+
+            child.parent = root;
+            auto backAtRoot = child.transform.translation;
+            assert(abs(backAtRoot.x - original.x) <= 0.001f &&
+                   abs(backAtRoot.y - original.y) <= 0.001f,
+                "parent setter must not accumulate drift when leaving a DynamicComposite-like parent");
+        }
     }
 
     /**
@@ -634,7 +671,7 @@ public:
         Sets the parent of this node
     */
     final void parent(Node node) {
-        this.insertInto(node, OFFSET_END);
+        this.reparent(node, OFFSET_END);
     }
 
     final bool pinToMesh() { return pinToMesh_; }

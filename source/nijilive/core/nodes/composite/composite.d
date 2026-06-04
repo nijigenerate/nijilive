@@ -482,6 +482,7 @@ protected:
             newData.gridAxes = [];
             // override rebuffer() で autoResizedMesh を維持するため自分の rebuffer を呼ぶ
             rebuffer(newData);
+            restoreUniformAutoMeshDeformation(scaledDeformOffset);
             shouldUpdateVertices = true;
             autoResizedSize = bounds.zw - bounds.xy;
             textureOffset = (bounds.xy + bounds.zw) / 2 + scaledDeformOffset - scaledTranslation;
@@ -500,6 +501,7 @@ protected:
                 shouldUpdateVertices = true;
                 autoResizedSize = bounds.zw - bounds.xy;
                 updateVertices();
+                restoreUniformAutoMeshDeformation(scaledDeformOffset);
                 textureOffset = newTextureOffset;
             }
         }
@@ -548,6 +550,10 @@ protected:
         assert(abs(composite.textureOffset.x - expected.x) <= 0.001f &&
                abs(composite.textureOffset.y - expected.y) <= 0.001f,
             "Composite.createSimpleMesh must preserve deformation offset in textureOffset");
+        foreach (off; composite.deformation) {
+            assert(abs(off.x + 2) <= 0.001f && abs(off.y - 5) <= 0.001f,
+                "Composite.createSimpleMesh must keep the auto mesh deformation aligned with textureOffset");
+        }
     }
 
     override void enableMaxChildrenBounds(Node target = null) {
