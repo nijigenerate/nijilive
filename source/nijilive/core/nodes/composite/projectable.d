@@ -654,6 +654,60 @@ protected:
         return createSimpleMesh();
     }
 
+    unittest {
+        MeshData quad;
+        quad.vertices = Vec2Array([
+            vec2(-5, -5),
+            vec2(-5,  5),
+            vec2( 5, -5),
+            vec2( 5,  5),
+        ]);
+        quad.uvs = Vec2Array([
+            vec2(0, 0),
+            vec2(0, 1),
+            vec2(1, 0),
+            vec2(1, 1),
+        ]);
+        quad.indices = [cast(ushort)0, 1, 2, 2, 1, 3];
+        quad.origin = vec2(0, 0);
+
+        auto root = new Node(cast(Node)null);
+        auto projectable = new Projectable(root);
+        auto child = new Part(quad, Texture[].init, inCreateUUID(), root);
+
+        child.reparent(projectable, Node.OFFSET_END);
+        assert(projectable.subParts.length == 1 && projectable.subParts[0] is child,
+            "Projectable.setupChild must include newly added child in subParts");
+
+        child.reparent(root, Node.OFFSET_END);
+        assert(projectable.subParts.length == 0,
+            "Projectable.releaseChild must remove the leaving child from subParts before Node detaches it");
+    }
+
+    unittest {
+        auto root = new Node(cast(Node)null);
+        auto projectable = new Projectable(root);
+        projectable.localTransform = Transform(vec3(10, 20, 0), vec3(0, 0, 0.25f), vec2(2, 3));
+        projectable.transformChanged();
+
+        auto child = new Node(root);
+        child.localTransform = Transform(vec3(40, -15, 0), vec3(0, 0, 0), vec2(1, 1));
+        child.transformChanged();
+        auto before = child.transform.translation;
+
+        foreach (_; 0 .. 5) {
+            child.reparent(projectable, Node.OFFSET_END);
+            auto inside = child.transform.translation;
+            assert(abs(inside.x - before.x) <= 0.001f && abs(inside.y - before.y) <= 0.001f,
+                "reparenting into an auto-resized Projectable must preserve world translation");
+
+            child.reparent(root, Node.OFFSET_END);
+            auto outside = child.transform.translation;
+            assert(abs(outside.x - before.x) <= 0.001f && abs(outside.y - before.y) <= 0.001f,
+                "reparenting out of an auto-resized Projectable must not accumulate drift");
+        }
+    }
+
 public:
     vec2 textureOffset;
     bool autoResizedMesh = true;
@@ -1074,6 +1128,7 @@ public:
     override
     bool setupChild(Node node) {
         setIgnorePuppetRecurse(node, true);
+        scanSubParts(children);
         if (puppet !is null) 
             puppet.rescanNodes();
 
@@ -1087,7 +1142,7 @@ public:
     override
     bool releaseChild(Node node) {
         setIgnorePuppetRecurse(node, false);
-        scanSubParts(children);
+        scanSubParts(children.filter!(child => child !is node).array);
         forceResize = true;
         invalidateChildrenBounds();
         boundsDirty = true;

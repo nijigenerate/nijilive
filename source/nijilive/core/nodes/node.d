@@ -526,7 +526,7 @@ public:
         You should call this before reparenting nodes.
     */
     void setRelativeTo(Node to) {
-        setRelativeTo(to.transformNoLock.matrix);
+        setRelativeTo(to.transform.matrix);
         this.zSort = this.zSortNoOffset-to.zSortNoOffset;
     }
 
