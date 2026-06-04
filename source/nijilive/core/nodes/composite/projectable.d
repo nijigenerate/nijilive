@@ -531,13 +531,6 @@ protected:
         return base;
     }
 
-    protected final void restoreUniformAutoMeshDeformation(vec2 offset) {
-        if (vertices.length == 0) return;
-        deformation.length = vertices.length;
-        deformation[] = offset;
-        updateDeform();
-    }
-
     void enableMaxChildrenBounds(Node target = null) {
         Drawable targetDrawable = cast(Drawable)target;
         if (targetDrawable !is null) {
@@ -628,7 +621,6 @@ protected:
             newData.origin = vec2(0, 0);
             newData.gridAxes = [];
             super.rebuffer(newData);
-            restoreUniformAutoMeshDeformation(deformOffset);
             shouldUpdateVertices = true;
             autoResizedSize = bounds.zw - bounds.xy;
             textureOffset = (bounds.xy + bounds.zw) / 2 + deformOffset - transform.translation.xy;
@@ -647,7 +639,6 @@ protected:
                 shouldUpdateVertices = true;
                 autoResizedSize = bounds.zw - bounds.xy;
                 updateVertices();
-                restoreUniformAutoMeshDeformation(deformOffset);
                 textureOffset = newTextureOffset;
             }
         }
@@ -703,10 +694,6 @@ protected:
         assert(abs(projectable.textureOffset.x - expected.x) <= 0.001f &&
                abs(projectable.textureOffset.y - expected.y) <= 0.001f,
             "Projectable.createSimpleMesh must preserve deformation offset in textureOffset");
-        foreach (off; projectable.deformation) {
-            assert(abs(off.x - 3) <= 0.001f && abs(off.y + 4) <= 0.001f,
-                "Projectable.createSimpleMesh must keep the auto mesh deformation aligned with textureOffset");
-        }
     }
 
     unittest {
