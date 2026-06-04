@@ -100,6 +100,13 @@ void nlApplyBlendingCapabilities() {
     inApplyBlendingCapabilities();
 }
 
+void nlSetBlendingCapabilitiesForTesting(bool advancedAvailable, bool coherentAvailable, bool forceFallback) {
+    inAdvancedBlendingAvailable = advancedAvailable;
+    inAdvancedBlendingCoherentAvailable = coherentAvailable;
+    inForceTripleBufferFallback = forceFallback;
+    inApplyBlendingCapabilities();
+}
+
 void inInitBlending() {
     inForceTripleBufferFallback = inDefaultTripleBufferFallback;
     inAdvancedBlendingAvailable = hasAdvancedBlendSupport();
