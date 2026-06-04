@@ -623,9 +623,9 @@ protected:
             super.rebuffer(newData);
             shouldUpdateVertices = true;
             autoResizedSize = bounds.zw - bounds.xy;
-            textureOffset = (bounds.xy + bounds.zw) / 2 + deformOffset - originOffset;
+            textureOffset = (bounds.xy + bounds.zw) / 2 + deformOffset - transform.translation.xy;
         } else {
-            auto newTextureOffset = (bounds.xy + bounds.zw) / 2 + deformOffset - originOffset;
+            auto newTextureOffset = (bounds.xy + bounds.zw) / 2 + deformOffset - transform.translation.xy;
             enum float TextureOffsetEpsilon = 0.001f;
             bool offsetChanged = abs(newTextureOffset.x - textureOffset.x) > TextureOffsetEpsilon ||
                 abs(newTextureOffset.y - textureOffset.y) > TextureOffsetEpsilon;
@@ -652,6 +652,48 @@ protected:
         }
         ran = true;
         return createSimpleMesh();
+    }
+
+    unittest {
+        MeshData quad;
+        quad.vertices = Vec2Array([
+            vec2(-5, -5),
+            vec2(-5,  5),
+            vec2( 5, -5),
+            vec2( 5,  5),
+        ]);
+        quad.uvs = Vec2Array([
+            vec2(0, 0),
+            vec2(0, 1),
+            vec2(1, 0),
+            vec2(1, 1),
+        ]);
+        quad.indices = [cast(ushort)0, 1, 2, 2, 1, 3];
+        quad.origin = vec2(0, 0);
+
+        auto projectable = new Projectable(null);
+        projectable.name = "Issue43Projectable";
+        projectable.transform.translation.vector = [20f, -10f, 0f];
+        projectable.deformation = Vec2Array([
+            vec2(3, -4),
+            vec2(3, -4),
+            vec2(3, -4),
+            vec2(3, -4),
+        ]);
+
+        auto child = new Part(quad, Texture[].init, inCreateUUID(), projectable);
+        child.name = "Issue43Child";
+        child.transform.translation.vector = [35f, 45f, 0f];
+        child.updateBounds();
+
+        projectable.scanParts();
+        auto bounds = projectable.getChildrenBounds();
+        auto expected = (bounds.xy + bounds.zw) / 2 + vec2(3, -4) -
+            projectable.transform.translation.xy;
+        assert(projectable.createSimpleMesh(), "Issue #43 fixture should resize the projectable mesh");
+        assert(abs(projectable.textureOffset.x - expected.x) <= 0.001f &&
+               abs(projectable.textureOffset.y - expected.y) <= 0.001f,
+            "Projectable.createSimpleMesh must preserve deformation offset in textureOffset");
     }
 
 public:
