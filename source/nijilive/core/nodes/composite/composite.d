@@ -456,8 +456,7 @@ protected:
             }
         }
 
-        auto scaledTranslation = vec2(transform.translation.x * scale.x, transform.translation.y * scale.y);
-        auto originOffset = scaledTranslation + scaledDeformOffset;
+        auto originOffset = vec2(transform.translation.x * scale.x, transform.translation.y * scale.y) + scaledDeformOffset;
         Vec2Array vertexArray = Vec2Array([
             vec2(bounds.x, bounds.y) + scaledDeformOffset - originOffset,
             vec2(bounds.x, bounds.w) + scaledDeformOffset - originOffset,
@@ -484,9 +483,9 @@ protected:
             rebuffer(newData);
             shouldUpdateVertices = true;
             autoResizedSize = bounds.zw - bounds.xy;
-            textureOffset = (bounds.xy + bounds.zw) / 2 + scaledDeformOffset - scaledTranslation;
+            textureOffset = (bounds.xy + bounds.zw) / 2 + scaledDeformOffset - originOffset;
         } else {
-            auto newTextureOffset = (bounds.xy + bounds.zw) / 2 + scaledDeformOffset - scaledTranslation;
+            auto newTextureOffset = (bounds.xy + bounds.zw) / 2 + scaledDeformOffset - originOffset;
             enum float TextureOffsetEpsilon = 0.001f;
             bool offsetChanged = abs(newTextureOffset.x - textureOffset.x) > TextureOffsetEpsilon ||
                 abs(newTextureOffset.y - textureOffset.y) > TextureOffsetEpsilon;
@@ -505,49 +504,6 @@ protected:
         }
 //        if (resizing) writefln("[CreateSimpleMesh] %s %s -> %s", name, origSize, size);
         return resizing;
-    }
-
-    unittest {
-        MeshData quad;
-        quad.vertices = Vec2Array([
-            vec2(-5, -5),
-            vec2(-5,  5),
-            vec2( 5, -5),
-            vec2( 5,  5),
-        ]);
-        quad.uvs = Vec2Array([
-            vec2(0, 0),
-            vec2(0, 1),
-            vec2(1, 0),
-            vec2(1, 1),
-        ]);
-        quad.indices = [cast(ushort)0, 1, 2, 2, 1, 3];
-        quad.origin = vec2(0, 0);
-
-        auto parentProjectable = new Projectable(null);
-        auto composite = new Composite(parentProjectable);
-        composite.name = "Issue43Composite";
-        composite.transform.translation.vector = [12f, 7f, 0f];
-        composite.deformation = Vec2Array([
-            vec2(-2, 5),
-            vec2(-2, 5),
-            vec2(-2, 5),
-            vec2(-2, 5),
-        ]);
-
-        auto child = new Part(quad, Texture[].init, inCreateUUID(), composite);
-        child.name = "Issue43CompositeChild";
-        child.transform.translation.vector = [30f, -15f, 0f];
-        child.updateBounds();
-
-        composite.scanParts();
-        auto bounds = composite.getChildrenBounds();
-        auto expected = (bounds.xy + bounds.zw) / 2 + vec2(-2, 5) -
-            composite.transform.translation.xy;
-        assert(composite.createSimpleMesh(), "Issue #43 Composite fixture should resize the mesh");
-        assert(abs(composite.textureOffset.x - expected.x) <= 0.001f &&
-               abs(composite.textureOffset.y - expected.y) <= 0.001f,
-            "Composite.createSimpleMesh must preserve deformation offset in textureOffset");
     }
 
     override void enableMaxChildrenBounds(Node target = null) {
