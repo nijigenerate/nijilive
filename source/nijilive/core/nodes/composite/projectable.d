@@ -417,6 +417,10 @@ protected:
         return fullTransform().matrix;
     }
 
+    private mat4 childOffscreenModelMatrix(Part child) {
+        return child.transform.matrix;
+    }
+
     private vec4 boundsFromMatrix(Part child, const mat4 matrix) {
         float tx = matrix[0][3];
         float ty = matrix[1][3];
@@ -708,6 +712,26 @@ protected:
         }
     }
 
+    unittest {
+        auto root = new Node(cast(Node)null);
+        auto projectable = new Projectable(root);
+        projectable.localTransform = Transform(vec3(10, 20, 0), vec3(0, 0, 0.25f), vec2(2, 3));
+        projectable.transformChanged();
+
+        auto child = new Part(projectable);
+        child.localTransform = Transform(vec3(40, -15, 0), vec3(0, 0, 0.2f), vec2(1.2f, 0.9f));
+        child.transformChanged();
+
+        auto childWorld = child.transform.matrix;
+        auto offscreen = projectable.childOffscreenModelMatrix(child);
+        foreach (x; 0 .. 4) {
+            foreach (y; 0 .. 4) {
+                assert(abs(offscreen[x][y] - childWorld[x][y]) <= 0.001f,
+                    "Projectable offscreen child matrix must not apply parent correction twice");
+            }
+        }
+    }
+
 public:
     vec2 textureOffset;
     bool autoResizedMesh = true;
@@ -797,18 +821,17 @@ public:
         tmp[0][3] -= textureOffset.x;
         tmp[1][3] -= textureOffset.y;
         setOneTimeTransform(&tmp);
-        auto correction = fullTransformMatrix() * transform.matrix.inverse;
         foreach (Part child; subParts) {
             if (cast(Mask)child !is null) {
                 continue;
             }
-            auto childMatrix = correction * child.transform.matrix;
+            auto childMatrix = childOffscreenModelMatrix(child);
             child.setOffscreenModelMatrix(childMatrix);
             child.drawOne();
             child.clearOffscreenModelMatrix();
         }
         foreach (mask; maskParts) {
-            auto maskMatrix = correction * mask.transform.matrix;
+            auto maskMatrix = childOffscreenModelMatrix(mask);
             mask.setOffscreenModelMatrix(maskMatrix);
             mask.renderMask(false);
             mask.clearOffscreenModelMatrix();
@@ -938,14 +961,13 @@ public:
 
         queuedOffscreenParts.length = 0;
         auto translate = mat4.translation(-textureOffset.x, -textureOffset.y, 0);
-        auto correction = fullTransformMatrix() * transform.matrix.inverse;
         auto childBasis = translate * transform.matrix.inverse;
 
         foreach (Part child; subParts) {
             if (cast(Mask)child !is null) {
                 continue;
             }
-            auto childMatrix = correction * child.transform.matrix;
+            auto childMatrix = childOffscreenModelMatrix(child);
             auto finalMatrix = childBasis * childMatrix;
             child.setOffscreenModelMatrix(finalMatrix);
             if (auto dynChild = cast(Projectable)child) {
@@ -956,8 +978,8 @@ public:
             queuedOffscreenParts ~= child;
         }
         foreach (mask; maskParts) {
-            auto maskMatrix = correction * mask.transform.matrix;
-            auto finalMatrix = translate * maskMatrix;
+            auto maskMatrix = childOffscreenModelMatrix(mask);
+            auto finalMatrix = childBasis * maskMatrix;
             mask.setOffscreenModelMatrix(finalMatrix);
             mask.enqueueRenderCommands(ctx);
             queuedOffscreenParts ~= mask;
