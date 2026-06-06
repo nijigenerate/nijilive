@@ -839,6 +839,12 @@ public:
     override
     void reset() {
         updateInputs();
+        offsetGravity = 1;
+        offsetLength = 0;
+        offsetFrequency = 1;
+        offsetAngleDamping = 1;
+        offsetLengthDamping = 1;
+        offsetOutputScale = vec2(1, 1);
 
         switch (modelType) {
             case PhysicsModel.Pendulum:
@@ -1028,4 +1034,18 @@ unittest {
 
     assert(isFiniteVec(driver.output));
     assert(driver.output.y > driver.anchor.y);
+}
+
+unittest {
+    auto driver = new SimplePhysics();
+    driver.modelType = PhysicsModel.SpringPendulum;
+    driver.anchor = vec2(0, 0);
+    driver.length = 100;
+    assert(driver.setValue("length", 50));
+
+    driver.reset();
+    driver.system.tick(0);
+
+    assert(isFiniteVec(driver.output));
+    assert(abs(driver.output.y - 100) <= 0.001);
 }
