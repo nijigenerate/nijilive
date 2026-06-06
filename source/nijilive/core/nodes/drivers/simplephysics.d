@@ -213,6 +213,7 @@ class SpringPendulum : PhysicsSystem {
 private:
     vec2 bob = vec2(0, 0);
     vec2 dBob = vec2(0, 0);
+    vec2 lastValidOffPosNorm = vec2(0, 1);
 
 protected:
     override
@@ -282,13 +283,26 @@ protected:
             setD(dBob, vec2(0, 0));
             return;
         }
-        vec2 offPosNorm = offPos.normalized;
-        if (!isFiniteVec(offPosNorm)) {
-            driver.logPhysicsState("SpringPendulum:offPosNormNonFinite",
+        float offLen = offPos.length;
+        vec2 offPosNorm;
+        if (!isFinite(offLen)) {
+            driver.logPhysicsState("SpringPendulum:offLenNonFinite",
                 text("offPos=", offPos,
-                     " offPosNorm=", offPosNorm));
+                     " offLen=", offLen));
             setD(dBob, vec2(0, 0));
             return;
+        } else if (offLen <= float.epsilon) {
+            offPosNorm = isFiniteVec(lastValidOffPosNorm) ? lastValidOffPosNorm : vec2(0, 1);
+        } else {
+            offPosNorm = offPos / offLen;
+            if (!isFiniteVec(offPosNorm)) {
+                driver.logPhysicsState("SpringPendulum:offPosNormNonFinite",
+                    text("offPos=", offPos,
+                         " offPosNorm=", offPosNorm));
+                setD(dBob, vec2(0, 0));
+                return;
+            }
+            lastValidOffPosNorm = offPosNorm;
         }
 
         float lengthRatio = g / lengthVal;
@@ -313,7 +327,7 @@ protected:
             return;
         }
 
-        float dist = abs(driver.anchor.distance(bob));
+        float dist = abs(offLen);
         if (!isFinite(dist)) {
             driver.logPhysicsState("SpringPendulum:distanceInvalid",
                 text("anchor=", driver.anchor,
@@ -825,6 +839,12 @@ public:
     override
     void reset() {
         updateInputs();
+        offsetGravity = 1;
+        offsetLength = 0;
+        offsetFrequency = 1;
+        offsetAngleDamping = 1;
+        offsetLengthDamping = 1;
+        offsetOutputScale = vec2(1, 1);
 
         switch (modelType) {
             case PhysicsModel.Pendulum:
@@ -1001,3 +1021,31 @@ public:
 }
 
 mixin InNode!SimplePhysics;
+
+unittest {
+    auto driver = new SimplePhysics();
+    driver.modelType = PhysicsModel.SpringPendulum;
+    driver.anchor = vec2(0, 0);
+    driver.length = 0;
+    driver.reset();
+
+    driver.length = 100;
+    driver.system.tick(0.01);
+
+    assert(isFiniteVec(driver.output));
+    assert(driver.output.y > driver.anchor.y);
+}
+
+unittest {
+    auto driver = new SimplePhysics();
+    driver.modelType = PhysicsModel.SpringPendulum;
+    driver.anchor = vec2(0, 0);
+    driver.length = 100;
+    assert(driver.setValue("length", 50));
+
+    driver.reset();
+    driver.system.tick(0);
+
+    assert(isFiniteVec(driver.output));
+    assert(abs(driver.output.y - 100) <= 0.001);
+}
