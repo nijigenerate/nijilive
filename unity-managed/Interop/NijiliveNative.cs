@@ -69,6 +69,13 @@ public static class NijiliveNative
         public Vec2 Defaults;
         public IntPtr Name;
         public nuint NameLength;
+        public Vec2 Value;
+        public Vec2 LatestInternal;
+    }
+
+    public enum QueryKind : uint
+    {
+        Parameters = 1,
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -275,6 +282,9 @@ public static class NijiliveNative
 
     [DllImport(DllName, EntryPoint = "njgGetParameters", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult GetParameters(IntPtr puppet, IntPtr buffer, nuint bufferLength, out nuint outCount);
+
+    [DllImport(DllName, EntryPoint = "njgQuery", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern NjgResult Query(IntPtr handle, QueryKind kind, IntPtr buffer, nuint itemSize, nuint itemCapacity, out nuint outCount);
 
     [DllImport(DllName, EntryPoint = "njgUpdateParameters", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult UpdateParameters(IntPtr puppet, IntPtr updates, nuint updateCount);

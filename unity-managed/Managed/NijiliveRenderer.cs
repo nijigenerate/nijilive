@@ -241,7 +241,16 @@ public sealed class Puppet : IDisposable
     {
         if (_disposed) throw new ObjectDisposedException(nameof(Puppet));
 
-        NijiliveRenderer.EnsureOk(NijiliveNative.GetParameters(Handle, IntPtr.Zero, 0, out var count), "GetParameters(count)");
+        var stride = Marshal.SizeOf<NijiliveNative.ParameterInfo>();
+        NijiliveRenderer.EnsureOk(
+            NijiliveNative.Query(
+                Handle,
+                NijiliveNative.QueryKind.Parameters,
+                IntPtr.Zero,
+                0,
+                0,
+                out var count),
+            "Query(parameters count)");
         if (count == 0) return Array.Empty<ParameterDescriptor>();
 
         var infos = new NijiliveNative.ParameterInfo[count];
@@ -249,7 +258,15 @@ public sealed class Puppet : IDisposable
         {
             fixed (NijiliveNative.ParameterInfo* ptr = infos)
             {
-                NijiliveRenderer.EnsureOk(NijiliveNative.GetParameters(Handle, (IntPtr)ptr, count, out _), "GetParameters(data)");
+                NijiliveRenderer.EnsureOk(
+                    NijiliveNative.Query(
+                        Handle,
+                        NijiliveNative.QueryKind.Parameters,
+                        (IntPtr)ptr,
+                        checked((nuint)stride),
+                        count,
+                        out _),
+                    "Query(parameters data)");
             }
         }
 
@@ -263,7 +280,9 @@ public sealed class Puppet : IDisposable
                 info.IsVec2,
                 info.Min,
                 info.Max,
-                info.Defaults));
+                info.Defaults,
+                info.Value,
+                info.LatestInternal));
         }
         return list;
     }
@@ -328,6 +347,8 @@ public sealed class NijiliveSharedBuffers
         public NijiliveNative.Vec2 Min;
         public NijiliveNative.Vec2 Max;
         public NijiliveNative.Vec2 Defaults;
+        public NijiliveNative.Vec2 Value;
+        public NijiliveNative.Vec2 LatestInternal;
 
         public ParameterDescriptor(
             uint uuid,
@@ -335,7 +356,9 @@ public sealed class NijiliveSharedBuffers
             bool isVec2,
             NijiliveNative.Vec2 min,
             NijiliveNative.Vec2 max,
-            NijiliveNative.Vec2 defaults)
+            NijiliveNative.Vec2 defaults,
+            NijiliveNative.Vec2 value,
+            NijiliveNative.Vec2 latestInternal)
         {
             Uuid = uuid;
             Name = name;
@@ -343,6 +366,8 @@ public sealed class NijiliveSharedBuffers
             Min = min;
             Max = max;
             Defaults = defaults;
+            Value = value;
+            LatestInternal = latestInternal;
         }
     }
 }

@@ -88,7 +88,7 @@ namespace Nijilive.Unity.Managed.Editor
         private void DrawParameter(ParameterDescriptor p)
         {
             EditorGUILayout.LabelField($"{p.Name} ({p.Uuid})", EditorStyles.boldLabel);
-            var current = _values.TryGetValue(p.Uuid, out var val) ? val : ToVec2(p.Defaults);
+            var current = _values.TryGetValue(p.Uuid, out var val) ? val : ToVec2(p.Value);
 
             EditorGUI.BeginChangeCheck();
             if (p.IsVec2)
@@ -129,7 +129,7 @@ namespace Nijilive.Unity.Managed.Editor
             foreach (var p in _target.Puppet.GetParameters())
             {
                 _parameters.Add(p);
-                _values[p.Uuid] = ToVec2(p.Defaults);
+                _values[p.Uuid] = ToVec2(p.Value);
             }
         }
 
