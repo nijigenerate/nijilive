@@ -895,13 +895,13 @@ extern(C) export NjgResult njgQuery(void* handle,
                                     size_t* outCount) {
     if (kind != NjgQueryKind.Parameters) return NjgResult.InvalidArgument;
     if (outCount is null) return NjgResult.InvalidArgument;
-    if (itemSize < NjgParameterInfo.sizeof) return NjgResult.InvalidArgument;
     *outCount = 0;
     if (handle is null) return NjgResult.InvalidArgument;
     auto puppet = cast(Puppet)handle;
     auto params = puppet.parameters;
     *outCount = params.length;
     if (buffer is null) return NjgResult.Ok;
+    if (itemSize < NjgParameterInfo.sizeof) return NjgResult.InvalidArgument;
     if (itemCapacity < params.length) return NjgResult.InvalidArgument;
 
     auto bytes = cast(ubyte*)buffer;
