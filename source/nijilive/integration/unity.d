@@ -53,6 +53,10 @@ extern(C) enum NjgRenderCommandKind : uint {
     EndMask,
 }
 
+extern(C) enum NjgQueryKind : uint {
+    Parameters = 1,
+}
+
 extern(C) struct UnityRendererConfig {
     int viewportWidth;
     int viewportHeight;
@@ -78,6 +82,8 @@ extern(C) struct NjgParameterInfo {
     vec2 defaults;
     const(char)* name;
     size_t nameLength;
+    vec2 value;
+    vec2 latestInternal;
 }
 
 extern(C) struct UnityResourceCallbacks {
@@ -863,6 +869,45 @@ extern(C) export NjgResult njgGetParameters(PuppetHandle puppetHandle,
         buffer[i].defaults = param.defaults;
         buffer[i].name = param.name.ptr;
         buffer[i].nameLength = param.name.length;
+        buffer[i].value = param.value;
+        buffer[i].latestInternal = param.latestInternal;
+    }
+    return NjgResult.Ok;
+}
+
+private void fillParameterInfo(ref NjgParameterInfo info, Parameter param) {
+    info.uuid = param.uuid;
+    info.isVec2 = param.isVec2;
+    info.min = param.min;
+    info.max = param.max;
+    info.defaults = param.defaults;
+    info.name = param.name.ptr;
+    info.nameLength = param.name.length;
+    info.value = param.value;
+    info.latestInternal = param.latestInternal;
+}
+
+extern(C) export NjgResult njgQuery(void* handle,
+                                    NjgQueryKind kind,
+                                    void* buffer,
+                                    size_t itemSize,
+                                    size_t itemCapacity,
+                                    size_t* outCount) {
+    if (kind != NjgQueryKind.Parameters) return NjgResult.InvalidArgument;
+    if (outCount is null) return NjgResult.InvalidArgument;
+    if (itemSize < NjgParameterInfo.sizeof) return NjgResult.InvalidArgument;
+    *outCount = 0;
+    if (handle is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)handle;
+    auto params = puppet.parameters;
+    *outCount = params.length;
+    if (buffer is null) return NjgResult.Ok;
+    if (itemCapacity < params.length) return NjgResult.InvalidArgument;
+
+    auto bytes = cast(ubyte*)buffer;
+    foreach (i, param; params) {
+        auto item = cast(NjgParameterInfo*)(bytes + i * itemSize);
+        fillParameterInfo(*item, param);
     }
     return NjgResult.Ok;
 }
