@@ -70,7 +70,7 @@ public:
         mat4 strs = other.trs * this.trs;
         
         // TRANSLATION
-        tnew.translation = vec3(strs * vec4(1, 1, 1, 1));
+        tnew.translation = vec3(strs * vec4(0, 0, 0, 1));
         
         // ROTATION
         tnew.rotation = this.rotation+other.rotation;
