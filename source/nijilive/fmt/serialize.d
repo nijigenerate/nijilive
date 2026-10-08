@@ -58,6 +58,7 @@ T inLoadJsonData(T)(string file) {
     Loads JSON data from memory
 */
 T inLoadJsonDataFromMemory(T)(string data) {
+    inLastLoadDiagnostics = InLoadDiagnostics.init;
     return deserialize!T(parseJson(cast(string)data));
 }
 
@@ -83,7 +84,74 @@ string inToJsonPretty(T)(T item) {
     return cast(string)app.data;
 }
 
-alias InochiSerializer = JsonSerializer!("", void delegate(const(char)[]) pure nothrow @safe);
+/** Avoid the upstream numeric serializer's extra quotes around nonfinite values. */
+struct InochiSerializer {
+    private alias Sink = void delegate(const(char)[]) pure nothrow @safe;
+    JsonSerializer!("", Sink) backend;
+    alias backend this;
+
+    this(Sink sink) {
+        backend = typeof(backend)(sink);
+    }
+
+    void serializeValue(V)(auto ref V value) {
+        import std.traits : isFloatingPoint;
+        static if (isFloatingPoint!V) {
+            backend.putNumberValue(value);
+        } else {
+            fghj.serializeValue(this, value);
+        }
+    }
+}
+
+/** Bounded diagnostics for recovery of damaged deformation components. */
+struct InLoadDiagnostics {
+    size_t recoveredComponents;
+    size_t repairedWeldingMappings;
+    string[] warnings;
+}
+
+InLoadDiagnostics inLastLoadDiagnostics;
+
+void inRecordWeldingRecovery(string context, size_t count) {
+    inLastLoadDiagnostics.repairedWeldingMappings += count;
+    if (inLastLoadDiagnostics.warnings.length < 32) {
+        import std.format : format;
+        inLastLoadDiagnostics.warnings ~= format("%s: removed %s inconsistent Welding mappings", context, count);
+    }
+}
+
+void inRecordLoadRecovery(string context, size_t count) {
+    inLastLoadDiagnostics.recoveredComponents += count;
+    if (inLastLoadDiagnostics.warnings.length < 32) {
+        import std.format : format;
+        inLastLoadDiagnostics.warnings ~= format("%s: reconstructing %s nonfinite deformation components from finite mesh samples",
+            context, count);
+    }
+}
+
+/** Read legacy extra-quoted nonfinite tokens only at numeric fields. */
+SerdeException inDeserializeNumber(T)(Fghj data, ref T value) {
+    import std.traits : isFloatingPoint;
+    static if (isFloatingPoint!T) {
+        if (data.kind == Fghj.Kind.string) {
+            string token;
+            auto error = data.deserializeValue(token);
+            if (error !is null) return error;
+            if (token.length >= 2 && token[0] == '"' && token[$ - 1] == '"') {
+                import std.string : toLower;
+                auto inner = toLower(token[1 .. $ - 1]);
+                switch (inner) {
+                    case "nan", "+nan", "-nan": value = T.nan; return null;
+                    case "inf", "+inf": value = T.infinity; return null;
+                    case "-inf": value = -T.infinity; return null;
+                    default: break;
+                }
+            }
+        }
+    }
+    return data.deserializeValue(value);
+}
 
 /**
     Creates a pretty-serializer

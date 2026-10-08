@@ -112,7 +112,11 @@ protected:
     Tuple!(Vec2Array, mat4*, bool) weldingProcessor(Node target, Vec2Array origVertices, Vec2Array origDeformation, mat4* origTransform) {
         auto linkIndex = welded.countUntil!((a)=>a.target == target)();
         bool changed = false;
+        if (linkIndex < 0) return tuple(origDeformation, cast(mat4*)null, false);
         WeldingLink link = welded[linkIndex];
+        auto counterLinkIndex = link.target.welded.countUntil!(a => a.target == this);
+        if (counterLinkIndex < 0) return tuple(origDeformation, cast(mat4*)null, false);
+        auto counterIndices = link.target.welded[counterLinkIndex].indices;
         if (postProcessed < 2)
             return Tuple!(Vec2Array, mat4*, bool)(Vec2Array.init, null, changed);
         if (link.target in weldingApplied && weldingApplied[link.target] || 
@@ -141,10 +145,28 @@ protected:
             if (targetIdx >= origVertices.length) {
                 continue;
             }
+            if (targetIdx >= counterIndices.length || counterIndices[targetIdx] < 0) continue;
             selfIndices ~= i;
             targetIndices ~= targetIdx;
         }
 
+        // Evaluate the denser seam whichever endpoint's filter runs first.
+        auto counterIndex = link.target.welded.countUntil!(a => a.target == this);
+        if (counterIndex >= 0) {
+            size_t[] counterSelf, counterTarget;
+            foreach (i, mapped; link.target.welded[counterIndex].indices) {
+                if (i < origVertices.length && mapped >= 0 && mapped < vertices.length &&
+                    mapped < link.indices.length && link.indices[mapped] >= 0) {
+                    counterSelf ~= cast(size_t)mapped;
+                    counterTarget ~= i;
+                }
+            }
+            if (counterSelf.length > selfIndices.length ||
+                (counterSelf.length == selfIndices.length && uuid > link.target.uuid)) {
+                selfIndices = counterSelf;
+                targetIndices = counterTarget;
+            }
+        }
         auto validCount = selfIndices.length;
         if (validCount == 0) {
             return Tuple!(Vec2Array, mat4*, bool)(origDeformation, null, false);
@@ -167,11 +189,43 @@ protected:
         Vec2Array targetWorld;
         transformAssign(targetWorld, targetLocal, targetMatrix);
 
-        Vec2Array blended = targetWorld.dup;
-        blended *= (1 - weldingWeight);
-        Vec2Array weightedSelf = selfWorld.dup;
-        weightedSelf *= weldingWeight;
-        blended += weightedSelf;
+        // Every connected group shares one position, including coincident seam duplicates.
+        auto groups = new size_t[validCount];
+        foreach (i; 0 .. validCount) groups[i] = i;
+        size_t root(size_t i) {
+            while (groups[i] != i) i = groups[i];
+            return i;
+        }
+        size_t[size_t] firstSelf, firstTarget;
+        foreach (i; 0 .. validCount) {
+            if (auto previous = selfIndices[i] in firstSelf) groups[root(i)] = root(*previous);
+            else firstSelf[selfIndices[i]] = i;
+            if (auto previous = targetIndices[i] in firstTarget) groups[root(i)] = root(*previous);
+            else firstTarget[targetIndices[i]] = i;
+        }
+        auto selfSum = new vec2[validCount];
+        auto targetSum = new vec2[validCount];
+        selfSum[] = targetSum[] = vec2(0, 0);
+        auto selfCount = new size_t[validCount];
+        auto targetCount = new size_t[validCount];
+        foreach (i; 0 .. validCount) {
+            auto group = root(i);
+            if (firstSelf[selfIndices[i]] == i) {
+                selfSum[group] += selfWorld[i];
+                selfCount[group]++;
+            }
+            if (firstTarget[targetIndices[i]] == i) {
+                targetSum[group] += targetWorld[i];
+                targetCount[group]++;
+            }
+        }
+        Vec2Array blended;
+        blended.length = validCount;
+        foreach (i; 0 .. validCount) {
+            auto group = root(i);
+            blended[i] = selfSum[group] / selfCount[group] * weldingWeight +
+                targetSum[group] / targetCount[group] * (1 - weldingWeight);
+        }
 
         Vec2Array deltaSelf = blended.dup;
         deltaSelf -= selfWorld;
@@ -257,6 +311,20 @@ protected:
 
         // welded links refer to other drawable nodes → Links category
         if ((flags & SerializeNodeFlags.Links) && welded.length > 0) {
+            import std.format : format;
+            foreach (link; welded) {
+                enforce(link.target !is null && link.indices.length == vertices.length,
+                    format("Cannot save Welding of '%s': missing target or incorrect vertex count", name));
+                auto reciprocal = link.target.welded.countUntil!(a => a.target == this);
+                enforce(reciprocal >= 0, format("Cannot save Welding of '%s': missing reciprocal link", name));
+                foreach (i, targetIndex; link.indices) {
+                    if (targetIndex == NOINDEX) continue;
+                    if (targetIndex < 0 || targetIndex >= link.target.vertices.length) {
+                        throw new Exception(format("Cannot save Welding '%s' -> '%s', vertex %s: inconsistent mapping %s",
+                            name, link.target.name, i, targetIndex));
+                    }
+                }
+            }
             serializer.putKey("weldedLinks");
             auto state = serializer.listBegin();
                 foreach(link; welded) {
@@ -375,10 +443,18 @@ public:
         auto deltaY = delta.lane(1);
         auto targetX = target.lane(0);
         auto targetY = target.lane(1);
-        for (size_t i = 0; i < indices.length; ++i) {
-            auto idx = indices[i];
-            auto dx = deltaX[i];
-            auto dy = deltaY[i];
+        // Shared anchors receive the mean correction, not a sum multiplied by seam density.
+        auto counts = new size_t[target.length];
+        auto sums = new vec2[target.length];
+        sums[] = vec2(0, 0);
+        foreach (i, idx; indices) {
+            counts[idx]++;
+            sums[idx] += vec2(deltaX[i], deltaY[i]);
+        }
+        for (size_t idx = 0; idx < target.length; ++idx) {
+            if (!counts[idx]) continue;
+            auto dx = sums[idx].x / counts[idx];
+            auto dy = sums[idx].y / counts[idx];
             if (dx != 0 || dy != 0) {
                 changed = true;
             }
@@ -596,24 +672,46 @@ public:
         vertices[] = data.vertices;
     }
 
+    ptrdiff_t[] counterWeldingIndices(Drawable target, const(ptrdiff_t)[] indices) {
+        import std.exception : enforce;
+        enforce(target !is null && target !is this, "Welding requires a distinct target");
+        enforce(indices.length == vertices.length, "Welding vertex count does not match mesh");
+        foreach (index; indices) {
+            if (index == NOINDEX) continue;
+            enforce(index >= 0 && index < target.vertices.length, "Welding target vertex index is out of range");
+        }
+        auto result = new ptrdiff_t[target.vertices.length];
+        result[] = NOINDEX;
+        vec2[] anchors;
+        anchors.length = vertices.length;
+        foreach (i, vertex; vertices) anchors[i] = (transform.matrix * vec4(vertex, 0, 1)).xy;
+        foreach (j, vertex; target.vertices) {
+            auto point = (target.transform.matrix * vec4(vertex, 0, 1)).xy;
+            float nearest = 16;
+            foreach (i, anchor; anchors) {
+                if (indices[i] == NOINDEX) continue;
+                auto delta = point - anchor;
+                auto distance = delta.x * delta.x + delta.y * delta.y;
+                if (distance < nearest) {
+                    nearest = distance;
+                    result[j] = cast(ptrdiff_t)i;
+                }
+            }
+        }
+        return result;
+    }
+
     void addWeldedTarget(Drawable target, ptrdiff_t[] weldedVertexIndices, float weldingWeight) {
-        // FIXME: must check whether target is already added.
+        auto counterWeldedVertexIndices = counterWeldingIndices(target, weldedVertexIndices);
         auto index = welded.countUntil!"a.target == b"(target);
         if (index != -1) {
 //            welded[index].weight = weldingWeight;
-            welded[index].indices = weldedVertexIndices;
+            welded[index].indices = weldedVertexIndices.dup;
         } else {
-            auto link = WeldingLink(target.uuid, target, weldedVertexIndices, weldingWeight);
+            auto link = WeldingLink(target.uuid, target, weldedVertexIndices.dup, weldingWeight);
             welded ~= link;
         }
 
-        ptrdiff_t[] counterWeldedVertexIndices;
-        counterWeldedVertexIndices.length = target.vertices.length;
-        counterWeldedVertexIndices[0..$] = -1;
-        foreach (i, ind; weldedVertexIndices) {
-            if (ind != NOINDEX)
-                counterWeldedVertexIndices[ind] = i;
-        }
         auto counterIndex = target.welded.countUntil!"a.target == b"(this);
         if (counterIndex != -1) {
 //            target.welded[counterIndex].weight = 1 - weldingWeight;
@@ -625,6 +723,26 @@ public:
 
         target.postProcessFilters = target.postProcessFilters.upsert(tuple(2, &weldingProcessor));
         postProcessFilters = postProcessFilters.upsert(tuple(2, &target.weldingProcessor));
+    }
+
+    /** Change existing pairs without reattaching explicitly detached endpoints. */
+    ptrdiff_t[] updatedCounterWeldingIndices(Drawable target, const(ptrdiff_t)[] indices) {
+        enforce(indices.length == vertices.length, "Welding vertex count does not match mesh");
+        auto own = welded.countUntil!(a => a.target == target);
+        auto counter = target.welded.countUntil!(a => a.target == this);
+        enforce(own >= 0 && counter >= 0, "Welding requires both endpoint links");
+        auto result = target.welded[counter].indices.dup;
+        foreach (j, ref i; result) {
+            if (i < 0) continue;
+            if (i >= indices.length || i >= welded[own].indices.length || indices[i] < 0 ||
+                indices[i] != welded[own].indices[i]) i = NOINDEX;
+        }
+        foreach (i, j; indices) {
+            if (j == NOINDEX) continue;
+            enforce(j >= 0 && j < result.length, "Welding target vertex index is out of range");
+            if (result[j] < 0) result[j] = cast(ptrdiff_t)i;
+        }
+        return result;
     }
 
     void removeWeldedTarget(Drawable target) {
@@ -670,6 +788,26 @@ public:
 
         // Remove invalid welded links
         welded = validLinks;
+        foreach (ref link; welded) {
+            auto reciprocal = link.target.welded.countUntil!(a => a.targetUUID == uuid);
+            auto repaired = new ptrdiff_t[vertices.length];
+            repaired[] = NOINDEX;
+            size_t removed;
+            foreach (i, targetIndex; link.indices) {
+                if (targetIndex == NOINDEX) continue;
+                if (i < vertices.length && targetIndex >= 0 && targetIndex < link.target.vertices.length &&
+                      reciprocal >= 0) {
+                    repaired[i] = targetIndex;
+                } else {
+                    removed++;
+                }
+            }
+            link.indices = repaired;
+            if (removed) {
+                import nijilive.fmt.serialize : inRecordWeldingRecovery;
+                inRecordWeldingRecovery(name ~ " -> " ~ link.target.name, removed);
+            }
+        }
         setupSelf();
     }
 

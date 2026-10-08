@@ -148,11 +148,23 @@ struct Deformation {
 
     SerdeException deserializeFromFghj(Fghj data) {
         import nijilive.math.serialization : deserialize;
+        vertexOffsets.length = 0;
+        size_t vertex;
         foreach(elem; data.byElement()) {
             vec2 offset;
-            offset.deserialize(elem);
+            try {
+                import std.range : walkLength;
+                enforce(elem.kind == Fghj.Kind.array && elem.byElement.walkLength >= 2,
+                    "Not enough components in deformation vector");
+                auto error = offset.deserialize(elem);
+                enforce(error is null, error is null ? "" : error.msg);
+            } catch (Exception error) {
+                import std.format : format;
+                throw new Exception(format("Deformation vertex %s: %s", vertex, error.msg), error);
+            }
 
             vertexOffsets ~= offset;
+            vertex++;
         }
 
         return null;

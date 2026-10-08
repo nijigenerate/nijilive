@@ -199,6 +199,8 @@ private:
     */
     uint nodeRef;
 
+    static if (is(T == Deformation)) ubyte[][][] recoveryMasks;
+
     InterpolateMode interpolateMode_ = InterpolateMode.Linear;
 
 public:
@@ -299,6 +301,30 @@ public:
     */
     override
     void serializeSelf(ref InochiSerializer serializer) {
+        import std.math : isFinite;
+        import std.format : format;
+        foreach (x, row; values) {
+            foreach (y, value; row) {
+                static if (is(T == Deformation)) {
+                    foreach (vertex, offset; value.vertexOffsets) {
+                        if (x < recoveryMasks.length && y < recoveryMasks[x].length &&
+                            vertex < recoveryMasks[x][y].length && recoveryMasks[x][y][vertex])
+                            throw new Exception(format(
+                                "Cannot save parameter '%s', node %s, binding '%s', key [%s,%s], vertex %s: missing deformation has not been reconstructed",
+                                parameter.name, target.node is null ? nodeRef : target.node.uuid, target.name, x, y, vertex));
+                        foreach (component, number; offset.vector) {
+                            if (!isFinite(number)) throw new Exception(format(
+                                "Cannot save parameter '%s', node %s, binding '%s', key [%s,%s], vertex %s, component %s: %s",
+                                parameter.name, getNodeUUID(), target.name, x, y, vertex, component, number));
+                        }
+                    }
+                } else static if (is(T == float)) {
+                    if (!isFinite(value)) throw new Exception(format(
+                        "Cannot save parameter '%s', node %s, binding '%s', key [%s,%s]: %s",
+                        parameter.name, getNodeUUID(), target.name, x, y, value));
+                }
+            }
+        }
         auto state = serializer.structBegin();
             serializer.putKey("node");
             serializer.putValue(target.node.uuid);
@@ -320,7 +346,50 @@ public:
     SerdeException deserializeFromFghj(Fghj data) {
         data["node"].deserializeValue(this.nodeRef);
         data["param_name"].deserializeValue(this.target.name);
-        data["values"].deserializeValue(this.values);
+        import std.format : format;
+        import std.range : enumerate;
+        values.length = 0;
+        static if (is(T == Deformation)) recoveryMasks.length = 0;
+        foreach (x, row; data["values"].byElement.enumerate) {
+            T[] decodedRow;
+            static if (is(T == Deformation)) ubyte[][] decodedMasks;
+            foreach (y, cell; row.byElement.enumerate) {
+                T value;
+                auto context = format("Parameter '%s', node %s, binding '%s', key [%s,%s]",
+                    parameter.name, nodeRef, target.name, x, y);
+                try {
+                    static if (is(T == float)) {
+                        auto error = inDeserializeNumber(cell, value);
+                    } else {
+                        auto error = cell.deserializeValue(value);
+                    }
+                    enforce(error is null, error is null ? "" : error.msg);
+                } catch (Exception error) {
+                    throw new Exception(context ~ ": " ~ error.msg, error);
+                }
+                static if (is(T == Deformation)) {
+                    import std.math : isFinite;
+                    size_t recovered;
+                    auto missing = new ubyte[value.vertexOffsets.length];
+                    foreach (vertex; 0 .. value.vertexOffsets.length) {
+                        auto offset = value.vertexOffsets[vertex].toVector();
+                        foreach (axis, ref component; offset.vector) {
+                            if (!isFinite(component)) {
+                                missing[vertex] |= cast(ubyte)(1 << axis);
+                                component = 0;
+                                recovered++;
+                            }
+                        }
+                        value.vertexOffsets[vertex] = offset;
+                    }
+                    decodedMasks ~= missing;
+                    if (recovered) inRecordLoadRecovery(context, recovered);
+                }
+                decodedRow ~= value;
+            }
+            values ~= decodedRow;
+            static if (is(T == Deformation)) recoveryMasks ~= decodedMasks;
+        }
         data["isSet"].deserializeValue(this.isSet_);
         auto mode = data["interpolate_mode"];
         if (mode != Fghj.init) {
@@ -354,6 +423,23 @@ public:
     override
     void finalize(Puppet puppet) {
         this.target.node = puppet.find!Resource(nodeRef);
+        static if (is(T == Deformation)) {
+            import nijilive.core.nodes.deformable : Deformable;
+            import nijilive.math.serialization : inRecoverDeformationOffsets;
+            if (auto deformable = cast(Deformable)this.target.node) {
+                foreach (x, row; recoveryMasks) foreach (y, missing; row) {
+                    size_t expected;
+                    foreach (mask; missing) expected += (mask & 1 ? 1 : 0) + (mask & 2 ? 1 : 0);
+                    if (!expected) continue;
+                    auto recovered = inRecoverDeformationOffsets(deformable.vertices, values[x][y].vertexOffsets, missing);
+                    import std.format : format;
+                    enforce(recovered == expected, format(
+                        "Parameter '%s', node %s, key [%s,%s]: cannot reconstruct %s missing deformation components",
+                        parameter.name, nodeRef, x, y, expected - recovered));
+                }
+            }
+            recoveryMasks = null;
+        }
     }
 
     /**

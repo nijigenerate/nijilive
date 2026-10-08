@@ -257,7 +257,10 @@ protected:
         if (!data["screenTint"].isEmpty) deserialize(screenTint, data["screenTint"]);
 
         // Older models may not have emission
-        if (!data["emissionStrength"].isEmpty) deserialize(tint, data["emissionStrength"]);
+        if (!data["emissionStrength"].isEmpty) {
+            auto error = inDeserializeNumber(data["emissionStrength"], emissionStrength);
+            if (error !is null) return error;
+        }
 
         // Older models may not have blend mode
         if (!data["blend_mode"].isEmpty) data["blend_mode"].deserializeValue(this.blendingMode);
