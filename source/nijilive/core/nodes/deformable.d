@@ -41,6 +41,7 @@ protected:
     this(Node parent = null) {
         super(parent);
         initDeformableTasks();
+        deformationStorage = new Vec2Array;
         // Create deformation stack
         this.deformStack = DeformationStack(this);
         this.deformation.length = 0;
@@ -49,6 +50,7 @@ protected:
     this(uint uuid, Node parent = null) {
         super(uuid, parent);
         initDeformableTasks();
+        deformationStorage = new Vec2Array;
         // Create deformation stack
         this.deformStack = DeformationStack(this);
         this.deformation.length = 0;
@@ -68,7 +70,9 @@ public:
     /**
         Deformation offset to apply
     */
-    Vec2Array deformation;
+    // The shared atlas owns only this buffer cell, never the containing Node.
+    private Vec2Array* deformationStorage;
+    @property ref inout(Vec2Array) deformation() inout { return *deformationStorage; }
 
     /**
         Deformation stack

@@ -1383,7 +1383,7 @@ public:
     override
     void copyFrom(Node src, bool clone = false, bool deepCopy = true) {
         super.copyFrom(src, clone, deepCopy);
-        normalizeUV(&data);
+        normalizeUV(&data());
         rebuffer(data);
 
         textures = [null, null, null];

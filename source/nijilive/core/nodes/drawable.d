@@ -269,17 +269,17 @@ protected:
     /**
         Offset within the shared deformation buffer
     */
-    package(nijilive) size_t deformSliceOffset;
+    package(nijilive) @property ref size_t deformSliceOffset() { return bufferState.offsets[0]; }
 
     /**
         Offset within the shared vertex buffer
     */
-    package(nijilive) size_t vertexSliceOffset;
+    package(nijilive) @property ref size_t vertexSliceOffset() { return bufferState.offsets[1]; }
 
     /**
         Offset within the shared UV buffer
     */
-    package(nijilive) size_t uvSliceOffset;
+    package(nijilive) @property ref size_t uvSliceOffset() { return bufferState.offsets[2]; }
 
     /**
         The mesh data of this part
@@ -287,7 +287,12 @@ protected:
         NOTE: DO NOT MODIFY!
         The data in here is only to be used for reference.
     */
-    MeshData data;
+    private struct DrawableBufferState {
+        MeshData data;
+        size_t[3] offsets;
+    }
+    private DrawableBufferState* bufferState;
+    @property ref inout(MeshData) data() inout { return bufferState.data; }
 
     /**
         Binds Index Buffer for rendering
@@ -404,9 +409,10 @@ public:
     */
     this(Node parent = null) {
         super(parent);
-        sharedDeformRegister(deformation, &deformSliceOffset);
-        sharedVertexRegister(data.vertices, &vertexSliceOffset);
-        sharedUvRegister(data.uvs, &uvSliceOffset);
+        bufferState = new DrawableBufferState;
+        sharedDeformRegister(deformation, &bufferState.offsets[0]);
+        sharedVertexRegister(data.vertices, &bufferState.offsets[1]);
+        sharedUvRegister(data.uvs, &bufferState.offsets[2]);
 
         version(InDoesRender) {
             currentRenderBackend().createDrawableBuffers(ibo);
@@ -475,10 +481,11 @@ public:
     */
     this(MeshData data, uint uuid, Node parent = null) {
         super(uuid, parent);
+        bufferState = new DrawableBufferState;
         this.data = data;
-        sharedDeformRegister(deformation, &deformSliceOffset);
-        sharedVertexRegister(this.data.vertices, &vertexSliceOffset);
-        sharedUvRegister(this.data.uvs, &uvSliceOffset);
+        sharedDeformRegister(deformation, &bufferState.offsets[0]);
+        sharedVertexRegister(this.data.vertices, &bufferState.offsets[1]);
+        sharedUvRegister(this.data.uvs, &bufferState.offsets[2]);
 
         // Set the deformable points to their initial position
         this.vertices = data.vertices.dup;

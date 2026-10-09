@@ -2,6 +2,9 @@ module nijilive.core.render.shared_deform_buffer;
 
 import std.algorithm : min;
 import core.memory : GC;
+import core.atomic : cas, atomicStore;
+import core.stdc.stdlib : malloc, free;
+import core.exception : onOutOfMemoryError;
 
 import nijilive.math : Vec2Array;
 
@@ -17,8 +20,62 @@ private struct SharedVecAtlas {
     Binding[] bindings;
     size_t[Vec2Array*] lookup;
     bool dirty;
+    private struct PendingRemoval {
+        Vec2Array* target;
+        PendingRemoval* next;
+    }
+    private PendingRemoval* pendingRemovals;
+    private shared int removalLock;
+
+    private void lockRemovals() {
+        while (!cas(&removalLock, 0, 1)) {}
+    }
+
+    private void enqueueRemoval(Vec2Array* target) {
+        // Finalizers may run on a worker. No GC allocation or atlas mutation here.
+        auto entry = cast(PendingRemoval*)malloc(PendingRemoval.sizeof);
+        if (entry is null) onOutOfMemoryError();
+        entry.target = target;
+        lockRemovals();
+        entry.next = pendingRemovals;
+        pendingRemovals = entry;
+        atomicStore(removalLock, 0);
+    }
+
+    void processPendingRemovals() {
+        // Detach under an allocation-free lock before rebuilding on the editor thread.
+        lockRemovals();
+        auto entries = pendingRemovals;
+        pendingRemovals = null;
+        atomicStore(removalLock, 0);
+        bool changed;
+        while (entries !is null) {
+            auto next = entries.next;
+            changed = removeArray(entries.target) || changed;
+            free(entries);
+            entries = next;
+        }
+        if (changed) rebuild();
+    }
+
+    private bool removeArray(Vec2Array* ptr) {
+        if (auto found = ptr in lookup) {
+            auto idx = *found;
+            auto last = bindings.length - 1;
+            lookup.remove(ptr);
+            if (idx != last) {
+                bindings[idx] = bindings[last];
+                lookup[bindings[idx].target] = idx;
+            }
+            bindings[last] = Binding.init;
+            bindings.length = last;
+            return true;
+        }
+        return false;
+    }
 
     void registerArray(ref Vec2Array target, size_t* offsetSink) {
+        processPendingRemovals();
         auto ptr = &target;
         if (auto found = ptr in lookup) {
             auto idx = *found;
@@ -32,26 +89,16 @@ private struct SharedVecAtlas {
     }
 
     void unregisterArray(ref Vec2Array target) {
-        auto ptr = &target;
-        if (auto found = ptr in lookup) {
-            auto idx = *found;
-            auto last = bindings.length - 1;
-            lookup.remove(ptr);
-            if (idx != last) {
-                bindings[idx] = bindings[last];
-                lookup[bindings[idx].target] = idx;
-            }
-            bindings.length = last;
-            if (GC.inFinalizer) {
-                // Avoid any GC allocation from object finalizers.
-                dirty = true;
-                return;
-            }
-            rebuild();
+        if (GC.inFinalizer) {
+            enqueueRemoval(&target);
+            return;
         }
+        processPendingRemovals();
+        if (removeArray(&target)) rebuild();
     }
 
     void resizeArray(ref Vec2Array target, size_t newLength) {
+        processPendingRemovals();
         auto ptr = &target;
         if (auto found = ptr in lookup) {
             auto idx = *found;
@@ -71,7 +118,8 @@ private struct SharedVecAtlas {
         return storage;
     }
 
-    bool isDirty() const {
+    bool isDirty() {
+        processPendingRemovals();
         return dirty;
     }
 
@@ -141,6 +189,17 @@ private __gshared {
     SharedVecAtlas deformAtlas;
     SharedVecAtlas vertexAtlas;
     SharedVecAtlas uvAtlas;
+}
+
+/** Read-only accounting of the shared rendering atlas registrations. */
+ulong[6] ngSharedRenderAtlasMemoryInfo() {
+    deformAtlas.processPendingRemovals();
+    vertexAtlas.processPendingRemovals();
+    uvAtlas.processPendingRemovals();
+    return [cast(ulong)deformAtlas.bindings.length, cast(ulong)vertexAtlas.bindings.length,
+        cast(ulong)uvAtlas.bindings.length, cast(ulong)deformAtlas.storage.length * 2 * float.sizeof,
+        cast(ulong)vertexAtlas.storage.length * 2 * float.sizeof,
+        cast(ulong)uvAtlas.storage.length * 2 * float.sizeof];
 }
 
 package(nijilive) void sharedDeformRegister(ref Vec2Array target, size_t* offsetSink) {
