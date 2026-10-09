@@ -19,6 +19,7 @@ import nijilive.core.nodes : inCreateUUID;
 import nijilive.core.texture_types : Filtering, Wrapping;
 import nijilive.core.render.backends : RenderTextureHandle;
 import core.memory : GC;
+import core.atomic : cas, atomicStore;
 import core.stdc.stdlib : malloc, free;
 version (InDoesRender) {
     import nijilive.core.runtime_state : currentRenderBackend, tryRenderBackend;
@@ -31,11 +32,12 @@ private {
         PendingTextureDisposal* next;
     }
 
-    __gshared Object pendingTextureDisposalLock;
+    shared int pendingTextureDisposalLock;
     __gshared PendingTextureDisposal* pendingTextureDisposals;
 
-    shared static this() {
-        pendingTextureDisposalLock = new Object();
+    // Finalizers must never lazily allocate an Object monitor.
+    void lockPendingTextureDisposals() {
+        while (!cas(&pendingTextureDisposalLock, 0, 1)) {}
     }
 
     void enqueueTextureDisposal(RenderTextureHandle handle, size_t externalHandle) {
@@ -56,7 +58,9 @@ private {
         node.externalHandle = externalHandle;
         node.next = null;
 
-        synchronized (pendingTextureDisposalLock) {
+        {
+            lockPendingTextureDisposals();
+            scope(exit) atomicStore(pendingTextureDisposalLock, 0);
             node.next = pendingTextureDisposals;
             pendingTextureDisposals = node;
         }
@@ -66,14 +70,18 @@ private {
 void inDrainPendingTextureDisposals() {
     version (InDoesRender) {
         PendingTextureDisposal* list;
-        synchronized (pendingTextureDisposalLock) {
+        {
+            lockPendingTextureDisposals();
+            scope(exit) atomicStore(pendingTextureDisposalLock, 0);
             list = pendingTextureDisposals;
             pendingTextureDisposals = null;
         }
 
         auto backend = tryRenderBackend();
         if (backend is null) {
-            synchronized (pendingTextureDisposalLock) {
+            {
+                lockPendingTextureDisposals();
+                scope(exit) atomicStore(pendingTextureDisposalLock, 0);
                 while (list !is null) {
                     auto next = list.next;
                     list.next = pendingTextureDisposals;
