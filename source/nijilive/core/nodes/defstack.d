@@ -3,6 +3,7 @@ import nijilive.core;
 import nijilive.math;
 import nijilive;
 import std.exception : enforce;
+import std.algorithm.mutation : move;
 
 /**
     A deformation
@@ -15,15 +16,19 @@ struct Deformation {
     Vec2Array vertexOffsets;
 
     void update(Vec2Array points) {
-        vertexOffsets = points.dup;
+        auto copied = points.dup;
+        move(copied, vertexOffsets);
     }
 
     this(this) pure @safe nothrow {
-        vertexOffsets = vertexOffsets.dup;
+        // veca assignment copies into existing storage; transfer the independent backing instead.
+        auto copied = vertexOffsets.dup;
+        move(copied, vertexOffsets);
     }
 
     ref Deformation opAssign(const Deformation other) return @safe pure nothrow {
-        vertexOffsets = other.vertexOffsets.dup;
+        auto copied = other.vertexOffsets.dup;
+        move(copied, vertexOffsets);
         return this;
     }
 

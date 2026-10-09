@@ -1103,6 +1103,45 @@ public:
 }
 
 class DeformationParameterBinding : ParameterBindingImpl!(Deformation) {
+    /** Interpolate coordinates directly; authored deformations and returned values remain independent. */
+    override Deformation interpolateLinear(vec2u leftKeypoint, vec2 offset) {
+        auto y = parameter.isVec2 ? leftKeypoint.y : 0;
+        auto p00 = &values[leftKeypoint.x][y];
+        auto p10 = &values[leftKeypoint.x + 1][y];
+        enforce(p00.vertexOffsets.length == p10.vertexOffsets.length,
+            "Deformation keyframes have different vertex counts");
+        Deformation result;
+        result.vertexOffsets.length = p00.vertexOffsets.length;
+        if (parameter.isVec2) {
+            auto p01 = &values[leftKeypoint.x][leftKeypoint.y + 1];
+            auto p11 = &values[leftKeypoint.x + 1][leftKeypoint.y + 1];
+            enforce(p00.vertexOffsets.length == p01.vertexOffsets.length &&
+                p00.vertexOffsets.length == p11.vertexOffsets.length,
+                "Deformation keyframes have different vertex counts");
+            foreach (lane; 0 .. 2) {
+                auto output = result.vertexOffsets.lanes[lane];
+                auto a = p00.vertexOffsets.lanes[lane];
+                auto b = p01.vertexOffsets.lanes[lane];
+                auto c = p10.vertexOffsets.lanes[lane];
+                auto d = p11.vertexOffsets.lanes[lane];
+                foreach (i; 0 .. output.length) {
+                    float p0 = a[i] * (1 - offset.y) + b[i] * offset.y;
+                    float p1 = c[i] * (1 - offset.y) + d[i] * offset.y;
+                    output[i] = p0 * (1 - offset.x) + p1 * offset.x;
+                }
+            }
+        } else {
+            foreach (lane; 0 .. 2) {
+                auto output = result.vertexOffsets.lanes[lane];
+                auto a = p00.vertexOffsets.lanes[lane];
+                auto b = p10.vertexOffsets.lanes[lane];
+                foreach (i; 0 .. output.length)
+                    output[i] = a[i] * (1 - offset.x) + b[i] * offset.x;
+            }
+        }
+        return result;
+    }
+
     this(Parameter parameter) {
         super(parameter);
     }
