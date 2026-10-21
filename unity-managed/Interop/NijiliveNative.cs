@@ -350,28 +350,6 @@ public static class NijiliveNative
 
     [DllImport(DllName, EntryPoint = "njgUpdateParameters", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult UpdateParameters(IntPtr puppet, IntPtr updates, nuint updateCount);
-    [DllImport(DllName, EntryPoint = "njgRuntimeInit", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void RuntimeInit();
-    [DllImport(DllName, EntryPoint = "njgRuntimeTerm", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void RuntimeTerm();
-    [DllImport(DllName, EntryPoint = "njgGetPuppetExtData", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult GetPuppetExtData(IntPtr puppet, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, out IntPtr data, out nuint length);
-    [DllImport(DllName, EntryPoint = "njgPlayAnimation", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult PlayAnimation(IntPtr renderer, IntPtr puppet, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.I1)] bool loop, [MarshalAs(UnmanagedType.I1)] bool playLeadOut);
-    [DllImport(DllName, EntryPoint = "njgPauseAnimation", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult PauseAnimation(IntPtr renderer, IntPtr puppet, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-    [DllImport(DllName, EntryPoint = "njgStopAnimation", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult StopAnimation(IntPtr renderer, IntPtr puppet, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.I1)] bool immediate);
-    [DllImport(DllName, EntryPoint = "njgSeekAnimation", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult SeekAnimation(IntPtr renderer, IntPtr puppet, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, int frame);
-    [DllImport(DllName, EntryPoint = "njgSetPuppetScale", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult SetPuppetScale(IntPtr puppet, float sx, float sy);
-    [DllImport(DllName, EntryPoint = "njgSetPuppetTranslation", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult SetPuppetTranslation(IntPtr puppet, float tx, float ty);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate void LogDelegate(IntPtr message, nuint length, IntPtr userData);
-    [DllImport(DllName, EntryPoint = "njgSetLogCallback", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void SetLogCallback(LogDelegate callback, IntPtr userData);
 
 }
 }

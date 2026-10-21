@@ -503,7 +503,7 @@ private void ensureTextureHandle(UnityRenderer renderer, const(Texture) tex, boo
     } else {
         return;
     }
-    if (renderer.callbacks.createTexture is null) {
+    if (renderer.callbacks.createTexture is null || renderer.callbacks.updateTexture is null) {
         return;
     }
     auto w = mutableTex.width();
@@ -515,8 +515,7 @@ private void ensureTextureHandle(UnityRenderer renderer, const(Texture) tex, boo
     auto token = nextExternalToken++;
     externalTextures[token] = ExternalTextureOwner(renderer, handle, renderer.emittingPuppet);
     auto data = mutableTex.getTextureData();
-    if (renderer.callbacks.updateTexture !is null && data.length)
-        renderer.callbacks.updateTexture(handle, data.ptr, data.length, w, h, c, renderer.callbacks.userData);
+    renderer.callbacks.updateTexture(handle, data.ptr, data.length, w, h, c, renderer.callbacks.userData);
     static if (__traits(compiles, mutableTex.setExternalHandle(0))) {
         mutableTex.setExternalHandle(token);
         auto backend = cast(QueueBackend)renderer.backend;
@@ -718,7 +717,7 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
 extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
                                              const UnityResourceCallbacks* callbacks,
                                              RendererHandle* outHandle) {
-    if (config is null || outHandle is null) return NjgResult.InvalidArgument;
+    if (outHandle is null) return NjgResult.InvalidArgument;
     try {
         ensureRuntimeInitialized();
         // Ensure node factories are populated before any renderer setup.
@@ -766,8 +765,7 @@ extern(C) export void njgDestroyRenderer(RendererHandle handle) {
 
 extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path, PuppetHandle* outPuppet) {
     if (handle is null || outPuppet is null || path is null) return NjgResult.InvalidArgument;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
     try {
         ensureRuntimeInitialized();
         ensureNodeFactoriesBuilt();
@@ -826,11 +824,10 @@ extern(C) export NjgResult njgUnloadPuppet(RendererHandle handle, PuppetHandle p
 }
 
 extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfig* config) {
-    if (handle is null || config is null) return NjgResult.InvalidArgument;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return NjgResult.InvalidArgument;
+    if (handle is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
     inSetRenderBackend(renderer.backend);
-    if (config.viewportWidth != renderer.viewportWidth || config.viewportHeight != renderer.viewportHeight) {
+    if (config !is null && (config.viewportWidth != renderer.viewportWidth || config.viewportHeight != renderer.viewportHeight)) {
         if (renderer.callbacks.releaseTexture !is null) {
             if (renderer.renderHandle) { renderer.callbacks.releaseTexture(renderer.renderHandle, renderer.callbacks.userData); renderer.releasedTextures++; }
             if (renderer.compositeHandle) { renderer.callbacks.releaseTexture(renderer.compositeHandle, renderer.callbacks.userData); renderer.releasedTextures++; }
@@ -861,8 +858,7 @@ extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfi
 
 extern(C) export NjgResult njgTickPuppet(PuppetHandle puppetHandle, double deltaSeconds) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
     unityTimeTicker += deltaSeconds;
     // External animation control: tick per-puppet AnimationPlayer if present.
     foreach (renderer; activeRenderers) {
@@ -881,8 +877,7 @@ extern(C) export NjgResult njgTickPuppet(PuppetHandle puppetHandle, double delta
 
 extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueView* outView) {
     if (handle is null || outView is null) return NjgResult.InvalidArgument;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
     auto backend = cast(QueueBackend)renderer.backend;
     if (backend is null) return NjgResult.Failure;
 
@@ -941,16 +936,14 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
 /// Call only after the managed side has copied/consumed the commands.
 extern(C) export void njgFlushCommandBuffer(RendererHandle handle) {
     if (handle is null) return;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return;
+    auto renderer = cast(UnityRenderer)handle;
     renderer.commandBuffer.length = 0;
 }
 
 extern(C) export TextureStats njgGetTextureStats(RendererHandle handle) {
     TextureStats stats;
     if (handle is null) return stats;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return stats;
+    auto renderer = cast(UnityRenderer)handle;
     stats.created = renderer.createdTextures;
     stats.released = renderer.releasedTextures;
     stats.current = renderer.createdTextures - renderer.releasedTextures;
@@ -960,8 +953,7 @@ extern(C) export TextureStats njgGetTextureStats(RendererHandle handle) {
 extern(C) export NjgRenderTargets njgGetRenderTargets(RendererHandle handle) {
     NjgRenderTargets targets;
     if (handle is null) return targets;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return targets;
+    auto renderer = cast(UnityRenderer)handle;
     targets.renderFramebuffer = renderer.renderHandle;
     targets.compositeFramebuffer = renderer.compositeHandle;
     targets.blendFramebuffer = 0; // queue backend does not manage a dedicated blend FBO
@@ -971,7 +963,7 @@ extern(C) export NjgRenderTargets njgGetRenderTargets(RendererHandle handle) {
 }
 
 extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBufferSnapshot* snapshot) {
-    if (findRenderer(handle) is null || snapshot is null) return NjgResult.InvalidArgument;
+    if (handle is null || snapshot is null) return NjgResult.InvalidArgument;
 
     auto vertices = sharedVertexBufferData();
     auto uvs = sharedUvBufferData();
@@ -1019,8 +1011,7 @@ extern(C) export NjgResult njgGetParameters(PuppetHandle puppetHandle,
     if (outCount is null) return NjgResult.InvalidArgument;
     *outCount = 0;
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
     auto params = puppet.parameters;
     *outCount = params.length;
     if (buffer is null) return NjgResult.Ok;
@@ -1062,8 +1053,7 @@ extern(C) export NjgResult njgQuery(void* handle,
     if (outCount is null) return NjgResult.InvalidArgument;
     *outCount = 0;
     if (handle is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(handle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)handle;
     auto params = puppet.parameters;
     *outCount = params.length;
     if (buffer is null) return NjgResult.Ok;
@@ -1082,8 +1072,7 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
                                                const PuppetParameterUpdate* updates,
                                                size_t updateCount) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
     if (updates is null || updateCount == 0) return NjgResult.Ok;
     foreach (i; 0 .. updateCount) {
         auto update = updates[i];
@@ -1111,8 +1100,7 @@ extern(C) export NjgResult njgGetPuppetExtData(PuppetHandle puppetHandle,
     *outData = null;
     *outLength = 0;
 
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
     auto k = fromStringz(key);
     if (!(k in puppet.extData)) {
         return NjgResult.Failure;
@@ -1131,7 +1119,7 @@ extern(C) export NjgResult njgGetPuppetExtData(PuppetHandle puppetHandle,
 }
 
 private AnimationPlayer ensureAnimPlayer(UnityRenderer renderer, Puppet puppet) {
-    if (renderer is null || puppet is null || !ownsPuppet(renderer, puppet)) return null;
+    if (renderer is null || puppet is null) return null;
     auto found = puppet in renderer.animPlayers;
     if (found !is null) return *found;
     auto player = new AnimationPlayer(puppet);
@@ -1141,10 +1129,8 @@ private AnimationPlayer ensureAnimPlayer(UnityRenderer renderer, Puppet puppet) 
 
 extern(C) export NjgResult njgPlayAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool loop, bool playLeadOut) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -1159,10 +1145,8 @@ extern(C) export NjgResult njgPlayAnimation(RendererHandle handle, PuppetHandle 
 
 extern(C) export NjgResult njgPauseAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -1177,10 +1161,8 @@ extern(C) export NjgResult njgPauseAnimation(RendererHandle handle, PuppetHandle
 
 extern(C) export NjgResult njgStopAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool immediate) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -1195,10 +1177,8 @@ extern(C) export NjgResult njgStopAnimation(RendererHandle handle, PuppetHandle 
 
 extern(C) export NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, int frame) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = findRenderer(handle);
-    if (renderer is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto renderer = cast(UnityRenderer)handle;
+    auto puppet = cast(Puppet)puppetHandle;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -1214,8 +1194,7 @@ extern(C) export NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle 
 /// Set puppet scale (x, y). Does not affect physics, only render transform.
 extern(C) export NjgResult njgSetPuppetScale(PuppetHandle puppetHandle, float sx, float sy) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
     puppet.transform.scale = vec2(sx, sy);
     puppet.transform.update();
     if (auto root = puppet.getPuppetRootNode()) {
@@ -1227,8 +1206,7 @@ extern(C) export NjgResult njgSetPuppetScale(PuppetHandle puppetHandle, float sx
 /// Set puppet translation (x, y). Does not affect physics, only render transform.
 extern(C) export NjgResult njgSetPuppetTranslation(PuppetHandle puppetHandle, float tx, float ty) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = findPuppet(puppetHandle);
-    if (puppet is null) return NjgResult.InvalidArgument;
+    auto puppet = cast(Puppet)puppetHandle;
     puppet.transform.translation.x = tx;
     puppet.transform.translation.y = ty;
     puppet.transform.update();
