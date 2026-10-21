@@ -31,3 +31,13 @@ build.logo
 build.err
 
 source/nijilive/ver.d
+
+# Unity plugin and compatibility test build outputs
+/nijilive-unity.dll
+/nijilive-unity.lib
+/nijilive-unity.exp
+/nijilive-unity.pdb
+/unity-managed/bin/
+/unity-managed/obj/
+/test/unity-compat/managed/bin/
+/test/unity-compat/managed/obj/

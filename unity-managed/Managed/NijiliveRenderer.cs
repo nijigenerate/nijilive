@@ -36,6 +36,7 @@ public sealed class NijiliveRenderer : IDisposable
 
     public static NijiliveRenderer Create(int viewportWidth, int viewportHeight)
     {
+        AbiValidator.ValidateOrThrow();
         var renderer = new NijiliveRenderer();
         var cfg = new NijiliveNative.UnityRendererConfig
         {

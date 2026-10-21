@@ -10,6 +10,7 @@ import std.string : fromStringz;
 import std.typecons : Nullable;
 import std.algorithm.comparison : max;
 import nijilive.core.animation.player : AnimationPlayer;
+import nijilive.core.param : Parameter;
 
 import nijilive : inUpdate, inSetTimingFunc;
 import nijilive.core.runtime_state : initRendererCommon, inSetRenderBackend, inSetViewport, inGetViewport;
@@ -19,7 +20,8 @@ import nijilive.core.render.backends.queue : CommandQueueEmitter, QueuedCommand,
 import nijilive.core.render.shared_deform_buffer :
     sharedVertexBufferData,
     sharedUvBufferData,
-    sharedDeformBufferData;
+    sharedDeformBufferData,
+    sharedVertexBufferRevision, sharedUvBufferRevision, sharedDeformBufferRevision;
 import nijilive.core.texture : ngReleaseExternalHandle;
 import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.render.commands :
@@ -197,6 +199,143 @@ extern(C) struct SharedBufferSnapshot {
     size_t deformCount;
 }
 
+extern(C) struct SharedBufferState {
+    size_t vertexRevision;
+    size_t uvRevision;
+    size_t deformRevision;
+}
+
+extern(C) struct NjgWasmLayout {
+    uint sizeQueued;
+    uint offQueuedPart;
+    uint offQueuedMaskApply;
+    uint offQueuedDynamic;
+    uint offQueuedUsesStencil;
+
+    uint sizePart;
+    uint offPartTextureHandles;
+    uint offPartTextureCount;
+    uint offPartOrigin;
+    uint offPartVertexOffset;
+    uint offPartVertexStride;
+    uint offPartUvOffset;
+    uint offPartUvStride;
+    uint offPartDeformOffset;
+    uint offPartDeformStride;
+    uint offPartIndexHandle;
+    uint offPartIndicesPtr;
+    uint offPartIndexCount;
+    uint offPartVertexCount;
+
+    uint sizeMaskDraw;
+    uint offMaskDrawIndicesPtr;
+    uint offMaskDrawIndexCount;
+    uint offMaskDrawVertexOffset;
+    uint offMaskDrawVertexStride;
+    uint offMaskDrawDeformOffset;
+    uint offMaskDrawDeformStride;
+    uint offMaskDrawIndexHandle;
+    uint offMaskDrawVertexCount;
+
+    uint sizeMaskApply;
+    uint offMaskKind;
+    uint offMaskIsDodge;
+    uint offMaskPartPacket;
+    uint offMaskMaskPacket;
+
+    uint sizeDynamicPass;
+    uint offDynTextures;
+    uint offDynTextureCount;
+    uint offDynStencil;
+    uint offDynScale;
+    uint offDynRotationZ;
+    uint offDynAutoScaled;
+    uint offDynOrigBuffer;
+    uint offDynOrigViewport;
+    uint offDynDrawBufferCount;
+    uint offDynHasStencil;
+}
+
+extern(C) export NjgResult njgGetSharedBufferState(RendererHandle handle, SharedBufferState* state) {
+    if (state is null || findRenderer(handle) is null) return NjgResult.InvalidArgument;
+    state.vertexRevision = sharedVertexBufferRevision();
+    state.uvRevision = sharedUvBufferRevision();
+    state.deformRevision = sharedDeformBufferRevision();
+    return NjgResult.Ok;
+}
+
+private UnityRenderer findRenderer(RendererHandle handle) {
+    foreach (renderer; activeRenderers) if (cast(void*)renderer == handle) return renderer;
+    return null;
+}
+
+extern(C) export NjgResult njgGetWasmLayout(NjgWasmLayout* outLayout) {
+    if (outLayout is null) return NjgResult.InvalidArgument;
+
+    NjgWasmLayout layout;
+    layout.sizeQueued = cast(uint)NjgQueuedCommand.sizeof;
+    layout.offQueuedPart = cast(uint)NjgQueuedCommand.partPacket.offsetof;
+    layout.offQueuedMaskApply = cast(uint)NjgQueuedCommand.maskApplyPacket.offsetof;
+    layout.offQueuedDynamic = cast(uint)NjgQueuedCommand.dynamicPass.offsetof;
+    layout.offQueuedUsesStencil = cast(uint)NjgQueuedCommand.usesStencil.offsetof;
+
+    layout.sizePart = cast(uint)NjgPartDrawPacket.sizeof;
+    layout.offPartTextureHandles = cast(uint)NjgPartDrawPacket.textureHandles.offsetof;
+    layout.offPartTextureCount = cast(uint)NjgPartDrawPacket.textureCount.offsetof;
+    layout.offPartOrigin = cast(uint)NjgPartDrawPacket.origin.offsetof;
+    layout.offPartVertexOffset = cast(uint)NjgPartDrawPacket.vertexOffset.offsetof;
+    layout.offPartVertexStride = cast(uint)NjgPartDrawPacket.vertexAtlasStride.offsetof;
+    layout.offPartUvOffset = cast(uint)NjgPartDrawPacket.uvOffset.offsetof;
+    layout.offPartUvStride = cast(uint)NjgPartDrawPacket.uvAtlasStride.offsetof;
+    layout.offPartDeformOffset = cast(uint)NjgPartDrawPacket.deformOffset.offsetof;
+    layout.offPartDeformStride = cast(uint)NjgPartDrawPacket.deformAtlasStride.offsetof;
+    layout.offPartIndexHandle = cast(uint)NjgPartDrawPacket.indexHandle.offsetof;
+    layout.offPartIndicesPtr = cast(uint)NjgPartDrawPacket.indices.offsetof;
+    layout.offPartIndexCount = cast(uint)NjgPartDrawPacket.indexCount.offsetof;
+    layout.offPartVertexCount = cast(uint)NjgPartDrawPacket.vertexCount.offsetof;
+
+    layout.sizeMaskDraw = cast(uint)NjgMaskDrawPacket.sizeof;
+    layout.offMaskDrawIndicesPtr = cast(uint)NjgMaskDrawPacket.indices.offsetof;
+    layout.offMaskDrawIndexCount = cast(uint)NjgMaskDrawPacket.indexCount.offsetof;
+    layout.offMaskDrawVertexOffset = cast(uint)NjgMaskDrawPacket.vertexOffset.offsetof;
+    layout.offMaskDrawVertexStride = cast(uint)NjgMaskDrawPacket.vertexAtlasStride.offsetof;
+    layout.offMaskDrawDeformOffset = cast(uint)NjgMaskDrawPacket.deformOffset.offsetof;
+    layout.offMaskDrawDeformStride = cast(uint)NjgMaskDrawPacket.deformAtlasStride.offsetof;
+    layout.offMaskDrawIndexHandle = cast(uint)NjgMaskDrawPacket.indexHandle.offsetof;
+    layout.offMaskDrawVertexCount = cast(uint)NjgMaskDrawPacket.vertexCount.offsetof;
+
+    layout.sizeMaskApply = cast(uint)NjgMaskApplyPacket.sizeof;
+    layout.offMaskKind = cast(uint)NjgMaskApplyPacket.kind.offsetof;
+    layout.offMaskIsDodge = cast(uint)NjgMaskApplyPacket.isDodge.offsetof;
+    layout.offMaskPartPacket = cast(uint)NjgMaskApplyPacket.partPacket.offsetof;
+    layout.offMaskMaskPacket = cast(uint)NjgMaskApplyPacket.maskPacket.offsetof;
+
+    layout.sizeDynamicPass = cast(uint)NjgDynamicCompositePass.sizeof;
+    layout.offDynTextures = cast(uint)NjgDynamicCompositePass.textures.offsetof;
+    layout.offDynTextureCount = cast(uint)NjgDynamicCompositePass.textureCount.offsetof;
+    layout.offDynStencil = cast(uint)NjgDynamicCompositePass.stencil.offsetof;
+    layout.offDynScale = cast(uint)NjgDynamicCompositePass.scale.offsetof;
+    layout.offDynRotationZ = cast(uint)NjgDynamicCompositePass.rotationZ.offsetof;
+    layout.offDynAutoScaled = cast(uint)NjgDynamicCompositePass.autoScaled.offsetof;
+    layout.offDynOrigBuffer = cast(uint)NjgDynamicCompositePass.origBuffer.offsetof;
+    layout.offDynOrigViewport = cast(uint)NjgDynamicCompositePass.origViewport.offsetof;
+    layout.offDynDrawBufferCount = cast(uint)NjgDynamicCompositePass.drawBufferCount.offsetof;
+    layout.offDynHasStencil = cast(uint)NjgDynamicCompositePass.hasStencil.offsetof;
+
+    *outLayout = layout;
+    return NjgResult.Ok;
+}
+
+private Puppet findPuppet(PuppetHandle handle) {
+    foreach (renderer; activeRenderers) foreach (puppet; renderer.puppets)
+        if (cast(void*)puppet == handle) return puppet;
+    return null;
+}
+private bool ownsPuppet(UnityRenderer renderer, Puppet puppet) {
+    foreach (candidate; renderer.puppets) if (candidate is puppet) return true;
+    return false;
+}
+
 alias QueueBackend = RenderingBackend!(BackendEnum.OpenGL);
 
 __gshared int logSnapshotCount;
@@ -206,14 +345,24 @@ __gshared int logApplyMaskCount;
 __gshared int logMaskFlowCount;
 
 version (UseQueueBackend) {
-    extern(C) void unityReleaseExternalHandle(size_t handle) {
-        foreach (renderer; activeRenderers) {
-            if (renderer is null) continue;
-            auto cb = renderer.callbacks;
-            if (cb.releaseTexture !is null) {
-                cb.releaseTexture(handle, cb.userData);
-                return;
-            }
+    private struct ExternalTextureOwner { UnityRenderer renderer; size_t handle; Puppet puppet; }
+    private __gshared ExternalTextureOwner[size_t] externalTextures;
+    private __gshared size_t nextExternalToken = 1;
+    extern(C) void unityReleaseExternalHandle(size_t token) {
+        auto found = token in externalTextures;
+        if (found is null) return;
+        auto owner = *found;
+        externalTextures.remove(token);
+        if (owner.renderer.callbacks.releaseTexture !is null)
+            owner.renderer.callbacks.releaseTexture(owner.handle, owner.renderer.callbacks.userData);
+        owner.renderer.releasedTextures++;
+    }
+    private void releaseOwnedTextures(UnityRenderer renderer, Puppet puppet = null) {
+        auto tokens = externalTextures.keys;
+        foreach (token; tokens) {
+            auto owner = externalTextures[token];
+            if (owner.renderer is renderer && (puppet is null || owner.puppet is puppet))
+                unityReleaseExternalHandle(token);
         }
     }
     shared static this() {
@@ -234,6 +383,7 @@ class UnityRenderer {
     size_t compositeHandle;
     size_t createdTextures;
     size_t releasedTextures;
+    Puppet emittingPuppet;
     AnimationPlayer[Puppet] animPlayers;
 
     this(RenderBackend backend, UnityResourceCallbacks callbacks) {
@@ -316,6 +466,7 @@ extern(C) export void njgRuntimeInit() {
 extern(C) export void njgRuntimeTerm() {
     import core.runtime : Runtime, rt_term;
     if (!runtimeInitialized) return;
+    foreach (renderer; activeRenderers.dup) njgDestroyRenderer(cast(void*)renderer);
     rt_term();
     Runtime.terminate();
     runtimeInitialized = false;
@@ -365,18 +516,22 @@ private void ensureTextureHandle(UnityRenderer renderer, const(Texture) tex, boo
     } else {
         return;
     }
-    if (renderer.callbacks.createTexture is null || renderer.callbacks.updateTexture is null) {
+    if (renderer.callbacks.createTexture is null) {
         return;
     }
     auto w = mutableTex.width();
     auto h = mutableTex.height();
     auto c = mutableTex.channels();
     auto handle = renderer.callbacks.createTexture(w, h, c, 1, c, renderTarget, stencil, renderer.callbacks.userData);
+    if (handle == 0) return;
     renderer.createdTextures += 1;
+    auto token = nextExternalToken++;
+    externalTextures[token] = ExternalTextureOwner(renderer, handle, renderer.emittingPuppet);
     auto data = mutableTex.getTextureData();
-    renderer.callbacks.updateTexture(handle, data.ptr, data.length, w, h, c, renderer.callbacks.userData);
+    if (renderer.callbacks.updateTexture !is null && data.length)
+        renderer.callbacks.updateTexture(handle, data.ptr, data.length, w, h, c, renderer.callbacks.userData);
     static if (__traits(compiles, mutableTex.setExternalHandle(0))) {
-        mutableTex.setExternalHandle(handle);
+        mutableTex.setExternalHandle(token);
         auto backend = cast(QueueBackend)renderer.backend;
         if (backend !is null && mutableTex.backendHandle() !is null) {
             backend.overrideTextureId(mutableTex.backendHandle(), handle);
@@ -559,22 +714,6 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
         if (apply.kind == MaskDrawableKind.Mask) {
             apply.maskPacket = serializeMaskPacket(backend, renderer, cmd.payload.maskApplyPacket.maskPacket);
         }
-        // Skip no-op ApplyMask for empty geometry
-        if ((apply.kind == MaskDrawableKind.Part &&
-             (apply.partPacket.vertexCount == 0 || apply.partPacket.indexCount == 0)) ||
-            (apply.kind == MaskDrawableKind.Mask &&
-             (apply.maskPacket.vertexCount == 0 || apply.maskPacket.indexCount == 0)))
-        {
-            if (logApplyMaskCount < 200) {
-                version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] ApplyMask skipped: empty geometry kind=%s part.v=%s/%s mask.v=%s/%s",
-                    apply.kind,
-                    apply.partPacket.vertexCount, apply.partPacket.indexCount,
-                    apply.maskPacket.vertexCount, apply.maskPacket.indexCount);
-                logApplyMaskCount++;
-            }
-            outCmd.kind = NjgRenderCommandKind.EndMask;
-            return outCmd;
-        }
         outCmd.maskApplyPacket = apply;
         if (logApplyMaskCount < 200) {
             version(NijiliveEnableDebugLog) debug (UnityDLLLog) writefln("[nijilive] ApplyMask kind=%s dodge=%s part.v=%s/%s mask.v=%s/%s",
@@ -592,7 +731,7 @@ private NjgQueuedCommand serializeCommand(UnityRenderer renderer, QueueBackend b
 extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
                                              const UnityResourceCallbacks* callbacks,
                                              RendererHandle* outHandle) {
-    if (outHandle is null) return NjgResult.InvalidArgument;
+    if (config is null || outHandle is null) return NjgResult.InvalidArgument;
     try {
         ensureRuntimeInitialized();
         // Ensure node factories are populated before any renderer setup.
@@ -624,7 +763,14 @@ extern(C) export NjgResult njgCreateRenderer(const UnityRendererConfig* config,
 
 extern(C) export void njgDestroyRenderer(RendererHandle handle) {
     if (handle is null) return;
-    auto renderer = cast(UnityRenderer)handle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return;
+    releaseOwnedTextures(renderer);
+    if (renderer.callbacks.releaseTexture !is null) {
+        if (renderer.renderHandle) { renderer.callbacks.releaseTexture(renderer.renderHandle, renderer.callbacks.userData); renderer.releasedTextures++; }
+        if (renderer.compositeHandle) { renderer.callbacks.releaseTexture(renderer.compositeHandle, renderer.callbacks.userData); renderer.releasedTextures++; }
+    }
+    renderer.renderHandle = renderer.compositeHandle = 0;
     renderer.animPlayers.clear();
     activeRenderers = activeRenderers.filter!(r => r !is renderer).array;
     renderer.puppets.length = 0;
@@ -633,7 +779,8 @@ extern(C) export void njgDestroyRenderer(RendererHandle handle) {
 
 extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path, PuppetHandle* outPuppet) {
     if (handle is null || outPuppet is null || path is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
     try {
         ensureRuntimeInitialized();
         ensureNodeFactoriesBuilt();
@@ -649,7 +796,10 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
         import nijilive.core.nodes.node : inInitNodes;
         inInitNodes();
         import nijilive.fmt : inLoadPuppet;
+        inSetRenderBackend(renderer.backend);
         auto puppet = inLoadPuppet!Puppet(to!string(path));
+        renderer.emittingPuppet = puppet;
+        scope(exit) renderer.emittingPuppet = null;
         // For DynamicComposite offscreen children, ignore puppet transform like native GL path.
         foreach (proj; puppet.findNodesType!Projectable(puppet.actualRoot())) {
             proj.setIgnorePuppet(true);
@@ -674,16 +824,32 @@ extern(C) export NjgResult njgLoadPuppet(RendererHandle handle, const char* path
 
 extern(C) export NjgResult njgUnloadPuppet(RendererHandle handle, PuppetHandle puppetHandle) {
     if (handle is null || puppetHandle is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
+    if (!ownsPuppet(renderer, puppet)) return NjgResult.InvalidArgument;
+    renderer.commandBuffer = null;
+    if (auto emitter = cast(CommandQueueEmitter)puppet.queueEmitter()) emitter.clearQueue();
+    releaseOwnedTextures(renderer, puppet);
+    foreach (tex; puppet.textureSlots) if (tex !is null) tex.setExternalHandle(0);
     renderer.puppets = renderer.puppets.filter!(p => p !is puppet).array;
     renderer.animPlayers.remove(puppet);
     return NjgResult.Ok;
 }
 
 extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfig* config) {
-    if (handle is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
+    if (handle is null || config is null) return NjgResult.InvalidArgument;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
+    inSetRenderBackend(renderer.backend);
+    if (config.viewportWidth != renderer.viewportWidth || config.viewportHeight != renderer.viewportHeight) {
+        if (renderer.callbacks.releaseTexture !is null) {
+            if (renderer.renderHandle) { renderer.callbacks.releaseTexture(renderer.renderHandle, renderer.callbacks.userData); renderer.releasedTextures++; }
+            if (renderer.compositeHandle) { renderer.callbacks.releaseTexture(renderer.compositeHandle, renderer.callbacks.userData); renderer.releasedTextures++; }
+        }
+        renderer.renderHandle = renderer.compositeHandle = 0;
+    }
     renderer.commandBuffer.length = 0;
     renderer.frameSeq++;
     auto res = setViewport(cast(FrameConfig*)config);
@@ -695,6 +861,8 @@ extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfi
         if (renderer.renderHandle == 0 && config.viewportWidth > 0 && config.viewportHeight > 0) {
             renderer.renderHandle = renderer.callbacks.createTexture(config.viewportWidth, config.viewportHeight, 4, 1, 4, true, false, renderer.callbacks.userData);
             renderer.compositeHandle = renderer.callbacks.createTexture(config.viewportWidth, config.viewportHeight, 4, 1, 4, true, false, renderer.callbacks.userData);
+            if (renderer.renderHandle) renderer.createdTextures++;
+            if (renderer.compositeHandle) renderer.createdTextures++;
             auto backend = cast(QueueBackend)renderer.backend;
             if (backend !is null) {
                 backend.setRenderTargets(renderer.renderHandle, renderer.compositeHandle);
@@ -706,11 +874,13 @@ extern(C) export NjgResult njgBeginFrame(RendererHandle handle, const FrameConfi
 
 extern(C) export NjgResult njgTickPuppet(PuppetHandle puppetHandle, double deltaSeconds) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     unityTimeTicker += deltaSeconds;
     // External animation control: tick per-puppet AnimationPlayer if present.
     foreach (renderer; activeRenderers) {
-        if (renderer is null) continue;
+        if (renderer is null || !ownsPuppet(renderer, puppet)) continue;
+        inSetRenderBackend(renderer.backend);
         if (auto player = puppet in renderer.animPlayers) {
             if (player !is null) {
                 player.update(cast(float)deltaSeconds);
@@ -724,14 +894,18 @@ extern(C) export NjgResult njgTickPuppet(PuppetHandle puppetHandle, double delta
 
 extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueView* outView) {
     if (handle is null || outView is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
     auto backend = cast(QueueBackend)renderer.backend;
     if (backend is null) return NjgResult.Failure;
 
+    inSetRenderBackend(renderer.backend);
     renderer.commandBuffer.length = 0;
+    scope(exit) renderer.emittingPuppet = null;
     bool maskOpen = false;
     foreach (puppet; renderer.puppets) {
         if (puppet is null) continue;
+        renderer.emittingPuppet = puppet;
         puppet.draw();
         auto emitter = cast(CommandQueueEmitter)puppet.queueEmitter();
         if (emitter is null) continue;
@@ -780,14 +954,16 @@ extern(C) export NjgResult njgEmitCommands(RendererHandle handle, CommandQueueVi
 /// Call only after the managed side has copied/consumed the commands.
 extern(C) export void njgFlushCommandBuffer(RendererHandle handle) {
     if (handle is null) return;
-    auto renderer = cast(UnityRenderer)handle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return;
     renderer.commandBuffer.length = 0;
 }
 
 extern(C) export TextureStats njgGetTextureStats(RendererHandle handle) {
     TextureStats stats;
     if (handle is null) return stats;
-    auto renderer = cast(UnityRenderer)handle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return stats;
     stats.created = renderer.createdTextures;
     stats.released = renderer.releasedTextures;
     stats.current = renderer.createdTextures - renderer.releasedTextures;
@@ -797,7 +973,8 @@ extern(C) export TextureStats njgGetTextureStats(RendererHandle handle) {
 extern(C) export NjgRenderTargets njgGetRenderTargets(RendererHandle handle) {
     NjgRenderTargets targets;
     if (handle is null) return targets;
-    auto renderer = cast(UnityRenderer)handle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return targets;
     targets.renderFramebuffer = renderer.renderHandle;
     targets.compositeFramebuffer = renderer.compositeHandle;
     targets.blendFramebuffer = 0; // queue backend does not manage a dedicated blend FBO
@@ -807,7 +984,7 @@ extern(C) export NjgRenderTargets njgGetRenderTargets(RendererHandle handle) {
 }
 
 extern(C) export NjgResult njgGetSharedBuffers(RendererHandle handle, SharedBufferSnapshot* snapshot) {
-    if (handle is null || snapshot is null) return NjgResult.InvalidArgument;
+    if (findRenderer(handle) is null || snapshot is null) return NjgResult.InvalidArgument;
 
     auto vertices = sharedVertexBufferData();
     auto uvs = sharedUvBufferData();
@@ -855,7 +1032,8 @@ extern(C) export NjgResult njgGetParameters(PuppetHandle puppetHandle,
     if (outCount is null) return NjgResult.InvalidArgument;
     *outCount = 0;
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     auto params = puppet.parameters;
     *outCount = params.length;
     if (buffer is null) return NjgResult.Ok;
@@ -897,7 +1075,8 @@ extern(C) export NjgResult njgQuery(void* handle,
     if (outCount is null) return NjgResult.InvalidArgument;
     *outCount = 0;
     if (handle is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)handle;
+    auto puppet = findPuppet(handle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     auto params = puppet.parameters;
     *outCount = params.length;
     if (buffer is null) return NjgResult.Ok;
@@ -916,7 +1095,8 @@ extern(C) export NjgResult njgUpdateParameters(PuppetHandle puppetHandle,
                                                const PuppetParameterUpdate* updates,
                                                size_t updateCount) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     if (updates is null || updateCount == 0) return NjgResult.Ok;
     foreach (i; 0 .. updateCount) {
         auto update = updates[i];
@@ -944,7 +1124,8 @@ extern(C) export NjgResult njgGetPuppetExtData(PuppetHandle puppetHandle,
     *outData = null;
     *outLength = 0;
 
-    auto puppet = cast(Puppet)puppetHandle;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     auto k = fromStringz(key);
     if (!(k in puppet.extData)) {
         return NjgResult.Failure;
@@ -963,7 +1144,7 @@ extern(C) export NjgResult njgGetPuppetExtData(PuppetHandle puppetHandle,
 }
 
 private AnimationPlayer ensureAnimPlayer(UnityRenderer renderer, Puppet puppet) {
-    if (renderer is null || puppet is null) return null;
+    if (renderer is null || puppet is null || !ownsPuppet(renderer, puppet)) return null;
     auto found = puppet in renderer.animPlayers;
     if (found !is null) return *found;
     auto player = new AnimationPlayer(puppet);
@@ -973,8 +1154,10 @@ private AnimationPlayer ensureAnimPlayer(UnityRenderer renderer, Puppet puppet) 
 
 extern(C) export NjgResult njgPlayAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool loop, bool playLeadOut) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -989,8 +1172,10 @@ extern(C) export NjgResult njgPlayAnimation(RendererHandle handle, PuppetHandle 
 
 extern(C) export NjgResult njgPauseAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -1005,8 +1190,10 @@ extern(C) export NjgResult njgPauseAnimation(RendererHandle handle, PuppetHandle
 
 extern(C) export NjgResult njgStopAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, bool immediate) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -1021,8 +1208,10 @@ extern(C) export NjgResult njgStopAnimation(RendererHandle handle, PuppetHandle 
 
 extern(C) export NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle puppetHandle, const char* name, int frame) {
     if (handle is null || puppetHandle is null || name is null) return NjgResult.InvalidArgument;
-    auto renderer = cast(UnityRenderer)handle;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto renderer = findRenderer(handle);
+    if (renderer is null) return NjgResult.InvalidArgument;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     auto animName = to!string(name);
     auto player = ensureAnimPlayer(renderer, puppet);
     if (player is null) return NjgResult.Failure;
@@ -1038,7 +1227,8 @@ extern(C) export NjgResult njgSeekAnimation(RendererHandle handle, PuppetHandle 
 /// Set puppet scale (x, y). Does not affect physics, only render transform.
 extern(C) export NjgResult njgSetPuppetScale(PuppetHandle puppetHandle, float sx, float sy) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     puppet.transform.scale = vec2(sx, sy);
     puppet.transform.update();
     if (auto root = puppet.getPuppetRootNode()) {
@@ -1050,7 +1240,8 @@ extern(C) export NjgResult njgSetPuppetScale(PuppetHandle puppetHandle, float sx
 /// Set puppet translation (x, y). Does not affect physics, only render transform.
 extern(C) export NjgResult njgSetPuppetTranslation(PuppetHandle puppetHandle, float tx, float ty) {
     if (puppetHandle is null) return NjgResult.InvalidArgument;
-    auto puppet = cast(Puppet)puppetHandle;
+    auto puppet = findPuppet(puppetHandle);
+    if (puppet is null) return NjgResult.InvalidArgument;
     puppet.transform.translation.x = tx;
     puppet.transform.translation.y = ty;
     puppet.transform.update();
