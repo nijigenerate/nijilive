@@ -9,7 +9,11 @@ namespace Nijilive.Unity.Interop
 /// </summary>
 public static class NijiliveNative
 {
+#if NICXLIVE_NATIVE
+    private const string DllName = "nicxlive";
+#else
     private const string DllName = "nijilive-unity";
+#endif
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate nuint CreateTextureDelegate(int width, int height, int channels, int mipLevels, int format, [MarshalAs(UnmanagedType.I1)] bool renderTarget, [MarshalAs(UnmanagedType.I1)] bool stencil, IntPtr userData);
@@ -126,7 +130,10 @@ public static class NijiliveNative
         [MarshalAs(UnmanagedType.I1)] public bool IsMask;
         [MarshalAs(UnmanagedType.I1)] public bool Renderable;
         public Mat4 ModelMatrix;
-        public Mat4 PuppetMatrix;
+        public Mat4 RenderMatrix;
+        public float RenderRotation;
+        // Source compatibility for existing managed consumers; no ABI storage.
+        public Mat4 PuppetMatrix { get => RenderMatrix; set => RenderMatrix = value; }
         public Vec3 ClampedTint;
         public Vec3 ClampedScreen;
         public float Opacity;
@@ -146,6 +153,7 @@ public static class NijiliveNative
         public nuint UvAtlasStride;
         public nuint DeformOffset;
         public nuint DeformAtlasStride;
+        public nuint IndexHandle;
         public ushort* Indices;
         public nuint IndexCount;
         public nuint VertexCount;
@@ -161,6 +169,7 @@ public static class NijiliveNative
         public nuint VertexAtlasStride;
         public nuint DeformOffset;
         public nuint DeformAtlasStride;
+        public nuint IndexHandle;
         public ushort* Indices;
         public nuint IndexCount;
         public nuint VertexCount;
@@ -230,7 +239,7 @@ public static class NijiliveNative
     }
 
     [DllImport(DllName, EntryPoint = "njgFlushCommandBuffer", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult FlushCommandBuffer(IntPtr renderer);
+    public static extern void FlushCommandBuffer(IntPtr renderer);
 
     [DllImport(DllName, EntryPoint = "njgGetGcHeapSize", CallingConvention = CallingConvention.Cdecl)]
     public static extern nuint GetGcHeapSize();
@@ -255,6 +264,59 @@ public static class NijiliveNative
         public nuint UvCount;
         public nuint DeformCount;
     }
+
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NjgWasmLayout
+    {
+        public uint SizeQueued;
+        public uint OffQueuedPart;
+        public uint OffQueuedMaskApply;
+        public uint OffQueuedDynamic;
+        public uint OffQueuedUsesStencil;
+        public uint SizePart;
+        public uint OffPartTextureHandles;
+        public uint OffPartTextureCount;
+        public uint OffPartOrigin;
+        public uint OffPartVertexOffset;
+        public uint OffPartVertexStride;
+        public uint OffPartUvOffset;
+        public uint OffPartUvStride;
+        public uint OffPartDeformOffset;
+        public uint OffPartDeformStride;
+        public uint OffPartIndexHandle;
+        public uint OffPartIndicesPtr;
+        public uint OffPartIndexCount;
+        public uint OffPartVertexCount;
+        public uint SizeMaskDraw;
+        public uint OffMaskDrawIndicesPtr;
+        public uint OffMaskDrawIndexCount;
+        public uint OffMaskDrawVertexOffset;
+        public uint OffMaskDrawVertexStride;
+        public uint OffMaskDrawDeformOffset;
+        public uint OffMaskDrawDeformStride;
+        public uint OffMaskDrawIndexHandle;
+        public uint OffMaskDrawVertexCount;
+        public uint SizeMaskApply;
+        public uint OffMaskKind;
+        public uint OffMaskIsDodge;
+        public uint OffMaskPartPacket;
+        public uint OffMaskMaskPacket;
+        public uint SizeDynamicPass;
+        public uint OffDynTextures;
+        public uint OffDynTextureCount;
+        public uint OffDynStencil;
+        public uint OffDynScale;
+        public uint OffDynRotationZ;
+        public uint OffDynAutoScaled;
+        public uint OffDynOrigBuffer;
+        public uint OffDynOrigViewport;
+        public uint OffDynDrawBufferCount;
+        public uint OffDynHasStencil;
+    }
+
+    [DllImport(DllName, EntryPoint = "njgGetWasmLayout", CallingConvention = CallingConvention.Cdecl)]
+    public static extern NjgResult GetWasmLayout(out NjgWasmLayout layout);
 
     [DllImport(DllName, EntryPoint = "njgCreateRenderer", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult CreateRenderer(ref UnityRendererConfig config, ref UnityResourceCallbacks callbacks, out IntPtr renderer);
@@ -288,5 +350,6 @@ public static class NijiliveNative
 
     [DllImport(DllName, EntryPoint = "njgUpdateParameters", CallingConvention = CallingConvention.Cdecl)]
     internal static extern NjgResult UpdateParameters(IntPtr puppet, IntPtr updates, nuint updateCount);
+
 }
 }

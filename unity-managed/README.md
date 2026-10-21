@@ -1,3 +1,47 @@
+# nicxlive-compatible Unity host
+
+The Windows `nijilive-unity.dll` exports the same C ABI as nicxlive, including
+`njgGetWasmLayout`. Packet sizes, offsets, command
+enums and callback signatures are verified against nicxlive's public C++ header.
+Compatibility does not change D model evaluation, physics or Welding.
+
+Use **nicxlive's unchanged Unity runtime and shaders** for the common rendering path:
+
+```powershell
+# Build the D native implementation with the existing LDC installation.
+dub build --config=unity-dll --compiler=ldc2
+# From unity-managed; requires a local nicxlive checkout.
+./install-nicxlive-host.ps1 -UnityProjectPath C:/path/to/UnityProject `
+  -NicxliveSourcePath C:/path/to/nicxlive
+```
+
+The installer copies the D plugin as `Assets/Plugins/x86_64/nicxlive.dll`, the
+library name imported by the common host. Only one implementation may occupy that
+path. It copies the nicxlive runtime, editor helpers and all three shaders without
+rewriting their contents, and includes both projects' licenses. Use the
+`NicxliveBehaviour` component and URP settings documented in nicxlive. The old
+Nijilive managed renderer below remains available for existing projects; do not
+install both behaviours for the same puppet.
+
+The legacy interop declarations also match the native ABI, validate sizes/offsets
+before renderer creation, and can target nicxlive by defining `NICXLIVE_NATIVE`.
+To compile Unity-specific code outside the editor, supply `UnityManagedPath`
+(pointing to `Editor/Data/Managed`) and `DefineConstants=UNITY_5_3_OR_NEWER`.
+
+Verification is in `test/unity-compat`: a native harness compiled against the
+nicxlive header validates every export/layout field, real INP commands and indices,
+renderer ownership, resize and texture callback lifetimes.
+The managed harness verifies actual C# P/Invoke layout against the DLL:
+
+```powershell
+cmake -S test/unity-compat -B build/unity-compat -DNICXLIVE_SOURCE_DIR=C:/path/to/nicxlive
+cmake --build build/unity-compat --config Release
+./build/unity-compat/Release/unity_compat.exe C:/path/to/nijilive-unity.dll C:/path/to/model.inp
+dotnet run --project test/unity-compat/managed/AbiTest.csproj -- C:/path/to/nijilive-unity.dll
+```
+
+---
+
 # Nijilive Unity Plugin
 
 This directory contains everything you need to run `nijilive` puppets directly inside Unity.

@@ -3,12 +3,16 @@ using System.Collections.Generic;
 using Nijilive.Unity.Interop;
 #if UNITY_5_3_OR_NEWER
 using UnityEngine;
+using static UnityEngine.Debug;
 using UnityEngine.Rendering;
 #endif
 namespace Nijilive.Unity.Managed
 {
     public static class CommandExecutor
     {
+#if !UNITY_5_3_OR_NEWER
+        private static void Log(string message) => Console.WriteLine(message);
+#endif
         private static int _frameSeq;
         public static void Execute(
             IReadOnlyList<CommandStream.Command> commands,
@@ -295,7 +299,6 @@ namespace Nijilive.Unity.Managed
                 }
                 _rtReleaseQueue.Clear();
             }
-            ReleaseSharedCompositeRt();
         }
         public void BeginDynamicComposite(CommandStream.DynamicCompositePass pass)
         {
@@ -342,7 +345,7 @@ namespace Nijilive.Unity.Managed
             }
             else
             {
-                _cb.SetRenderTarget(colors, depthTarget);
+                _cb.SetRenderTarget(colors.ToArray(), depthTarget);
             }
             _cb.ClearRenderTarget(true, true, Color.clear);
             _mrtActive = colors.Count > 1;
@@ -491,7 +494,7 @@ namespace Nijilive.Unity.Managed
             {
                 var mesh = BuildMesh(
                     apply.Mask.ModelMatrix,
-                    Matrix4x4.identity,
+                    new NijiliveNative.Mat4 { M11=1, M22=1, M33=1, M44=1 },
                     apply.Mask.Origin,
                     apply.Mask.VertexOffset, apply.Mask.VertexAtlasStride,
                     0, 0,
@@ -527,7 +530,6 @@ namespace Nijilive.Unity.Managed
         }
         public void BeginComposite() { }
         public void EndComposite() { }
-        public void DrawCompositeQuad(CommandStream.CompositePacket composite) { }
         public void Unknown(CommandStream.Command cmd)
         {
             LogWarning($"Unknown command: {cmd.Kind}");
