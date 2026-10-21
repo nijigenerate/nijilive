@@ -20,7 +20,6 @@ private struct SharedVecAtlas {
     Binding[] bindings;
     size_t[Vec2Array*] lookup;
     bool dirty;
-    size_t revision;
     private struct PendingRemoval {
         Vec2Array* target;
         PendingRemoval* next;
@@ -125,8 +124,6 @@ private struct SharedVecAtlas {
     }
 
     void markDirty() {
-        ++revision;
-        if (revision == 0) revision = 1;
         dirty = true;
     }
 
@@ -184,7 +181,7 @@ private:
                 *binding.offsetSink = binding.offset;
             }
         }
-        markDirty();
+        dirty = true;
     }
 }
 
@@ -299,19 +296,4 @@ package(nijilive) void sharedUvMarkDirty() {
 
 package(nijilive) void sharedUvMarkUploaded() {
     uvAtlas.markUploaded();
-}
-
-package(nijilive) size_t sharedVertexBufferRevision() {
-    vertexAtlas.processPendingRemovals();
-    return vertexAtlas.revision;
-}
-
-package(nijilive) size_t sharedUvBufferRevision() {
-    uvAtlas.processPendingRemovals();
-    return uvAtlas.revision;
-}
-
-package(nijilive) size_t sharedDeformBufferRevision() {
-    deformAtlas.processPendingRemovals();
-    return deformAtlas.revision;
 }

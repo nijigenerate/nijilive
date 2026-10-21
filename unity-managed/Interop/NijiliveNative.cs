@@ -265,13 +265,6 @@ public static class NijiliveNative
         public nuint DeformCount;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct SharedBufferState
-    {
-        public nuint VertexRevision;
-        public nuint UvRevision;
-        public nuint DeformRevision;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct NjgWasmLayout
@@ -322,8 +315,6 @@ public static class NijiliveNative
         public uint OffDynHasStencil;
     }
 
-    [DllImport(DllName, EntryPoint = "njgGetSharedBufferState", CallingConvention = CallingConvention.Cdecl)]
-    public static extern NjgResult GetSharedBufferState(IntPtr renderer, out SharedBufferState state);
     [DllImport(DllName, EntryPoint = "njgGetWasmLayout", CallingConvention = CallingConvention.Cdecl)]
     public static extern NjgResult GetWasmLayout(out NjgWasmLayout layout);
 

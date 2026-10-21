@@ -20,8 +20,7 @@ import nijilive.core.render.backends.queue : CommandQueueEmitter, QueuedCommand,
 import nijilive.core.render.shared_deform_buffer :
     sharedVertexBufferData,
     sharedUvBufferData,
-    sharedDeformBufferData,
-    sharedVertexBufferRevision, sharedUvBufferRevision, sharedDeformBufferRevision;
+    sharedDeformBufferData;
 import nijilive.core.texture : ngReleaseExternalHandle;
 import nijilive.core.nodes.composite.projectable : Projectable;
 import nijilive.core.render.commands :
@@ -199,11 +198,6 @@ extern(C) struct SharedBufferSnapshot {
     size_t deformCount;
 }
 
-extern(C) struct SharedBufferState {
-    size_t vertexRevision;
-    size_t uvRevision;
-    size_t deformRevision;
-}
 
 extern(C) struct NjgWasmLayout {
     uint sizeQueued;
@@ -256,13 +250,6 @@ extern(C) struct NjgWasmLayout {
     uint offDynHasStencil;
 }
 
-extern(C) export NjgResult njgGetSharedBufferState(RendererHandle handle, SharedBufferState* state) {
-    if (state is null || findRenderer(handle) is null) return NjgResult.InvalidArgument;
-    state.vertexRevision = sharedVertexBufferRevision();
-    state.uvRevision = sharedUvBufferRevision();
-    state.deformRevision = sharedDeformBufferRevision();
-    return NjgResult.Ok;
-}
 
 private UnityRenderer findRenderer(RendererHandle handle) {
     foreach (renderer; activeRenderers) if (cast(void*)renderer == handle) return renderer;

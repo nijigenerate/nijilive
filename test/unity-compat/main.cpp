@@ -93,7 +93,6 @@ int main(int argc,char** argv) {try {
     API(njgTickPuppet);
     API(njgEmitCommands);
     API(njgGetSharedBuffers);
-    API(njgGetSharedBufferState);
     API(njgGetRenderTargets);
     API(njgSetLogCallback);
     API(njgFlushCommandBuffer);
@@ -119,7 +118,6 @@ int main(int argc,char** argv) {try {
     check(njgLoadPuppet(renderer,argv[2],&puppet)==NjgResult::Ok,"load real model failed");
     size_t count=0;check(njgGetParameters(puppet,nullptr,0,&count)==NjgResult::Ok && count>0,"model parameters missing");
     std::vector<NjgParameterInfo> params(count);check(njgGetParameters(puppet,params.data(),count,&count)==NjgResult::Ok,"read parameters failed");
-    SharedBufferState before{},after{};njgGetSharedBufferState(renderer,&before);
     for(int frame=0;frame<3;++frame) {
         FrameConfig fc{512+frame*16,512+frame*16};
         check(njgBeginFrame(renderer,&fc)==NjgResult::Ok,"begin failed");
@@ -140,8 +138,6 @@ int main(int argc,char** argv) {try {
             if(part.indexCount)++draws;
         }
         check(draws>0,"no valid draw geometry");
-        njgGetSharedBufferState(renderer,&after);
-        check(after.deformRevision!=before.deformRevision,"deformation revision did not change");before=after;
         auto targets=njgGetRenderTargets(renderer);check(targets.viewportWidth==fc.viewportWidth,"viewport resize missing");
         std::cout<<"frame "<<frame<<" commands="<<view.count<<" draws="<<draws<<" vertices="<<shared.vertexCount<<'\n';
         njgFlushCommandBuffer(renderer);

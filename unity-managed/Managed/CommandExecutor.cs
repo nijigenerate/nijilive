@@ -3,12 +3,16 @@ using System.Collections.Generic;
 using Nijilive.Unity.Interop;
 #if UNITY_5_3_OR_NEWER
 using UnityEngine;
+using static UnityEngine.Debug;
 using UnityEngine.Rendering;
 #endif
 namespace Nijilive.Unity.Managed
 {
     public static class CommandExecutor
     {
+#if !UNITY_5_3_OR_NEWER
+        private static void Log(string message) => Console.WriteLine(message);
+#endif
         private static int _frameSeq;
         public static void Execute(
             IReadOnlyList<CommandStream.Command> commands,
@@ -107,7 +111,7 @@ namespace Nijilive.Unity.Managed
                         break;
                 }
             }
-            System.Diagnostics.Debug.WriteLine($"[Nijilive] Command usage max vertices={maxV} max indices={maxI} cmds={commands.Count}");
+            Log($"[Nijilive] Command usage max vertices={maxV} max indices={maxI} cmds={commands.Count}");
         }
     }
     public interface IRenderCommandSink
@@ -198,7 +202,7 @@ namespace Nijilive.Unity.Managed
         private bool _mrtActive;
         private static Mesh BuildMeshSkipped(string reason)
         {
-            UnityEngine.Debug.LogWarning($"[Nijilive] BuildMesh skipped: {reason}");
+            LogWarning($"[Nijilive] BuildMesh skipped: {reason}");
             return null;
         }
         private int _meshPoolCursor;
@@ -278,18 +282,18 @@ namespace Nijilive.Unity.Managed
             if (_buffers.VertexBuffer != null) _cb.SetGlobalBuffer(_vertProp, _buffers.VertexBuffer);
             if (_buffers.UvBuffer != null) _cb.SetGlobalBuffer(_uvProp, _buffers.UvBuffer);
             if (_buffers.DeformBuffer != null) _cb.SetGlobalBuffer(_deformProp, _buffers.DeformBuffer);
-            System.Diagnostics.Debug.WriteLine($"[Nijilive] Begin frame={_frameId} size={_viewportW}x{_viewportH} ppu={_pixelsPerUnit}");
+            Log($"[Nijilive] Begin frame={_frameId} size={_viewportW}x{_viewportH} ppu={_pixelsPerUnit}");
         }
         public void End()
         {
             if (_rtReleaseQueue.Count > 0)
             {
-                System.Diagnostics.Debug.WriteLine($"[Nijilive] Release queued RTs count={_rtReleaseQueue.Count} frame={_frameId}");
+                Log($"[Nijilive] Release queued RTs count={_rtReleaseQueue.Count} frame={_frameId}");
                 foreach (var rt in _rtReleaseQueue)
                 {
                     if (rt != null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Nijilive]   Release RT {rt.name} size={rt.width}x{rt.height}");
+                        Log($"[Nijilive]   Release RT {rt.name} size={rt.width}x{rt.height}");
                         RenderTexture.ReleaseTemporary(rt);
                     }
                 }
@@ -393,7 +397,7 @@ namespace Nijilive.Unity.Managed
             {
                 if (_maskDepth.width != w || _maskDepth.height != h)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[Nijilive] MaskDepth resize old={_maskDepth.width}x{_maskDepth.height} new={w}x{h} frame={_frameId}");
+                    Log($"[Nijilive] MaskDepth resize old={_maskDepth.width}x{_maskDepth.height} new={w}x{h} frame={_frameId}");
                     ReleaseMaskDepth();
                 }
             }
@@ -409,7 +413,7 @@ namespace Nijilive.Unity.Managed
                 };
                 _maskDepth = RenderTexture.GetTemporary(desc);
                 _maskDepth.name = "Nijilive/MaskDepth";
-                System.Diagnostics.Debug.WriteLine($"[Nijilive] Allocate MaskDepth RT size={w}x{h} frame={_frameId}");
+                Log($"[Nijilive] Allocate MaskDepth RT size={w}x{h} frame={_frameId}");
             }
             if (_maskDepth == null)
             {
@@ -419,7 +423,7 @@ namespace Nijilive.Unity.Managed
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[Nijilive] Use MaskDepth RT size={_maskDepth.width}x{_maskDepth.height} frame={_frameId} counter={_maskDepthCounter}");
+                Log($"[Nijilive] Use MaskDepth RT size={_maskDepth.width}x{_maskDepth.height} frame={_frameId} counter={_maskDepthCounter}");
             }
             // Keep drawing color to the current target while sharing depth-stencil.
             _cb.SetRenderTarget(_currentTarget, new RenderTargetIdentifier(_maskDepth));
@@ -433,7 +437,7 @@ namespace Nijilive.Unity.Managed
             if (!_maskActive) return;
             if (_maskDepthCounter <= 0)
             {
-                UnityEngine.Debug.LogWarning("[Nijilive] BeginMaskContent without active BeginMask");
+                LogWarning("[Nijilive] BeginMaskContent without active BeginMask");
             }
             _stencilActive = true;
             if (_maskDepth != null)
@@ -445,7 +449,7 @@ namespace Nijilive.Unity.Managed
         {
             if (_maskDepthCounter <= 0)
             {
-                UnityEngine.Debug.LogWarning("[Nijilive] EndMask without active BeginMask");
+                LogWarning("[Nijilive] EndMask without active BeginMask");
             }
             else
             {
@@ -528,7 +532,7 @@ namespace Nijilive.Unity.Managed
         public void EndComposite() { }
         public void Unknown(CommandStream.Command cmd)
         {
-            UnityEngine.Debug.LogWarning($"Unknown command: {cmd.Kind}");
+            LogWarning($"Unknown command: {cmd.Kind}");
         }
         private static Mesh GenerateQuad()
         {
@@ -671,7 +675,7 @@ namespace Nijilive.Unity.Managed
                 }
                 if (maxIndex >= count)
                 {
-                    UnityEngine.Debug.LogWarning($"[Nijilive] BuildMesh skipped: index out of range (max={maxIndex} >= verts={count})");
+                    LogWarning($"[Nijilive] BuildMesh skipped: index out of range (max={maxIndex} >= verts={count})");
                     return null;
                 }
                 mesh.SetIndices(ints, 0, icount, MeshTopology.Triangles, 0);
@@ -722,7 +726,7 @@ namespace Nijilive.Unity.Managed
         {
             if (_maskDepth != null)
             {
-                System.Diagnostics.Debug.WriteLine($"[Nijilive] Release MaskDepth RT size={_maskDepth.width}x{_maskDepth.height} frame={_frameId}");
+                Log($"[Nijilive] Release MaskDepth RT size={_maskDepth.width}x{_maskDepth.height} frame={_frameId}");
                 RenderTexture.ReleaseTemporary(_maskDepth);
                 _maskDepth = null;
             }
@@ -901,7 +905,7 @@ namespace Nijilive.Unity.Managed
             _white.SetPixel(0, 0, Color.white);
             _white.Apply();
             _white.hideFlags = HideFlags.HideAndDontSave;
-            System.Diagnostics.Debug.WriteLine("[Nijilive] Created placeholder white texture");
+            Log("[Nijilive] Created placeholder white texture");
             return _white;
         }
         private static Texture2D PlaceholderBlack()
@@ -911,7 +915,7 @@ namespace Nijilive.Unity.Managed
             _black.SetPixel(0, 0, Color.black);
             _black.Apply();
             _black.hideFlags = HideFlags.HideAndDontSave;
-            System.Diagnostics.Debug.WriteLine("[Nijilive] Created placeholder black texture");
+            Log("[Nijilive] Created placeholder black texture");
             return _black;
         }
     }

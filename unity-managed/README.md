@@ -1,7 +1,7 @@
 # nicxlive-compatible Unity host
 
 The Windows `nijilive-unity.dll` exports the same C ABI as nicxlive, including
-`njgGetWasmLayout` and `njgGetSharedBufferState`. Packet sizes, offsets, command
+`njgGetWasmLayout`. Packet sizes, offsets, command
 enums and callback signatures are verified against nicxlive's public C++ header.
 Compatibility does not change D model evaluation, physics or Welding.
 
@@ -30,7 +30,7 @@ To compile Unity-specific code outside the editor, supply `UnityManagedPath`
 
 Verification is in `test/unity-compat`: a native harness compiled against the
 nicxlive header validates every export/layout field, real INP commands and indices,
-shared-array revisions, renderer ownership, resize and texture callback lifetimes.
+renderer ownership, resize and texture callback lifetimes.
 The managed harness verifies actual C# P/Invoke layout against the DLL:
 
 ```powershell
